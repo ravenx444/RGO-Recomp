@@ -402,6 +402,7 @@ namespace JfgLauncher
                 Check(!start.UseShellExecute && start.CreateNoWindow, "launch uses shell or console");
                 Check(!start.EnvironmentVariables.ContainsKey("JFG_PHASE9_INPUT_RECORD"), "diagnostic environment inherited");
                 Check(start.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] == AudioPreferences.FileName(directory), "audio preferences not forwarded");
+                Check(start.EnvironmentVariables["JFG_VIDEO_CONFIG"] == VideoPreferences.FileName(directory), "video preferences not forwarded");
                 AudioPreferences audio = AudioPreferences.Load(directory);
                 Check(audio.Volume == 100 && !audio.Muted, "default audio settings changed");
                 audio.Volume = 37; audio.Muted = true; audio.Save(directory);
@@ -514,6 +515,7 @@ namespace JfgLauncher
                 Check(File.ReadAllText(Path.Combine(modProfile, "jfg.flash")) == "normal campaign", "mod did not copy initial progress");
                 Check(modStart.EnvironmentVariables["JFG_NAVIGATION_MOD"] == "1", "mod not enabled explicitly");
                 Check(modStart.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] == AudioPreferences.FileName(normalProfile), "mod must share normal volume settings");
+                Check(modStart.EnvironmentVariables["JFG_VIDEO_CONFIG"] == VideoPreferences.FileName(normalProfile), "mod must share normal video settings");
                 Check(modStart.EnvironmentVariables["JFG_MOD_OUTPUT"].StartsWith(Path.Combine(modProfile, "maps")), "map export outside mod profile");
                 Check(modStart.EnvironmentVariables["JFG_CONTROLLER_CONFIG"] == ControllerProfile.FileName(modProfile), "mod controller profile missing");
                 File.WriteAllText(Path.Combine(modProfile, "jfg.flash"), "mod progress");

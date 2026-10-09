@@ -3,6 +3,11 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 namespace JfgLauncher {
+    // RGO widescreen: the game reads and follows this profile file live.
+    // Format and default are owned by include/jfg/renderer/widescreen.hpp.
+    internal static class VideoPreferences {
+        internal static string FileName(string profile) { return Path.Combine(profile, "video.ini"); }
+    }
     internal sealed class AudioPreferences {
         internal int Volume = 100;
         internal bool Muted;

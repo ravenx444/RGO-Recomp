@@ -1,5 +1,6 @@
 #include "rt64_f3ddkr.hpp"
 #include "jfg/renderer/rt64_f3ddkr_address.hpp"
+#include "jfg/renderer/widescreen.hpp"
 
 #include "gbi/rt64_gbi_f3d.h"
 #include "gbi/rt64_gbi_rdp.h"
@@ -66,6 +67,8 @@ struct Context {
     Rt64F3ddkrStats stats{};
     std::bitset<kVertexCount> loaded_vertices{};
     std::span<const std::uint8_t> simulation_rdram{};
+    // RGO widescreen: RT64 reveals this much more of the scene horizontally.
+    float horizontal_extent = 1.0F;
     bool billboard = false;
     bool failed = false;
 };
@@ -549,19 +552,9 @@ void dma_vertex(RT64::State* state, RT64::DisplayList** dl) {
 }
 
 [[nodiscard]] std::uint8_t vertex_clip_code(
-    const hlslpp::float4& position) noexcept {
-    std::uint8_t clip = 0U;
-    if (position.x > position.w)
-        clip |= 0x01U;
-    if (position.x < -position.w)
-        clip |= 0x02U;
-    if (position.y > position.w)
-        clip |= 0x04U;
-    if (position.y < -position.w)
-        clip |= 0x08U;
-    if (position.w < 0.01F)
-        clip |= 0x10U;
-    return clip;
+    const hlslpp::float4& position, const float horizontal_extent) noexcept {
+    return widescreen_clip_code(
+        position.x, position.y, position.w, horizontal_extent);
 }
 
 void capture_loaded_vertices(Context& context) noexcept {
@@ -639,7 +632,8 @@ void dma_triangles(RT64::State* state, RT64::DisplayList** dl) {
                 return;
             }
             common_clip &=
-                vertex_clip_code(workload.drawData.posTransformed[global]);
+                vertex_clip_code(workload.drawData.posTransformed[global],
+                    context->horizontal_extent);
         }
         if (common_clip != 0U)
             continue;
@@ -718,7 +712,8 @@ void cull_display_list(RT64::State* state, RT64::DisplayList** dl) {
         }
         const hlslpp::float4 position =
             workload.drawData.posTransformed[global];
-        common_clip &= vertex_clip_code(position);
+        common_clip &=
+            vertex_clip_code(position, context->horizontal_extent);
         if (common_clip == 0U)
             return;
     }
@@ -1006,6 +1001,11 @@ void Rt64F3ddkr::install() noexcept {
     RT64::Application& application = *context.application;
     application.interpreter->hleGBI = &context.gbi;
     application.state->rsp->setGBI(&context.gbi);
+}
+
+void Rt64F3ddkr::set_horizontal_extent(const float extent) noexcept {
+    impl_->context.horizontal_extent =
+        std::isfinite(extent) && extent > 1.0F ? extent : 1.0F;
 }
 
 bool Rt64F3ddkr::complete() const noexcept {

@@ -545,6 +545,12 @@ target_compile_features(jfg_vi_presentation_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_vi_presentation_tests)
 add_test(NAME jfg.vi_presentation COMMAND jfg_vi_presentation_tests)
 
+add_executable(jfg_widescreen_tests widescreen_tests.cpp)
+target_include_directories(jfg_widescreen_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(jfg_widescreen_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_widescreen_tests)
+add_test(NAME jfg.widescreen COMMAND jfg_widescreen_tests)
+
 add_executable(jfg_navigation_mod_tests navigation_mod_tests.cpp)
 target_include_directories(jfg_navigation_mod_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(jfg_navigation_mod_tests PRIVATE cxx_std_20)

@@ -57,6 +57,8 @@ public:
 
     void begin(std::span<const std::uint8_t> simulation_rdram) noexcept;
     void install() noexcept;
+    // Accept geometry up to extent * w horizontally (RGO widescreen).
+    void set_horizontal_extent(float extent) noexcept;
     [[nodiscard]] bool complete() const noexcept;
     [[nodiscard]] std::size_t command_count() const noexcept;
     [[nodiscard]] Rt64F3ddkrStats stats() const noexcept;

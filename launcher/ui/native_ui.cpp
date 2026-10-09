@@ -681,14 +681,16 @@ struct Ui : Rml::EventListener {
               "class=\"segments\">" +
               button("size720", "1280 x 720") +
               button("size1080", "1920 x 1080") + "</div></div>";
-      html +=
-          "<div class=\"row\"><span class=\"grow\">Aspect ratio</span><span "
-          "class=\"muted\">Original game setting</span></div></div><div "
-          "class=\"about\"><div class=\"label\">ABOUT</div><div "
-          "class=\"name\">Display</div><p>Fullscreen fills your display "
-          "without changing the game's graphics.</p><p class=\"muted\">F11 "
-          "switches modes. Choose widescreen in the original game's "
-          "options.</p></div></div>";
+      html += "<div class=\"row\"><span class=\"grow\">Aspect ratio</span><div "
+              "class=\"segments\">" +
+              button("aspect-original", "Original 4:3") +
+              button("aspect-widescreen", "Widescreen") + "</div></div></div><div "
+              "class=\"about\"><div class=\"label\">ABOUT</div><div "
+              "class=\"name\">Display</div><p>Widescreen shows more of the "
+              "world to the sides and fills wide and ultrawide screens without "
+              "stretching. Original keeps the 4:3 picture.</p><p "
+              "class=\"muted\">F11 switches modes. Leave the game's own "
+              "Widescreen option off when using Widescreen here.</p></div></div>";
       html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
               button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
       note = "Changes apply immediately. Settings dialogs always pause the game.";
@@ -839,9 +841,12 @@ struct Ui : Rml::EventListener {
     if (!focusId.empty())
       if (auto *focus = el(focusId.c_str()))
         focus->Focus(true);
-    if (page == "video")
+    if (page == "video") {
       el(state.fullscreen ? "action-borderless" : "action-windowed")
           ->SetClass("selected", true);
+      el(state.widescreen ? "action-aspect-widescreen" : "action-aspect-original")
+          ->SetClass("selected", true);
+    }
     if (page == "controllers") {
       if(auto *e=el("action-invertx"))e->SetClass("selected", mappings[player].invert_x);
       if(auto *e=el("action-inverty"))e->SetClass("selected", mappings[player].invert_y);
@@ -1365,6 +1370,7 @@ void FrontendUiFrame(const FrontendUiState &state) {
           (ui.current == "menu-game" || ui.current == "setup") ||
       (state.fullscreen != ui.state.fullscreen && (ui.current == "video" || ui.current == "menu-video")) ||
       (state.pauseInactive != ui.state.pauseInactive && ui.current == "video") ||
+      (state.widescreen != ui.state.widescreen && ui.current == "video") ||
       (ui.current == "help" && (state.rom != ui.state.rom || state.playing != ui.state.playing));
   if (state.playing != ui.state.playing) {
     if (state.playing) {

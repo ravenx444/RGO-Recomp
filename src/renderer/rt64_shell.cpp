@@ -1,6 +1,7 @@
 #include "jfg/runtime/snapshot_copy.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/widescreen.hpp"
 
 #include "rt64_f3ddkr.hpp"
 
@@ -72,6 +73,8 @@ struct CaptureContext {
     RT64::RenderHookDraw* previous_draw = nullptr;
     RT64::RenderHookDeinit* previous_deinit = nullptr;
     std::unique_ptr<RenderBuffer> readback;
+    // Written by the game thread, read by RT64's present thread.
+    std::atomic<float> horizontal_extent = 1.0F;
     std::vector<std::byte> pixels;
     std::size_t width = 0U;
     std::size_t height = 0U;
@@ -125,7 +128,8 @@ void capture_deinit() {
 
 void clear_vi_guard_texel(
     RT64::Application* application,
-    RenderCommandList* list) noexcept {
+    RenderCommandList* list,
+    const float horizontal_extent) noexcept {
     if (application == nullptr || application->swapChain == nullptr ||
         list == nullptr) {
         return;
@@ -148,11 +152,15 @@ void clear_vi_guard_texel(
     // guest RDRAM or the rendered image interior.
     const auto display = jfg::vi_presentation_size(vi.hRegion.word, vi.vRegion.word);
     if (!display.valid()) return;
+    // RGO widescreen presents the scanout this much wider than its own shape.
+    const double extent = (std::isfinite(horizontal_extent) &&
+        horizontal_extent > 1.0F) ? horizontal_extent : 1.0;
+    const double display_width = display.width * extent;
     const double scale = (std::min)(
-        static_cast<double>(window_width) / display.width,
+        static_cast<double>(window_width) / display_width,
         static_cast<double>(window_height) / display.height);
     if (!std::isfinite(scale) || scale <= 0.0) return;
-    const double rendered_width = display.width * scale;
+    const double rendered_width = display_width * scale;
     const double rendered_height = display.height * scale;
     const std::int32_t left = static_cast<std::int32_t>(std::lround(
         (static_cast<double>(window_width) - rendered_width) * 0.5));
@@ -160,7 +168,8 @@ void clear_vi_guard_texel(
         (static_cast<double>(window_height) - rendered_height) * 0.5));
     const std::int32_t right = static_cast<std::int32_t>(std::lround(left + rendered_width));
     const std::int32_t bottom = static_cast<std::int32_t>(std::lround(top + rendered_height));
-    const std::int32_t guard_x = static_cast<std::int32_t>(std::ceil(rendered_width / framebuffer_size.x));
+    const std::int32_t guard_x = static_cast<std::int32_t>(std::ceil(
+        rendered_width / (static_cast<double>(framebuffer_size.x) * extent)));
     const std::int32_t guard_y = static_cast<std::int32_t>(std::ceil(rendered_height / framebuffer_size.y));
     const std::int32_t guard = (std::max)(guard_x, guard_y);
     if (right <= left || bottom <= top || guard <= 0) {
@@ -209,7 +218,7 @@ void CaptureContext::draw(
     RenderCommandList* list,
     RenderFramebuffer* framebuffer) noexcept {
     const std::scoped_lock lock(mutex);
-    clear_vi_guard_texel(application, list);
+    clear_vi_guard_texel(application, list, horizontal_extent.load());
     if (!armed || scheduled || failed || application == nullptr ||
         application->swapChain == nullptr ||
         application->presentQueue == nullptr || device == nullptr ||
@@ -330,6 +339,48 @@ struct Rt64Shell::Impl {
     bool writeback_pending = false;
     std::vector<Rt64RdramRange> writeback_ranges;
     std::uint64_t last_rdram_check_microseconds = 0U;
+    bool widescreen = false;
+    float horizontal_extent = 1.0F;
+
+    // Choose RT64's aspect target for the current window and VI mode.
+    void update_widescreen() {
+        RT64::Application& app = *application;
+        const RT64::VI vi = app.core.decodeVI();
+        const hlslpp::uint2 framebuffer_size = vi.fbSize();
+        const auto display =
+            vi_presentation_size(vi.hRegion.word, vi.vRegion.word);
+        std::uint32_t window_width = 0U;
+        std::uint32_t window_height = 0U;
+        {
+            auto& shared = *app.sharedQueueResources;
+            const std::scoped_lock lock(shared.configurationMutex);
+            window_width = shared.swapChainWidth;
+            window_height = shared.swapChainHeight;
+        }
+        double target = 0.0;
+        float extent = 1.0F;
+        if (widescreen && display.valid()) {
+            target = widescreen_aspect_target(window_width, window_height,
+                framebuffer_size.x, framebuffer_size.y,
+                display.width, display.height);
+            extent = widescreen_horizontal_extent(
+                target, framebuffer_size.x, framebuffer_size.y);
+        }
+        RT64::UserConfiguration& config = app.userConfig;
+        const bool expand = extent > 1.0F;
+        const auto mode = expand ? RT64::UserConfiguration::AspectRatio::Manual
+                                 : RT64::UserConfiguration::AspectRatio::Original;
+        if (config.aspectRatio != mode ||
+            (expand && std::abs(config.aspectTarget - target) > 1e-4)) {
+            config.aspectRatio = mode;
+            if (expand)
+                config.aspectTarget = target;
+            app.updateUserConfig(false);
+        }
+        horizontal_extent = extent;
+        f3ddkr->set_horizontal_extent(extent);
+        capture->horizontal_extent.store(extent);
+    }
 
     ~Impl() {
         f3ddkr.reset();
@@ -832,6 +883,7 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
         RT64::Application& application = *impl_->application;
         if (impl_->writeback_pending)
             return Rt64ShellError::conflicting_cpu_write;
+        impl_->update_widescreen();
         const auto previous_write = application.state->framebufferManager.writeTimestamp;
         impl_->writeback_ranges.clear();
         application.state->rsp->reset();
@@ -1005,6 +1057,15 @@ Rt64ShellError Rt64Shell::present(const bool capture_frame) noexcept {
     catch (...) {
         return Rt64ShellError::renderer_exception;
     }
+}
+
+void Rt64Shell::set_widescreen(const bool enabled) noexcept {
+    if (impl_ != nullptr)
+        impl_->widescreen = enabled;
+}
+
+float Rt64Shell::horizontal_extent() const noexcept {
+    return impl_ != nullptr ? impl_->horizontal_extent : 1.0F;
 }
 
 bool Rt64Shell::developer_debugger_available() const noexcept {

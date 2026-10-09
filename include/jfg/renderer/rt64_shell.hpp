@@ -205,6 +205,12 @@ public:
     // resident framebuffer registry, independently of host snapshot lifetimes.
     [[nodiscard]] bool has_color_framebuffer(std::uint32_t address) const noexcept;
     [[nodiscard]] Rt64ShellError present(bool capture_frame = true) noexcept;
+    // RGO widescreen: widen the 3D view to the window's shape instead of
+    // pillarboxing it. Applies from the next submitted task.
+    void set_widescreen(bool enabled) noexcept;
+    // How much wider than the game's own projection the last submitted frame
+    // is presented (1.0 when widescreen is off or the window is 4:3).
+    [[nodiscard]] float horizontal_extent() const noexcept;
     [[nodiscard]] bool developer_debugger_available() const noexcept;
     [[nodiscard]] std::size_t last_command_count() const noexcept;
     [[nodiscard]] Rt64GraphicsDiagnostics last_graphics_diagnostics()
