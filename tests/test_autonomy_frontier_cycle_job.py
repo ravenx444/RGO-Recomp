@@ -53,6 +53,12 @@ def fixture(root):
 class FrontierCycleJobTests(unittest.TestCase):
     def setUp(self):
         PRIVATE.mkdir(parents=True, exist_ok=True)
+        # queue_next refuses to run with under 50 GiB free. These tests use
+        # small fixtures, so report ample space unless a test patches it
+        # itself (see test_frontier_queue_rejects_low_disk_reserve).
+        disk = patch("scripts.autonomy.frontier_cycle_job.shutil.disk_usage")
+        disk.start().return_value.free = 1 << 40
+        self.addCleanup(disk.stop)
 
     def test_pending_node_replay_is_agent_free_maintenance_step(self):
         with tempfile.TemporaryDirectory(dir=PRIVATE) as directory:
