@@ -373,8 +373,13 @@ struct Rt64Shell::Impl {
         if (config.aspectRatio != mode ||
             (expand && std::abs(config.aspectTarget - target) > 1e-4)) {
             config.aspectRatio = mode;
-            if (expand)
+            // HUD elements anchored through extended GBI stop at a 16:9
+            // area on wider screens.
+            config.extAspectRatio = mode;
+            if (expand) {
                 config.aspectTarget = target;
+                config.extAspectTarget = kWidescreenHudAspect;
+            }
             app.updateUserConfig(false);
         }
         horizontal_extent = extent;
@@ -884,6 +889,10 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
         if (impl_->writeback_pending)
             return Rt64ShellError::conflicting_cpu_write;
         impl_->update_widescreen();
+        // RT64 disables extended GBI at every present. The HUD hooks write
+        // alignment commands only while the picture is widened.
+        if (impl_->horizontal_extent > 1.0F)
+            application.state->enableExtendedGBI(kWidescreenExtendedOpcode);
         const auto previous_write = application.state->framebufferManager.writeTimestamp;
         impl_->writeback_ranges.clear();
         application.state->rsp->reset();
