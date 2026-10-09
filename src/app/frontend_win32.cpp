@@ -13,8 +13,8 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
-#ifdef JFG_RML_UI
 #include "jfg/renderer/widescreen.hpp"
+#ifdef JFG_RML_UI
 #include "native_ui.hpp"
 #endif
 namespace fs = std::filesystem;
