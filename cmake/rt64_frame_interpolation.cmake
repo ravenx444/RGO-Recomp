@@ -92,7 +92,7 @@ jfg_interp_patch(
 
 set(jfg_interp_generated "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64/hle/rt64_workload_queue.cpp")
 file(WRITE "${jfg_interp_generated}"
-    "#include \"jfg/renderer/frame_interpolation.hpp\"\n${jfg_interp_contents}")
+    "#include \"jfg/renderer/rt64_frame_grouping.hpp\"\n${jfg_interp_contents}")
 get_target_property(jfg_interp_sources rt64 SOURCES)
 set(jfg_interp_patched_sources)
 set(jfg_interp_replaced FALSE)

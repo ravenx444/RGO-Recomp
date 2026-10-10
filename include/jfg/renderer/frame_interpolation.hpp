@@ -10,16 +10,13 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "jfg/renderer/rt64_frame_grouping.hpp"
 #include "jfg/renderer/video_settings.hpp"
 
 namespace jfg {
 
 // RT64's refresh-rate configuration for a Frame rate setting.
 enum class Rt64RefreshMode : std::uint8_t { original, display, manual };
-
-// Manual target that the frame-grouping patch leaves uncapped ("Unlocked").
-// RT64 itself caps Manual targets at the display's refresh rate.
-inline constexpr int kUnlockedRefreshTarget = 1000;
 
 struct Rt64RefreshPlan {
     Rt64RefreshMode mode = Rt64RefreshMode::original;
@@ -52,18 +49,6 @@ struct Rt64RefreshPlan {
     if (retraces == 0U)
         return 60U;
     return static_cast<std::uint16_t>(60U / std::clamp<std::uint64_t>(retraces, 1U, 6U));
-}
-
-// A workload is a main game frame when it draws a presentable color image at
-// least as wide as the VI framebuffer and half its height. Smaller targets
-// (64x64 shadow masks, effect buffers) are auxiliary: RT64 renders them but
-// must not treat them as a game frame for interpolation.
-[[nodiscard]] constexpr bool is_main_frame_target(
-    const std::uint32_t color_width, const std::uint32_t drawn_height,
-    const std::uint32_t vi_width, const std::uint32_t vi_height) noexcept {
-    if (vi_width == 0U || vi_height == 0U)
-        return color_width >= 256U && drawn_height >= 120U;
-    return color_width >= vi_width && drawn_height * 2U >= vi_height;
 }
 
 // Interpolation IDs. 0 is RT64's "ignore" and 0xFFFFFFFF its "auto".
