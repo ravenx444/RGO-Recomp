@@ -622,6 +622,11 @@ namespace JfgLauncher
                     "build process must use redirected argument-safe execution");
                 Check(buildPlan.WorkingDirectory == sourceFixture && buildPlan.Arguments.Contains(" --rom "), "build inputs missing");
                 Reject(delegate { LocalSetup.BuildStartInfo(directory, "rom.z64"); }, "unrelated source folder accepted");
+                ProcessStartInfo sourceSetup = LocalSetup.SourceSetupStartInfo(sourceFixture, Path.Combine(directory, "local rom.z64"));
+                Check(sourceSetup.WorkingDirectory == sourceFixture && sourceSetup.Arguments.StartsWith("-u ") &&
+                    sourceSetup.Arguments.EndsWith(" --no-frontend") && sourceSetup.Arguments.Contains(" --rom "),
+                    "source setup must rebuild only the game from the checkout");
+                Reject(delegate { LocalSetup.SourceSetupStartInfo(directory, "rom.z64"); }, "unrelated source folder accepted for setup");
                 string setupFixture = Path.Combine(directory, "setup with spaces");
                 ProcessStartInfo setupPlan = FirstRun.StartInfo(wrongRom, setupFixture);
                 Check(!setupPlan.UseShellExecute && setupPlan.RedirectStandardError && setupPlan.RedirectStandardOutput,

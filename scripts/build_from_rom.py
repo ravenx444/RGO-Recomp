@@ -55,6 +55,56 @@ def find_cmake() -> str:
     raise ValueError("Install Visual Studio 2022 C++ desktop tools with CMake support.")
 
 
+# RGO: source builds also build the unified frontend (JFG-Launcher.exe), so
+# --play gets the same menu bar and settings as the release launcher.
+FRONTEND_MUTEX = "Local\\JFGUnifiedFrontend"
+
+
+def frontend_build_command(root: Path, output: Path) -> list[str]:
+    powershell = Path(os.environ.get("WINDIR", "C:/Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    return [str(powershell), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(root / "scripts/build_launcher.ps1"),
+            "-OutputDirectory", str(output), "-NativeBuildDirectory", str(output / "n")]
+
+
+def write_profile_text(profile: Path, name: str, value: str) -> None:
+    # Same format as the frontend: UTF-8 without BOM or final line break.
+    temporary = profile / (name + ".tmp")
+    temporary.write_bytes(value.encode("utf-8"))
+    os.replace(temporary, profile / name)
+
+
+def select_frontend_build(profile: Path, rom: Path, executable: Path) -> None:
+    """Point the frontend's profile at this ROM and the game build just made."""
+    profile.mkdir(parents=True, exist_ok=True)
+    write_profile_text(profile, "frontend-rom.txt", str(rom))
+    write_profile_text(profile, "frontend-runtime.txt", str(executable))
+
+
+def frontend_play_command(launcher: Path, profile: Path) -> list[str]:
+    return [str(launcher), "--play", "--profile", str(profile)]
+
+
+def frontend_environment(source: dict[str, str], root: Path) -> dict[str, str]:
+    # Inherited JFG_* variables must never reach the game (replays, captures).
+    environment = {k: v for k, v in source.items() if not k.upper().startswith("JFG_")}
+    # The frontend's "Set up and build" rebuilds from this checkout, not from
+    # the upstream source download a release launcher uses.
+    environment["JFG_SOURCE_ROOT"] = str(root)
+    return environment
+
+
+def frontend_is_open() -> bool:
+    if os.name != "nt":
+        return False
+    import ctypes
+    synchronize = 0x00100000
+    handle = ctypes.windll.kernel32.OpenMutexW(synchronize, False, FRONTEND_MUTEX)
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)
+    return bool(handle)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rom", required=True, type=Path)
@@ -63,7 +113,10 @@ def main() -> int:
     parser.add_argument("--dependency-root", type=Path,
                         help="Optional existing pinned upstream source/tool cache")
     parser.add_argument("--build-root", type=Path, help="Optional short writable Windows build-cache folder")
-    parser.add_argument("--play", action="store_true")
+    parser.add_argument("--play", action="store_true",
+                        help="Start the game through the frontend (menu bar, Video settings) after building")
+    parser.add_argument("--no-frontend", action="store_true",
+                        help="Skip building JFG-Launcher.exe; with --play, start the bare game window")
     parser.add_argument("--resume-native", type=Path,
                         help="Resume compilation in a local build whose ROM generation completed")
     parser.add_argument("--generation-timeout", type=int, default=3600,
@@ -77,6 +130,8 @@ def main() -> int:
         parser.error("--generation-timeout must be between 1 and 7200")
     rom = args.rom.resolve()
     validate_rom(rom)  # Reject before downloads or build output.
+    if not args.no_frontend and frontend_is_open():
+        raise ValueError("Close the JFG frontend (JFG-Launcher.exe) before a source build, or pass --no-frontend.")
     cmake = find_cmake()
     for tool in ("git", "wsl"):
         if not shutil.which(tool):
@@ -186,9 +241,22 @@ def main() -> int:
     write_identity(executable, ROOT)
     print("Built: " + str(executable), flush=True)
     print("Keep this build local. It contains code generated from your ROM.", flush=True)
+    launcher = None
+    if not args.no_frontend:
+        # ROM-free and reused between builds, so it lives beside the workspaces.
+        frontend = check_binary_path(cache / "f")
+        run("frontend", frontend_build_command(ROOT, frontend))
+        launcher = frontend / "JFG-Launcher.exe"
+        if not launcher.is_file():
+            raise RuntimeError("Frontend build finished without JFG-Launcher.exe.")
+        print("Frontend: " + str(launcher), flush=True)
     if args.play:
         profile = Path(os.environ["LOCALAPPDATA"]) / "JFGRecomp/profiles/default"
         profile.mkdir(parents=True, exist_ok=True)
+        if launcher:
+            select_frontend_build(profile, rom, executable)
+            return subprocess.call(frontend_play_command(launcher, profile), cwd=launcher.parent,
+                                   env=frontend_environment(dict(os.environ), ROOT))
         environment = {k: v for k, v in os.environ.items() if not k.startswith("JFG_")}
         return subprocess.call([str(executable), "--rom", str(rom), "--save",
             str(profile / "jfg.flash"), "--controller-pak", str(profile / "controller-1.pak"),

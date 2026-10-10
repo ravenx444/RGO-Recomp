@@ -51,9 +51,9 @@ Replace the example ROM path with your own. This command downloads pinned
 source dependencies and builds the game; install the developer tools first.
 Record `git rev-parse HEAD` if you report a source-build problem.
 
-To open a source-built game through the launcher, select its
-`jfg-native-boot.exe` with the runtime DLLs beside it. Launching through the
-launcher enables its support-report workflow.
+The command also builds the launcher frontend and, with `--play`, starts the
+game through it, with the same menu bar and settings as a release launcher and
+its support-report workflow. Add `--no-frontend` for the bare game window.
 
 ## Start playing
 

@@ -252,8 +252,10 @@ internal static class FrontendBridge
                     string built = null;
                     using (var process = new Process())
                     {
-                        process.StartInfo = FirstRun.StartInfo(
-                            rom, Path.Combine(FirstRun.Root, "setup", BuildInfo.SourceCommit));
+                        string sourceRoot = Environment.GetEnvironmentVariable("JFG_SOURCE_ROOT");
+                        process.StartInfo = String.IsNullOrEmpty(sourceRoot)
+                            ? FirstRun.StartInfo(rom, Path.Combine(FirstRun.Root, "setup", BuildInfo.SourceCommit))
+                            : LocalSetup.SourceSetupStartInfo(sourceRoot, rom);
                         process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
                         {
                             if (e.Data == null)

@@ -125,6 +125,15 @@ namespace JfgLauncher
             return null;
         }
 
+        // RGO: a frontend started by scripts/build_from_rom.py (JFG_SOURCE_ROOT)
+        // rebuilds the game from that checkout instead of the upstream download.
+        internal static ProcessStartInfo SourceSetupStartInfo(string sourceRoot, string romPath)
+        {
+            ProcessStartInfo info = BuildStartInfo(sourceRoot, romPath);
+            info.Arguments = "-u " + info.Arguments + " --no-frontend";
+            return info;
+        }
+
         internal static ProcessStartInfo BuildStartInfo(string sourceRoot, string romPath)
         {
             string root = FullPath(sourceRoot);
