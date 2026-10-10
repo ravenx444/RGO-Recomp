@@ -9,7 +9,9 @@
 
 namespace jfg {
 // SDL's standardized controller layout, independent of device/vendor names.
-// Bindings 0..14 are buttons; 15..26 are +/- directions for six axes.
+// Bindings 0..14 are buttons; 15..26 are +/- directions for six axes;
+// 27 is the PlayStation touchpad click and 28 the Mic/Share/Capture button.
+inline constexpr int kBindingTouchpad = 27, kBindingMisc = 28, kBindingCount = 29;
 struct ControllerMapping {
     int device = -1;
     int stick = 0;
@@ -61,13 +63,14 @@ inline bool parse_controller_mapping(std::string_view text, ControllerMapping& r
     if (candidate.device < -3 || candidate.device > 3 || candidate.stick < 0 || candidate.stick > 1 || candidate.deadzone < 0 || candidate.deadzone > 30000 ||
         candidate.threshold < 1000 || candidate.threshold > 32000 || candidate.trigger < 1000 || candidate.trigger > 32000 ||
         candidate.invert_x < 0 || candidate.invert_x > 1 || candidate.invert_y < 0 || candidate.invert_y > 1) return false;
-    for (const int binding : candidate.bindings) if (binding < -1 || binding > 26) return false;
+    for (const int binding : candidate.bindings) if (binding < -1 || binding >= kBindingCount) return false;
     result = candidate; // Invalid files never partially replace the active mapping.
     return true;
 }
 
 struct StandardControllerSample {
-    std::array<bool, 15> buttons{};
+    // 0..14 as SDL_GameControllerButton; 15 touchpad click; 16 misc.
+    std::array<bool, 17> buttons{};
     std::array<int, 6> axes{};
 };
 struct MappedControllerSample {
@@ -84,6 +87,8 @@ inline MappedControllerSample map_controller(const ControllerMapping& mapping,
         const int binding = mapping.bindings[i];
         bool down = false;
         if (binding >= 0 && binding < 15) down = sample.buttons[static_cast<std::size_t>(binding)];
+        else if (binding == kBindingTouchpad || binding == kBindingMisc)
+            down = sample.buttons[static_cast<std::size_t>(binding - 12)];
         else if (binding >= 15 && binding <= 26) {
             const auto axis = static_cast<std::size_t>((binding - 15) / 2);
             const int threshold = axis >= 4U ? mapping.trigger : mapping.threshold;

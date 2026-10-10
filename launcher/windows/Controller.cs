@@ -48,7 +48,7 @@ namespace JfgLauncher
                 if (p.Device < -3 || p.Device > 3 || p.Stick < 0 || p.Stick > 1 || p.Deadzone < 0 || p.Deadzone > 30000 ||
                     p.Threshold < 1000 || p.Threshold > 32000 || p.Trigger < 1000 || p.Trigger > 32000 ||
                     p.InvertX < 0 || p.InvertX > 1 || p.InvertY < 0 || p.InvertY > 1) throw new InvalidDataException();
-                foreach (int binding in p.Bindings) if (binding < -1 || binding > 26) throw new InvalidDataException();
+                foreach (int binding in p.Bindings) if (binding < -1 || binding > 28) throw new InvalidDataException();
                 return p;
             }
             catch (KeyNotFoundException) { throw new InvalidDataException("The controller profile is incomplete. Restore defaults in Controllers."); }
@@ -134,7 +134,7 @@ namespace JfgLauncher
         private DateTime learnUntil, noticeUntil;
         private readonly List<Control> mappingControls = new List<Control>();
         private readonly List<Button> learnButtons = new List<Button>();
-        private static readonly string[] BindingNames = { "Unbound", "A", "B", "X", "Y", "Back / View", "Guide (reserved)", "Start / Menu", "Left stick click", "Right stick click", "Left bumper", "Right bumper", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Left stick right", "Left stick left", "Left stick down", "Left stick up", "Right stick right", "Right stick left", "Right stick down", "Right stick up", "Left trigger", "Left trigger negative", "Right trigger", "Right trigger negative" };
+        private static readonly string[] BindingNames = { "Unbound", "A", "B", "X", "Y", "Back / View", "Guide (reserved)", "Start / Menu", "Left stick click", "Right stick click", "Left bumper", "Right bumper", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Left stick right", "Left stick left", "Left stick down", "Left stick up", "Right stick right", "Right stick left", "Right stick down", "Right stick up", "Left trigger", "Left trigger negative", "Right trigger", "Right trigger negative", "Touchpad click", "Share / Mic" };
         private static NumericUpDown Percent(int min, int max) { return new NumericUpDown { Minimum = min, Maximum = max, DecimalPlaces = 1, Increment = 1, Width = 70 }; }
         internal ControllerWindow(string profileRoot)
         {

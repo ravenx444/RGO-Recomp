@@ -107,6 +107,7 @@
 #include <io.h>
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
 #include <SDL.h>
+#include "jfg/platform/sdl_gamepads.hpp"
 #endif
 extern "C" BOOLEAN WINAPI SystemFunction036(PVOID, ULONG);
 #endif
@@ -1571,6 +1572,13 @@ struct State : JfgOriginalTimingFast {
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
   jfg::WindowInputMailbox window_input;
+#if defined(_WIN32)
+  // RGO: SDL gamepads (DualShock 4, DualSense, Switch Pro, Xbox) and rumble.
+  std::unique_ptr<jfg::SdlGamepads> gamepads;
+  bool gamepads_failed = false, rumble_blocked = false;
+  jfg::GamepadSnapshot gamepad_snapshot;
+  jfg::RumbleModel rumble;
+#endif
   std::array<bool, 256U> host_keys{};
   std::array<bool, 256U> host_key_presses{};
   std::uint16_t latched_controller_buttons = 0U;
@@ -1993,6 +2001,82 @@ bool read_xinput_device(int device,
   return true;
 }
 
+// RGO: gamepads come from SDL's GameController API on its own input thread.
+// XInput remains the fallback if SDL's controller support cannot start.
+bool read_gamepads(State &state) {
+  if (!state.gamepads && !state.gamepads_failed) {
+    state.gamepads = std::make_unique<jfg::SdlGamepads>();
+    if (!state.gamepads->start()) {
+      state.gamepads.reset();
+      state.gamepads_failed = true;
+    }
+  }
+  if (!state.gamepads)
+    return false;
+  state.gamepad_snapshot = state.gamepads->snapshot();
+  return true;
+}
+void stop_rumble(State &state) {
+  state.rumble.stop_all();
+  if (state.gamepads)
+    state.gamepads->stop_rumble();
+}
+double rumble_clock() {
+  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+// RGO rumble: the game's rumble requests (rumbleStart/Alter/Max/Stop/Kill in
+// saves.c) play on the player's controller. No Rumble Pak is emulated: the
+// requests are observed before they run, with the game's own checks.
+void rumble_request(State &state, const std::uint32_t target, const recomp_context &context) {
+  jfg::mod::Memory ram({state.rdram, kRdramSize});
+  constexpr std::uint32_t kRumbleStart = 0x8004B0F4U, kRumbleStop = 0x8004B204U,
+      kRumbleAlter = 0x8004B29CU, kRumbleKill = 0x8004B518U;
+  if (!state.gamepads || state.rumble_blocked ||
+      ram.u32(target) != (target == kRumbleKill ? 0x27BDFFE0U : 0x27BDFFE8U))
+    return;
+  jfg::GameRumbleRequest request;
+  if (target == kRumbleKill) {
+    request.call = jfg::GameRumbleCall::kill;
+  } else {
+    const auto player = static_cast<std::int32_t>(context.r4);
+    if (player < 0 || player >= 4)
+      return;
+    request.channel = ram.u8(0x800FB100U + static_cast<std::uint32_t>(player)); // joyGetController
+    if (request.channel >= 4)
+      return;
+    const int phase = ram.u16(0x800FDF58U + 10U * static_cast<std::uint32_t>(request.channel)) >> 12;
+    if (target == kRumbleStop) {
+      request.call = jfg::GameRumbleCall::stop;
+    } else {
+      // func_8004B070: rumble is enabled and the game is not paused.
+      if (ram.u8(0x800A3470U) == 0U || ram.u8(0x800FD7BDU) != 0U)
+        return;
+      request.call = target == kRumbleStart ? jfg::GameRumbleCall::start
+                   : target == kRumbleAlter ? jfg::GameRumbleCall::alter
+                                            : jfg::GameRumbleCall::max;
+      request.strength = static_cast<std::int32_t>(context.r5);
+      // The float third argument travels in a2 (o32: the first argument is an int).
+      request.seconds = std::bit_cast<float>(static_cast<std::uint32_t>(context.r6));
+      if (phase == 2) { // resting: only rumbleAlter's strength applies
+        if (request.call != jfg::GameRumbleCall::alter)
+          return;
+        request.seconds = 0.0F;
+      }
+    }
+  }
+  const double now = rumble_clock();
+  state.rumble.apply(request, now);
+  for (int channel = 0; channel < 4; ++channel) {
+    if (request.call != jfg::GameRumbleCall::kill && channel != request.channel)
+      continue;
+    const int slot = state.pc_devices[static_cast<std::size_t>(channel)];
+    if (slot < 0)
+      continue;
+    const auto out = state.rumble.output(channel, now, state.pc_input[static_cast<std::size_t>(channel)].rumble);
+    state.gamepads->rumble(slot, out.amplitude, out.amplitude * 0.6F, out.milliseconds);
+  }
+}
+
 void reload_controller_ports(State &state) {
   const auto now = std::chrono::steady_clock::now();
   if (now - state.controller_config_check < std::chrono::milliseconds(250))
@@ -2052,10 +2136,20 @@ void sample_controller_ports(State &state) {
   state.pc_aim.fill({});
   std::array<bool, 4> available{};
   std::array<jfg::StandardControllerSample, 4> hardware{};
-  for (std::size_t p = 0; p < 4; ++p)
-    available[p] = read_xinput_device(static_cast<int>(p), hardware[p]);
+  if (read_gamepads(state)) {
+    for (std::size_t p = 0; p < 4; ++p) {
+      available[p] = state.gamepad_snapshot.info[p].connected;
+      hardware[p] = state.gamepad_snapshot.pads[p];
+    }
+  } else
+    for (std::size_t p = 0; p < 4; ++p)
+      available[p] = read_xinput_device(static_cast<int>(p), hardware[p]);
   const auto devices = state.controller_ports.devices(available);
   state.pc_devices=devices;
+  if (state.gamepads)
+    for (std::size_t p = 0; p < 4; ++p)
+      if (devices[p] >= 0)
+        state.gamepads->light(devices[p], jfg::player_light(static_cast<int>(p)));
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
   const bool look_active=state.pc_experimental &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
@@ -2161,6 +2255,10 @@ void sample_live_controller(State &state) noexcept {
   for(std::size_t p=0;p<4;++p)if(state.pc_aim[p].x || state.pc_aim[p].y)release_samples[p].buttons|=1;
   const bool block_physical=state.controller_input_gate.blocked(ui_capture,release_samples);
   state.pc_input_blocked=block_physical && !state.input_replay_loaded;
+  // RGO: no rumble while settings are open or the game is in the background.
+  if (block_physical && !state.rumble_blocked)
+    stop_rumble(state);
+  state.rumble_blocked = block_physical;
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
   bool want_mouse=false;
   for(std::size_t p=0;p<4;++p)
@@ -2450,6 +2548,7 @@ void service_live_window(State &state) {
   while (!state.exit_requested && frontend && IsWindow(frontend) &&
          GetPropW(frontend, L"JfgFrontendPause") != nullptr) {
     if (!frontend_paused) {
+      stop_rumble(state);
       state.host_audio.frontend_pause(true);
       SetPropW(frontend,L"JfgFrontendPaused",reinterpret_cast<HANDLE>(1));
       frontend_paused = true;
@@ -5898,6 +5997,9 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       }
     }
   }
+  if (target == 0x8004B0F4U || target == 0x8004B204U || target == 0x8004B29CU ||
+      target == 0x8004B3D8U || target == 0x8004B518U)
+    rumble_request(state, target, *context);
   // Separate look input is recorded alongside movement; older replays remain stock.
   if(target==0x8003AABCU && state.pc_experimental && (state.play_mode || state.input_replay_loaded) &&
      (state.input_record_path.empty() || state.pc_record_extended) && !state.pc_input_blocked) {

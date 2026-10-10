@@ -24,6 +24,8 @@
 #include <fstream>
 #include <jfg/audio/master_volume.hpp>
 #include <jfg/runtime/controller_ports.hpp>
+#include <jfg/runtime/gamepad.hpp>
+#include <jfg/platform/sdl_gamepads.hpp>
 #include <jfg/runtime/pc_input.hpp>
 #include <jfg/renderer/widescreen.hpp>
 #include <memory>
@@ -96,8 +98,64 @@ struct Ui : Rml::EventListener {
   bool keyReleased = false, devicePicker = false, controllerSettings = false;
   int pickerType = 0, pickerDevice = -2;
   double keyDeadline = 0;
-  // The UI and its integration checks share the same discovery path.
-  std::function<DWORD(DWORD, XINPUT_STATE *)> controllerState = XInputGetState;
+  // RGO: gamepads come from SDL, as in the game; XInput is the fallback.
+  jfg::SdlGamepads gamepads;
+  bool gamepadsTried = false;
+  jfg::GamepadSnapshot pads;
+  std::array<std::string, 4> padNames;
+  static jfg::StandardControllerSample fromXInput(const XINPUT_STATE &s) {
+    constexpr WORD masks[] = {0x1000, 0x2000, 0x4000, 0x8000, 0x20,
+                              0,      0x10,   0x40,   0x80,   0x100,
+                              0x200,  1,      2,      4,      8};
+    jfg::StandardControllerSample out;
+    for (int i = 0; i < 15; i++)
+      out.buttons[static_cast<std::size_t>(i)] = masks[i] != 0 && (s.Gamepad.wButtons & masks[i]) != 0;
+    out.axes = {s.Gamepad.sThumbLX, -int(s.Gamepad.sThumbLY), s.Gamepad.sThumbRX,
+                -int(s.Gamepad.sThumbRY), s.Gamepad.bLeftTrigger * 32767 / 255,
+                s.Gamepad.bRightTrigger * 32767 / 255};
+    return out;
+  }
+  void pollPads() {
+    if (!gamepadsTried) {
+      gamepadsTried = true;
+      gamepads.start();
+    }
+    if (gamepads.ready()) {
+      pads = gamepads.snapshot();
+    } else {
+      for (DWORD d = 0; d < 4; ++d) {
+        XINPUT_STATE s{};
+        auto &info = pads.info[d];
+        info = {};
+        info.connected = XInputGetState(d, &s) == ERROR_SUCCESS;
+        pads.pads[d] = info.connected ? fromXInput(s) : jfg::StandardControllerSample{};
+      }
+    }
+    for (std::size_t d = 0; d < 4; ++d)
+      if (pads.info[d].connected && !pads.info[d].name.empty())
+        padNames[d] = pads.info[d].name;
+  }
+  static std::uint32_t padButtons(const jfg::StandardControllerSample &s) {
+    std::uint32_t mask = 0;
+    for (std::size_t i = 0; i < s.buttons.size(); ++i)
+      if (s.buttons[i]) mask |= 1U << i;
+    return mask;
+  }
+  std::string padLabel(int d) const {
+    std::string text = "Controller " + std::to_string(d + 1);
+    if (d >= 0 && d < 4 && !padNames[static_cast<std::size_t>(d)].empty())
+      text += " (" + padNames[static_cast<std::size_t>(d)] + ")";
+    return text;
+  }
+  jfg::GamepadFamily padFamily() const {
+    const int d = devices[player];
+    return d >= 0 && d < 4 ? pads.info[static_cast<std::size_t>(d)].family : jfg::GamepadFamily::generic;
+  }
+  void lightPads() {
+    if (!gamepads.ready()) return;
+    for (int p = 0; p < 4; ++p)
+      if (devices[p] >= 0) gamepads.light(devices[p], jfg::player_light(p));
+  }
   bool learnReleased = false;
   double learnDeadline = 0;
   void close() {
@@ -231,7 +289,8 @@ struct Ui : Rml::EventListener {
     return jfg::controller_device_available(static_cast<std::size_t>(player),d,mappings,devices,connected);
   }
   void discoverDevices() {
-    for(DWORD d=0;d<4;++d){XINPUT_STATE sample{};connected[d]=controllerState(d,&sample)==ERROR_SUCCESS;}
+    pollPads();
+    for(std::size_t d=0;d<4;++d)connected[d]=pads.info[d].connected;
     devices=assignments.devices(connected);
   }
   void normalizePicker() {
@@ -258,10 +317,20 @@ struct Ui : Rml::EventListener {
     const int configured=mappings[player].device,d=devices[player];
     const bool online=d==-3 || (d>=0 && connected[d]);
     const std::string name=d==-3?"Mouse and keyboard":d>=0?"Controller "+std::to_string(d+1):"No device";
+    const std::string model=d>=0 && !padNames[static_cast<std::size_t>(d)].empty()?
+      padNames[static_cast<std::size_t>(d)]+" - "+std::string(jfg::gamepad_family_name(pads.info[static_cast<std::size_t>(d)].family)):"";
     std::string html="<div class=\"input-device-card\"><div class=\"device-summary\"><div class=\"grow\"><div class=\"label\">INPUT DEVICE</div><div class=\"device-name\">"+name+
-      "</div><div id=\"assignment\" class=\"muted\"></div></div><span class=\"connection-state "+std::string(online?"online":"offline")+"\">"+(online?"Connected":"Disconnected")+"</span>"+
+      "</div>"+(model.empty()?std::string{}:"<div class=\"muted\">"+escape(model)+"</div>")+"<div id=\"assignment\" class=\"muted\"></div></div><span class=\"connection-state "+std::string(online?"online":"offline")+"\">"+(online?"Connected":"Disconnected")+"</span>"+
       button("device-open",configured==-2?"+ Add device":"Change device")+
-      button("device-remove","Remove",configured==-2)+"</div></div>";
+      button("device-remove","Remove",configured==-2)+"</div>";
+    if(d>=0) {
+      const int strength=pcInput[static_cast<std::size_t>(player)].rumble;
+      const bool canRumble=online && pads.info[static_cast<std::size_t>(d)].rumble;
+      html+="<div class=\"device-row\"><span>Rumble strength</span><input class=\"volume\" type=\"range\" min=\"0\" max=\"200\" step=\"10\" value=\""+
+        std::to_string(strength)+"\" data-action=\"rumble-strength\"/><span id=\"rumble-value\">"+(strength?std::to_string(strength)+"%":std::string("Off"))+"</span>"+
+        button("rumble-test","Test rumble",!canRumble || !strength)+"</div>";
+    }
+    html+="</div>";
     if(!devicePicker)return html;
     normalizePicker();
     html+="<div id=\"device-picker\" class=\"device-picker\"><div class=\"label\">CHOOSE INPUT DEVICE</div><div class=\"device-row\"><span>Input type</span><select id=\"input-type\" data-action=\"input-type\">";
@@ -271,7 +340,7 @@ struct Ui : Rml::EventListener {
     if(pickerType==0){
       html+="<div class=\"device-row\"><span>Controller</span><select id=\"available-device\" data-action=\"device\""+std::string(available?"":" disabled=\"disabled\"")+">";
       if(!available)html+="<option value=\"-2\">No available controllers</option>";
-      for(int slot=0;slot<4;++slot)if(deviceAvailable(slot))html+="<option value=\""+std::to_string(slot)+"\""+(slot==pickerDevice?" selected=\"selected\"":"")+">Controller "+std::to_string(slot+1)+"</option>";
+      for(int slot=0;slot<4;++slot)if(deviceAvailable(slot))html+="<option value=\""+std::to_string(slot)+"\""+(slot==pickerDevice?" selected=\"selected\"":"")+">"+escape(padLabel(slot))+"</option>";
       html+="</select>"+button("device-refresh","Refresh")+"</div><p class=\"muted\">Only connected controllers available to this player are listed. Remove a device from another player to move it here.</p>";
     } else if(pickerType==-3)html+="<p class=\"muted\">"+std::string(available?"Use keyboard keys, mouse buttons and mouse look.":"Mouse and keyboard belong to another player. Remove them there first.")+"</p>";
     else html+="<p class=\"muted\">Use the next free controller. Player 1 falls back to keyboard when no controller has been assigned.</p>";
@@ -304,36 +373,19 @@ struct Ui : Rml::EventListener {
     return message==WM_KEYUP || message==WM_SYSKEYUP || message==WM_CHAR ||
       message==WM_LBUTTONUP || message==WM_RBUTTONUP || message==WM_MBUTTONUP || message==WM_XBUTTONUP;
   }
-  static std::string bindingName(int b) {
-    static const char *names[] = {
-        "A / Cross",        "B / Circle",        "X / Square",
-        "Y / Triangle",     "Back / Share",      "Guide",
-        "Start / Menu",     "Left stick click",  "Right stick click",
-        "LB / L1",          "RB / R1",           "D-pad up",
-        "D-pad down",       "D-pad left",        "D-pad right",
-        "Left stick right", "Left stick left",   "Left stick down",
-        "Left stick up",    "Right stick right", "Right stick left",
-        "Right stick down", "Right stick up",    "LT / L2",
-        "LT negative",      "RT / R2",           "RT negative"};
-    return b >= 0 && b < 27 ? names[b] : "Unbound";
+  std::string bindingName(int b) const {
+    return std::string(jfg::gamepad_binding_name(b, padFamily()));
   }
-  static std::array<bool, 27> sample(const XINPUT_STATE &s) {
-    constexpr WORD masks[] = {0x1000, 0x2000, 0x4000, 0x8000, 0x20,
-                              0,      0x10,   0x40,   0x80,   0x100,
-                              0x200,  1,      2,      4,      8};
-    std::array<bool, 27> out{};
-    for (int i = 0; i < 15; i++)
-      out[i] = (s.Gamepad.wButtons & masks[i]) != 0;
-    int axes[] = {s.Gamepad.sThumbLX,
-                  -int(s.Gamepad.sThumbLY),
-                  s.Gamepad.sThumbRX,
-                  -int(s.Gamepad.sThumbRY),
-                  s.Gamepad.bLeftTrigger * 32767 / 255,
-                  s.Gamepad.bRightTrigger * 32767 / 255};
-    for (int i = 0; i < 6; i++) {
-      out[15 + i * 2] = axes[i] > 16000;
-      out[16 + i * 2] = axes[i] < -16000;
+  static std::array<bool, jfg::kBindingCount> sample(const jfg::StandardControllerSample &s) {
+    std::array<bool, jfg::kBindingCount> out{};
+    for (std::size_t i = 0; i < 15; i++)
+      out[i] = s.buttons[i];
+    for (std::size_t i = 0; i < 6; i++) {
+      out[15 + i * 2] = s.axes[i] > 16000;
+      out[16 + i * 2] = s.axes[i] < -16000;
     }
+    out[jfg::kBindingTouchpad] = s.buttons[15];
+    out[jfg::kBindingMisc] = s.buttons[16];
     return out;
   }
 
@@ -343,7 +395,7 @@ struct Ui : Rml::EventListener {
   bool muted = false;
   double toastUntil = 0, decorationTick = -1;
   std::array<bool, 4> connected{};
-  std::array<WORD, 4> buttons{};
+  std::array<std::uint32_t, 4> buttons{};
   std::array<bool, 4> activated{};
   std::deque<std::string> notices;
   bool reducedMotion = false;
@@ -405,16 +457,16 @@ struct Ui : Rml::EventListener {
   void ports() {
     const bool wasKeyboard=pcKeyboard();
     const auto wasConnected=connected;const auto wasDevices=devices;
-    for (DWORD i = 0; i < 4; i++) {
+    pollPads();
+    for (std::size_t i = 0; i < 4; i++) {
       const bool previouslyConnected = connected[i];
       std::string assignedPlayer;
       for (int p = 0; p < 4; p++)
         if (devices[p] == int(i))
           assignedPlayer = " - Player " + std::to_string(p + 1);
-      XINPUT_STATE s{};
-      bool on = controllerState(i, &s) == ERROR_SUCCESS;
-      const WORD pressed =
-          on ? static_cast<WORD>(s.Gamepad.wButtons & ~buttons[i]) : 0;
+      const bool on = pads.info[i].connected;
+      const std::uint32_t held = on ? padButtons(pads.pads[i]) : 0U;
+      const std::uint32_t pressed = held & ~buttons[i];
       if (on != connected[i]) {
         connected[i] = on;
         activated[i] = false;
@@ -423,12 +475,12 @@ struct Ui : Rml::EventListener {
         for (int p = 0; p < 4; p++)
           if (devices[p] == int(i))
             port = " - Player " + std::to_string(p + 1);
-        toast("Controller " + std::to_string(i + 1) +
+        toast(padLabel(static_cast<int>(i)) +
               (on ? " connected" : " disconnected") +
               (on ? port : assignedPlayer));
       } else if (pressed && !activated[i]) {
         activated[i] = true;
-        toast("Controller " + std::to_string(i + 1) + " active" +
+        toast(padLabel(static_cast<int>(i)) + " active" +
               assignedPlayer);
       }
 
@@ -439,7 +491,7 @@ struct Ui : Rml::EventListener {
           label("dialog-note",
                 "Controller disconnected. Select a device and retry.");
         } else {
-          auto active = sample(s);
+          auto active = sample(pads.pads[i]);
           bool neutral = std::none_of(active.begin(), active.end(),
                                       [](bool b) { return b; });
           if (!learnReleased) {
@@ -449,8 +501,8 @@ struct Ui : Rml::EventListener {
                     "Press the new button or move an axis. Esc cancels.");
             }
           } else
-            for (int b = 0; b < 27; b++)
-              if (active[b]) {
+            for (int b = 0; b < jfg::kBindingCount; b++)
+              if (active[static_cast<std::size_t>(b)]) {
                 mappings[player].bindings[learning] = b;
                 learning = -1;
                 saveController();
@@ -460,12 +512,13 @@ struct Ui : Rml::EventListener {
         }
       }
       if (pressed && on && previouslyConnected && current.empty() &&
-          !state.playing && !state.busy && (pressed & XINPUT_GAMEPAD_A))
+          !state.playing && !state.busy && (pressed & 1U)) // A / Cross
         action("play");
-      buttons[i] = on ? s.Gamepad.wButtons : 0;
+      buttons[i] = held;
     }
 
     devices = assignments.devices(connected);
+    lightPads();
     if(current=="controllers" && (wasConnected!=connected || wasDevices!=devices || wasKeyboard!=pcKeyboard())) {
       learning=keyLearning=-1;normalizePicker();modal("controllers");
       if(wasKeyboard!=pcKeyboard())el("dialog-body")->SetScrollTop(0);
@@ -1093,6 +1146,13 @@ struct Ui : Rml::EventListener {
       a=="pc-normal" || a=="pc-expert" || a=="pc-reset");
     if(a.rfind("pc-",0)==0 && a!="pc-experimental" && !keyboardBinding && !pcExperimental())return;
     if (event.GetType() == "change") {
+      if(a=="rumble-strength") {
+        auto &c=pcInput[static_cast<std::size_t>(player)];
+        c.rumble=std::clamp((event.GetParameter<int>("value",c.rumble)+5)/10*10,0,200);
+        savePcInput();
+        label("rumble-value",c.rumble?std::to_string(c.rumble)+"%":std::string("Off"));
+        return;
+      }
       if(a.rfind("pc-key",0)==0) {
         const auto i=static_cast<std::size_t>(std::stoi(a.substr(6)));
         if(i<20){pcInput[static_cast<std::size_t>(player)].keys[i]=std::clamp(event.GetParameter<int>("value",0),0,257);savePcInput();}
@@ -1162,6 +1222,12 @@ struct Ui : Rml::EventListener {
     if(a=="device-apply"){if(devicePicker && (pickerType!=0 || pickerDevice>=0))assignDevice(pickerDevice);return;}
     if(a=="device-remove"){assignDevice(-2);return;}
     if(a=="controller-settings"){controllerSettings=!controllerSettings;modal("controllers");return;}
+    if(a=="rumble-test") {
+      const int d=devices[player];
+      const float amplitude=std::min(1.0F,0.8F*static_cast<float>(pcInput[static_cast<std::size_t>(player)].rumble)/100.0F);
+      if(d>=0 && amplitude>0.0F)gamepads.rumble(d,amplitude,amplitude*0.6F,500U);
+      return;
+    }
     if(a.rfind("pc-bind",0)==0 && pcKeyboard()) {
       const int index=std::stoi(a.substr(7));if(index<0 || index>=20)return;
       learning=-1;keyLearning=index;keyReleased=false;
@@ -1208,7 +1274,7 @@ struct Ui : Rml::EventListener {
       savePcInput();modal("controllers");return;
     }
     if (a == "device" || a == "input-type" || a == "session" || a == "volume" ||
-        a.rfind("tune-", 0) == 0)
+        a == "rumble-strength" || a.rfind("tune-", 0) == 0)
       return;
     if (a.rfind("report-", 0) == 0) {
       selectedSession = a.substr(7);
