@@ -100,6 +100,10 @@ struct VideoSettings {
     FrameRate framerate = FrameRate::original;
     // Experimental (no settings page entry yet): also blend object matrices.
     bool interpolate_objects = false;
+    // Reproduce the N64's slowdown: heavy scenes drop to 20 fps because the
+    // emulated CPU needs more than two VIs for a frame. Off (the default)
+    // overclocks the emulated CPU so the game keeps its full frame rate.
+    bool n64_slowdown = false;
     friend bool operator==(const VideoSettings&, const VideoSettings&) = default;
 };
 
@@ -215,8 +219,9 @@ parse_pair(std::string_view text, const char separator) noexcept {
             : settings.framerate == FrameRate::display  ? "display"
             : settings.framerate == FrameRate::unlocked ? "unlocked"
                                                         : "original";
-    text += settings.interpolate_objects ? "\ninterpolate_objects=on\n"
-                                         : "\ninterpolate_objects=off\n";
+    text += settings.interpolate_objects ? "\ninterpolate_objects=on"
+                                         : "\ninterpolate_objects=off";
+    text += settings.n64_slowdown ? "\nn64_slowdown=on\n" : "\nn64_slowdown=off\n";
     return text;
 }
 
@@ -252,10 +257,10 @@ parse_pair(std::string_view text, const char separator) noexcept {
             return std::nullopt;
         const std::string_view key = line.substr(0U, equals);
         const std::string_view value = line.substr(equals + 1U);
-        constexpr std::array<std::string_view, 12U> keys{
+        constexpr std::array<std::string_view, 13U> keys{
             "aspect", "max_aspect", "fullscreen", "output", "render",
             "render_scale", "render_size", "msaa", "vsync", "fps_counter",
-            "framerate", "interpolate_objects"};
+            "framerate", "interpolate_objects", "n64_slowdown"};
         const auto found = std::find(keys.begin(), keys.end(), key);
         if (found == keys.end()) {
             for (const char ch : key)
@@ -325,8 +330,10 @@ parse_pair(std::string_view text, const char separator) noexcept {
             else if (value == "display") settings.framerate = FrameRate::display;
             else if (value == "unlocked") settings.framerate = FrameRate::unlocked;
             else ok = false;
-        } else {
+        } else if (key == "interpolate_objects") {
             ok = on_off(settings.interpolate_objects);
+        } else {
+            ok = on_off(settings.n64_slowdown);
         }
         if (!ok)
             return std::nullopt;
@@ -334,6 +341,16 @@ parse_pair(std::string_view text, const char separator) noexcept {
     if (first)
         return std::nullopt;  // Empty file.
     return settings;
+}
+
+// Emulated CPU overclock (power of two) for the original-timing runtime:
+// Count advances by instruction cost / (2 << shift). 0 is the N64's own
+// speed; 4x leaves even the heaviest scenes well inside two VIs per frame.
+inline constexpr std::uint32_t kNoSlowdownOverclockShift = 2U;
+
+[[nodiscard]] constexpr std::uint32_t cpu_overclock_shift(
+    const VideoSettings& settings) noexcept {
+    return settings.n64_slowdown ? 0U : kNoSlowdownOverclockShift;
 }
 
 // ---------------------------------------------------------------------------

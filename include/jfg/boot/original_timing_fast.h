@@ -53,6 +53,10 @@ typedef struct JfgOriginalTimingFast {
  volatile uint64_t* io_guest_count;
  JfgTimingCacheLine *instruction_cache,*data_cache;
  uint64_t* cache_counters;
+ // RGO: emulated CPU overclock as a power of two (0 = original N64 speed).
+ // Count advances by cost / (2 << shift), so heavy frames finish within
+ // fewer VIs and the game no longer drops to 20 fps (docs/rgo/framerate.md).
+ uint32_t cpu_overclock_shift;
 } JfgOriginalTimingFast;
 #ifdef __cplusplus
 extern "C" {
@@ -95,6 +99,13 @@ static JFG_CLOCK_INLINE unsigned jfg_clock_data(JfgOriginalTimingFast* s,unsigne
  if(write)line->dirty=1;
  return cost;
 }
+// Charge one instruction's VR4300 cycles to Count (half the CPU clock),
+// divided by the overclock factor; the remainder carries to the next one.
+static JFG_CLOCK_INLINE void jfg_clock_charge(JfgOriginalTimingFast* s,uint64_t cycles) {
+ const unsigned shift=1U+(s->cpu_overclock_shift&7U);
+ cycles+=s->diagnostic_cpu_half_tick;
+ s->cpu_count+=cycles>>shift;s->diagnostic_cpu_half_tick=cycles&((1ULL<<shift)-1U);
+}
 static JFG_CLOCK_INLINE void jfg_original_timing_step(unsigned metadata,unsigned pc,unsigned word,void* context) {
  JfgOriginalTimingFast* s=jfg_original_timing_state;
  unsigned kind=(metadata>>12U)&3U;
@@ -116,9 +127,8 @@ static JFG_CLOCK_INLINE void jfg_original_timing_step(unsigned metadata,unsigned
     cost+=jfg_clock_data(s,(uint32_t)value+(uint32_t)(int32_t)(int16_t)word,kind==2U);
    }
    s->cache_counters[10]+=cost;
-   cost+=s->diagnostic_cpu_half_tick;
    ++s->observed_guest_instructions;++s->execution_fast_hits;
-   s->cpu_count+=cost/2U;s->diagnostic_cpu_half_tick=cost%2U;
+   jfg_clock_charge(s,cost);
    *s->io_guest_count=s->cpu_count;
    s->guest_last_pc=pc;s->guest_last_word=word;
    s->guest_previous_delay=delay;s->guest_previous_branch=(metadata&0x400U)!=0U;

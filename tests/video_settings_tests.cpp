@@ -71,8 +71,19 @@ int main() {
                 "fullscreen=borderless\noutput=auto\nrender=match\n"
                 "render_scale=100\nrender_size=1920x1080\nmsaa=off\n"
                 "vsync=on\nfps_counter=off\nframerate=original\n"
-                "interpolate_objects=off\n",
+                "interpolate_objects=off\nn64_slowdown=off\n",
         "default encoding");
+    require(!defaults.n64_slowdown && cpu_overclock_shift(defaults) == kNoSlowdownOverclockShift,
+        "no N64 slowdown by default");
+    {
+        VideoSettings slow;
+        slow.n64_slowdown = true;
+        require(cpu_overclock_shift(slow) == 0U, "slowdown on: original CPU speed");
+        require(parse_video_settings(encode_video_settings(slow))->n64_slowdown,
+            "n64_slowdown round trip");
+        require(parse_video_settings("version=2\nvsync=on\n")->n64_slowdown == false,
+            "files without the key keep the default");
+    }
     require(defaults.framerate == FrameRate::original && !defaults.interpolate_objects,
         "original frame rate by default");
 
@@ -89,6 +100,7 @@ int main() {
     custom.fps_counter = true;
     custom.framerate = FrameRate::display;
     custom.interpolate_objects = true;
+    custom.n64_slowdown = true;
     require(parse_video_settings(encode_video_settings(custom)) == custom,
         "full round trip");
     for (const auto scale : {25U, 100U, 155U, 200U}) {
@@ -141,7 +153,7 @@ int main() {
              "version=2\nvsync=yes\n", "version=2\nfps_counter=\n",
              "version=2\n=on\n", "version=2\nnoequals\n",
              "version=2\nBad-Key=1\n", "version=2\nframerate=144\n",
-             "version=2\ninterpolate_objects=yes\n"})
+             "version=2\ninterpolate_objects=yes\n", "version=2\nn64_slowdown=1\n"})
         require(!parse_video_settings(bad), "invalid settings rejected");
     require(!parse_video_settings(std::string(2000U, 'x')), "oversized file");
 

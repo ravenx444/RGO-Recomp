@@ -16,6 +16,7 @@ every 250 ms, so most changes apply while playing.
 | VSync | On / Off | immediately |
 | FPS counter | Off / On | immediately |
 | Frame rate | Original / 60 / Display / Unlocked | immediately ([frame interpolation](framerate.md)) |
+| Original N64 slowdown | Off / On | immediately ([details](framerate.md#part-d-no-n64-slowdown-rgono-n64-slowdown)) |
 
 ## How each setting works
 
@@ -103,6 +104,7 @@ vsync=on
 fps_counter=off
 framerate=original
 interpolate_objects=off
+n64_slowdown=off
 ```
 
 `framerate` and `interpolate_objects` belong to

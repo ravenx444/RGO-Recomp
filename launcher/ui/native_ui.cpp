@@ -668,6 +668,9 @@ struct Ui : Rml::EventListener {
             "Game speed stays the same.</div></div><div class=\"segments\">" + button("framerate-original", "Original") +
             button("framerate-60", "60") + button("framerate-display", "Display") + button("framerate-unlocked", "Unlocked") +
             "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">On: heavy scenes drop to 20 fps "
+            "as on the console. Off keeps the full frame rate.</div></div><div class=\"segments\">" +
+            button("slowdown-off", "Off") + button("slowdown-on", "On") + "</div></div>";
     html += "<div class=\"row\"><span class=\"grow\">VSync</span><div class=\"segments\">" + button("vsync-on", "On") +
             button("vsync-off", "Off") + "</div></div>";
     html += "<div class=\"row\"><span class=\"grow\">FPS counter</span><div class=\"segments\">" + button("fps-off", "Off") +
@@ -702,6 +705,8 @@ struct Ui : Rml::EventListener {
       v.vsync = a == "vsync-on";
     else if (a == "fps-on" || a == "fps-off")
       v.fps_counter = a == "fps-on";
+    else if (a == "slowdown-on" || a == "slowdown-off")
+      v.n64_slowdown = a == "slowdown-on";
     else if (a == "framerate-original" || a == "framerate-60" || a == "framerate-display" ||
              a == "framerate-unlocked")
       v.framerate = a == "framerate-60"        ? jfg::FrameRate::sixty
@@ -1051,6 +1056,7 @@ struct Ui : Rml::EventListener {
           v.msaa >= 8U ? "action-msaa-8" : v.msaa >= 4U ? "action-msaa-4" : v.msaa >= 2U ? "action-msaa-2" : "action-msaa-1",
           v.vsync ? "action-vsync-on" : "action-vsync-off",
           v.fps_counter ? "action-fps-on" : "action-fps-off",
+          v.n64_slowdown ? "action-slowdown-on" : "action-slowdown-off",
           v.framerate == jfg::FrameRate::sixty      ? "action-framerate-60"
           : v.framerate == jfg::FrameRate::display  ? "action-framerate-display"
           : v.framerate == jfg::FrameRate::unlocked ? "action-framerate-unlocked"

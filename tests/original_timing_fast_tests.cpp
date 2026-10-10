@@ -63,5 +63,21 @@ int main() {
  fast.execution_fast_deadline=fast.cpu_count;boundary(0);fast.execution_fast_deadline=UINT64_MAX;
  cpu.status_reg=0;boundary(1U<<8);
  cpu.status_reg=0x401;fast.execution_fast_pending=0x400;boundary(0);
+ cpu.status_reg=0x20000000;fast.execution_fast_pending=0;
+ // RGO: an overclocked CPU charges Count cost / (2 << shift) with the same
+ // cache model; the remainder still carries between instructions.
+ for(unsigned shift=1;shift<=3;++shift) {
+  fast.cpu_overclock_shift=shift;
+  const uint64_t start=fast.cpu_count;uint64_t remainder=fast.diagnostic_cpu_half_tick,charged=0;
+  for(unsigned i=0;i<1000;++i) {
+   const unsigned pc=0x80001000U+(i%8)*4U;
+   const auto cost=ordinary::jfg_full_cache_cost(pc,0x20,&cpu,ram.data())+remainder;
+   charged+=cost>>(shift+1);remainder=cost&((2ULL<<shift)-1U);
+   jfg_original_timing_step(0,pc,0x20,&cpu);
+  }
+  check(fast.cpu_count==start+charged && fast.diagnostic_cpu_half_tick==remainder,"overclocked Count differs");
+  check(charged*(1ULL<<shift)<=fast.cache_counters[10] && charged>0,"overclock does not reduce Count");
+ }
+ fast.cpu_overclock_shift=0;
  std::cout<<"250000 instruction/cache transitions and event boundaries matched\n";
 }

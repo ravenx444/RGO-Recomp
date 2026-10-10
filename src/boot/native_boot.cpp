@@ -2383,6 +2383,11 @@ void refresh_video_settings(State &state) {
         state.video = *settings;
   }
   state.widescreen = state.video.aspect == jfg::AspectMode::widescreen;
+  // RGO: without "Original N64 slowdown" the emulated CPU is overclocked, so
+  // heavy scenes no longer cost the game more than two VIs per frame.
+  // Replays and captures keep the original CPU speed to stay deterministic.
+  state.cpu_overclock_shift = state.video_managed && !state.input_replay_loaded
+      ? jfg::cpu_overclock_shift(state.video) : 0U;
   if (state.rt64_shell != nullptr) {
     if (state.video_managed)
       state.rt64_shell->set_video_settings(state.video);
@@ -8692,10 +8697,7 @@ extern "C" void jfg_phase9_execution_probe(unsigned section, unsigned pc,
         ++state.observed_guest_instructions;
         ++state.execution_fast_hits;
         const bool delay = state.guest_previous_branch && pc == state.guest_last_pc + 4U;
-        const auto cycles = jfg_full_cache_cost(pc,word,&cpu,state.rdram)
-            + state.diagnostic_cpu_half_tick;
-        state.cpu_count += cycles / 2U;
-        state.diagnostic_cpu_half_tick = cycles % 2U;
+        jfg_clock_charge(&state, jfg_full_cache_cost(pc,word,&cpu,state.rdram));
         state.mmio_trace->guest_count = state.cpu_count;
         state.guest_last_pc = pc;
         state.guest_last_word = word;
@@ -8735,10 +8737,7 @@ extern "C" void jfg_phase9_execution_probe_predecoded(unsigned metadata, unsigne
         ++state.observed_guest_instructions;
         ++state.execution_fast_hits;
         const bool delay = state.guest_previous_branch && pc == state.guest_last_pc + 4U;
-        const auto cycles = jfg_full_cache_cost_predecoded(pc,word,&cpu,state.rdram,metadata)
-            + state.diagnostic_cpu_half_tick;
-        state.cpu_count += cycles / 2U;
-        state.diagnostic_cpu_half_tick = cycles % 2U;
+        jfg_clock_charge(&state, jfg_full_cache_cost_predecoded(pc,word,&cpu,state.rdram,metadata));
         state.mmio_trace->guest_count = state.cpu_count;
         state.guest_last_pc = pc;
         state.guest_last_word = word;
@@ -9058,10 +9057,7 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
       }
       // Mupen's annulled ordinary likely slots still advance Count. Other
       // likely families require their own profile coverage before use.
-      const auto cycles = jfg_full_cache_cost(pc,word,&cpu,state.rdram)
-          + state.diagnostic_cpu_half_tick;
-      state.cpu_count += cycles / 2U;
-      state.diagnostic_cpu_half_tick = cycles % 2U;
+      jfg_clock_charge(&state, jfg_full_cache_cost(pc,word,&cpu,state.rdram));
       mmio.guest_count = state.cpu_count;
       state.guest_last_pc = pc;
       state.guest_last_word = word;

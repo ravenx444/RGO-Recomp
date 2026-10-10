@@ -242,6 +242,80 @@ higher frame rate is chosen.
 `60.0 FPS (game 30.0)` while the display shows more frames than the game
 makes.
 
+## Follow-up after the first in-game test
+
+**What the owner saw.**
+- With Unlocked, one area showed many frames, but they were RT64's blended
+  frames.
+- In real levels the game itself fell to about 20-26 fps, the N64's own
+  slowdown.
+
+Two follow-ups, each its own PR on top of `rgo/framerate`.
+
+### Part D: no N64 slowdown (`rgo/no-n64-slowdown`)
+
+**Cause.**
+- Builds use the port's *original guest timing*: `generate_from_rom.py` →
+  `original_timing_generation.py` writes `JFG_ORIGINAL_TIMING_GENERATION 1`.
+- Every guest instruction advances the emulated Count by its VR4300 cost,
+  from an ares-derived cost and cache model (`jfg_original_timing_step` in
+  `include/jfg/boot/original_timing_fast.h`, and the native handlers in
+  `src/boot/native_boot.cpp`).
+- VI interrupts follow that Count.
+- When a heavy scene's CPU work costs more than two VIs of emulated time,
+  `viFrameSync` (decomp `gameVi.c`) counts three or more VIs. It switches
+  `gVideoDeltaTime` to `LOGIC_20FPS` and stays there until 30 fast frames
+  in a row.
+- That is what the N64 does, and it is the ~20-26 fps the owner measured.
+  RSP/RDP completion uses small fixed deadlines (1000/4000 Count ticks), so
+  the CPU model alone causes it.
+
+**Fix: an emulated CPU overclock.**
+- `jfg_clock_charge` adds `cost / (2 << shift)` to Count instead of
+  `cost / 2`. The cache model, device timing and VI rate are unchanged.
+- The CPU simply finishes a frame's work in less emulated time, so the game
+  stays at `LOGIC_30FPS`.
+- Video settings → **Original N64 slowdown**:
+  - **Off** (default): 4x;
+  - **On**: 1x, the console's speed.
+- It is stored as `n64_slowdown=` in `video.ini` and applies within a
+  quarter second.
+- Replays and captures always run at 1x so recorded inputs stay
+  deterministic.
+
+### Part E: true 60 fps game logic (`rgo/true-60fps`, planned)
+
+**The engine is delta-based.**
+- `viFrameSync` returns the VIs elapsed since the last frame, and the main
+  loop passes it as `updateRate`/`ticks` to every tick function: `camTick`,
+  `trackDraw`, `frontUpdate`, object and overlay controls.
+- The game already has a 60 fps path: `runInOneFrame` forces
+  `gVideoDeltaTime = LOGIC_60FPS` (1 VI).
+- Setting it, with enough CPU overclock for a frame to fit in one VI,
+  makes the game simulate and draw 60 times per second with
+  `updateRate = 1`.
+
+**The audit before shipping it.** Systems that assume `updateRate` ≥ 2, or
+step once per frame instead of per tick, would run twice as fast or
+behave differently. The candidates are:
+- animation frame stepping;
+- countdowns and timers decremented once per frame;
+- jump and gravity integration (per-tick versus per-frame rounding);
+- AI decision timers and random rolls per frame;
+- particle spawn counts;
+- audio sequencing tied to frames;
+- cutscene scripts.
+
+**Frame rate options after Part E.**
+- Original;
+- True 60 (logic at 60);
+- Display refresh / Unlocked: logic at 60, plus RT64 blending above it;
+- "Interpolate extra frames" on/off.
+
+**Above 60.** Logic above 60 would need fractional ticks, which the
+integer `updateRate` cannot express. Display rates above 60 therefore stay
+on RT64 blending.
+
 ## Risks and what to look for
 
 - **Off-screen task classification.** Tasks are classified by their color
