@@ -414,6 +414,76 @@ The numbers come from `include/jfg/renderer/frame_stats.hpp` (tested in
 `jfg.frame_interpolation`). The game posts them as `WM_APP + 25` to
 `WM_APP + 29`; `fps_details=on` in `video.ini` shows them.
 
+### Hand-off notes (status when this work moved to a new session)
+
+**Owner results on `rgo/true-60fps`, before the Detailed counter (commit
+3e76078) existed:**
+- Booting with True 60 and Original N64 slowdown Off crashes in the first
+  level's opening cutscene.
+- Booting with Original and slowdown On works.
+- Switching to True 60 and slowdown Off mid-level: the counter showed about
+  70 (Unlocked: up to about 700), but the game played at 15-20 fps at N64
+  speed and felt juddery, with or without interpolation.
+
+**Both settings already apply live.** `refresh_video_settings` (game thread,
+every present) re-reads `video.ini` every 250 ms:
+- it sets `cpu_overclock_shift`, which `jfg_clock_charge` reads on every
+  charge;
+- `frame_sync_dispatch` checks `true_logic_60` on every `viFrameSync` call.
+
+So "only applied at boot" is unlikely. The plain counter's big number was
+RT64's swap-chain presents (interpolated frames included). The game's own
+rate was the "(game …)" part.
+
+**Leading hypothesis: the host can't execute the game's work in real time.**
+The overclock only changes emulated time (Count per instruction). The host
+still runs every guest instruction through `jfg_original_timing_step`:
+- the fast path in `include/jfg/boot/original_timing_fast.h` charges the
+  cache and cost model per instruction;
+- outside that path, the full checked handler
+  `jfg_phase9_execution_probe_predecoded` runs instead.
+
+What follows if a heavy frame's instructions take the host longer than
+16.7 ms (33 ms at Original):
+- Count, and with it the VIs and the game's clock, falls behind real time.
+  The host VI pacing (`original_os_host_clock`) only sleeps when ahead and
+  never catches up.
+- With the overclock the game believes each frame fits in one VI, so it
+  runs one tick per frame. Real time per frame is unchanged, so the game
+  runs in slow motion at the host's frame rate (about 15-20 fps). That
+  matches the report.
+- With slowdown On, the game instead counts 3 VIs per frame and keeps its
+  speed, as on the N64.
+- Part D's 20-26 fps measurement may have the same cause, not emulated CPU
+  cost.
+
+**How to confirm with the Detailed counter:**
+- `ticks` below 60 while `logic` equals `ticks`: the game clock runs slower
+  than real time, so it is host throughput, which no overclock fixes.
+- `ticks` at 60 with `logic` at 20-30: it is emulated-CPU cost, which the
+  overclock addresses.
+
+**Next steps if it is host throughput:**
+- Measure the share of `execution_fast_hits` against slow-path steps per
+  frame (`cache_counters`, `observed_guest_instructions`) and the host time
+  per game frame.
+- Make the per-instruction step cheaper, or skip cost accounting outside
+  timing-sensitive code.
+- Pace VIs by host time instead of Count in play mode, which decouples game
+  speed from emulation cost.
+
+**Opening-cutscene crash (True 60 from boot): not found.** Ruled out
+statically:
+- Integer division in generated code is guarded (`DIV32`/`DIVU32`).
+- `animseqUpdate` (0x80077614) waits on accumulated time, not on frame
+  counts.
+- The True 60 hooks skip only a void function (texture scrollers).
+- The play-mode instruction budget doesn't apply.
+
+The next step needs the owner's `crash.log` or support ZIP (fail-closed
+category and operation, last dispatch targets), and whether it also
+crashes at Original with slowdown Off (4x overclock, no one-VI mode).
+
 ## Risks and what to look for
 
 - **Off-screen task classification.** Tasks are classified by their color
