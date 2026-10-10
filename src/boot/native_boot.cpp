@@ -1658,10 +1658,17 @@ struct State : JfgOriginalTimingFast {
   std::uint32_t vi_mode_control = 0U;
   void *native_window = nullptr;
   jfg::ViPresentationSize window_presentation{320U, 240U};
-  // RGO widescreen. The launcher passes its profile's video.ini through
-  // JFG_VIDEO_CONFIG; edits apply live while playing.
+  // RGO widescreen and display settings. The launcher passes its profile's
+  // video.ini through JFG_VIDEO_CONFIG; edits apply live while playing.
   bool video_settings_checked = false;
+  // False for replays and captures without a launcher: the renderer then
+  // keeps its original resolution and VSync behaviour.
+  bool video_managed = false;
+  jfg::VideoSettings video{jfg::AspectMode::original};
   bool widescreen = false;
+  // FPS counter: presents counted since the last report to the frontend.
+  std::uint64_t frame_rate_presents = 0U;
+  std::chrono::steady_clock::time_point frame_rate_start{};
   float widescreen_extent = 1.0F;
   // HUD anchoring is active for the current frontUpdate frame.
   bool hud_anchoring = false;
@@ -2334,7 +2341,7 @@ bool service_host_audio(State &state, const bool pace) {
   return true;
 }
 
-// RGO widescreen: follow the launcher's video settings while playing.
+// RGO display settings: follow the launcher's video settings while playing.
 void refresh_video_settings(State &state) {
   if (!state.video_settings_checked) {
     state.video_settings_checked = true;
@@ -2343,17 +2350,21 @@ void refresh_video_settings(State &state) {
     if (_wdupenv_s(&path, &length, L"JFG_VIDEO_CONFIG") == 0 && path) {
       const std::filesystem::path config(path);
       std::free(path);
-      // A missing or unreadable file means the default setting.
-      state.widescreen =
-          jfg::VideoSettings{}.aspect == jfg::AspectMode::widescreen;
+      // A missing or unreadable file means the default settings.
+      state.video = jfg::VideoSettings{};
+      state.video_managed = true;
       if (!config.empty()) {
-        state.video_settings_file = std::make_unique<jfg::AsyncVolumeFile>();
+        state.video_settings_file = std::make_unique<jfg::AsyncVolumeFile>(
+            jfg::kVideoSettingsMaximumBytes);
         state.video_settings_file->start(config);
       }
+    } else if (state.play_mode && !state.input_replay_loaded) {
+      // Direct interactive runs without a launcher profile get the defaults.
+      state.video = jfg::VideoSettings{};
+      state.video_managed = true;
     } else {
-      // Direct runs without a launcher profile: interactive play gets the
-      // default, while replays and captures keep the original picture.
-      state.widescreen = state.play_mode && !state.input_replay_loaded;
+      // Replays and captures keep the original picture and renderer setup.
+      state.video = jfg::VideoSettings{jfg::AspectMode::original};
     }
   }
   const auto now = std::chrono::steady_clock::now();
@@ -2362,11 +2373,32 @@ void refresh_video_settings(State &state) {
     // A partial replacement fails to parse and keeps the last setting.
     if (const auto text = state.video_settings_file->latest())
       if (const auto settings = jfg::parse_video_settings(*text))
-        state.widescreen = settings->aspect == jfg::AspectMode::widescreen;
+        state.video = *settings;
   }
+  state.widescreen = state.video.aspect == jfg::AspectMode::widescreen;
   if (state.rt64_shell != nullptr) {
-    state.rt64_shell->set_widescreen(state.widescreen);
+    if (state.video_managed)
+      state.rt64_shell->set_video_settings(state.video);
     state.widescreen_extent = state.rt64_shell->horizontal_extent();
+  }
+  // FPS counter: report presented frames per second to the frontend twice a
+  // second; it shows them when the setting is on.
+  ++state.frame_rate_presents;
+  if (state.frame_rate_start == std::chrono::steady_clock::time_point{}) {
+    state.frame_rate_start = now;
+    state.frame_rate_presents = 0U;
+  } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
+    const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        now - state.frame_rate_start).count();
+    const auto tenths = static_cast<WPARAM>(
+        (state.frame_rate_presents * 10'000'000ULL +
+         static_cast<std::uint64_t>(elapsed_us) / 2U) /
+        static_cast<std::uint64_t>((std::max)(elapsed_us, decltype(elapsed_us){1})));
+    const HWND window = static_cast<HWND>(state.native_window);
+    if (window != nullptr && GetParent(window) != nullptr)
+      PostMessageW(GetAncestor(window, GA_ROOT), WM_APP + 24U, tenths, 0);
+    state.frame_rate_start = now;
+    state.frame_rate_presents = 0U;
   }
 }
 
@@ -4017,16 +4049,18 @@ bool initialize_live_renderer(State &state, LiveRt64Window &window) {
       _close(null_stdout);
     return false;
   }
-  state.rt64_shell = jfg::Rt64Shell::create(
-      {window.get(), window.thread_id(),
+  // RGO: MSAA is fixed when the renderer starts, so read the settings first.
+  refresh_video_settings(state);
+  jfg::Rt64ShellConfiguration shell_configuration{window.get(), window.thread_id(),
        std::span<const std::byte>(
            reinterpret_cast<const std::byte *>(state.rom),
            jfg::kRt64RequiredHeaderBytes),
        state.rt64_rdram, &state.rt64_vi, false,
        // Software overlays read and modify completed color pixels.
        // RT64 already completes its RAM readback before DP completion.
-       jfg::Rt64MemoryLayout::host_word_swapped, true, true},
-      error);
+       jfg::Rt64MemoryLayout::host_word_swapped, true, true};
+  shell_configuration.msaa_samples = state.video_managed ? state.video.msaa : 1U;
+  state.rt64_shell = jfg::Rt64Shell::create(shell_configuration, error);
   std::fflush(stdout);
   (void)_dup2(saved_stdout, _fileno(stdout));
   _close(null_stdout);

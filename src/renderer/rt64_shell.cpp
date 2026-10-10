@@ -339,11 +339,13 @@ struct Rt64Shell::Impl {
     bool writeback_pending = false;
     std::vector<Rt64RdramRange> writeback_ranges;
     std::uint64_t last_rdram_check_microseconds = 0U;
-    bool widescreen = false;
+    VideoSettings video{AspectMode::original};
     float horizontal_extent = 1.0F;
+    double render_multiplier = 0.0;
 
-    // Choose RT64's aspect target for the current window and VI mode.
-    void update_widescreen() {
+    // RGO display settings: choose RT64's aspect target and render
+    // resolution for the current window and VI mode, and its VSync.
+    void update_display() {
         RT64::Application& app = *application;
         const RT64::VI vi = app.core.decodeVI();
         const hlslpp::uint2 framebuffer_size = vi.fbSize();
@@ -357,16 +359,23 @@ struct Rt64Shell::Impl {
             window_width = shared.swapChainWidth;
             window_height = shared.swapChainHeight;
         }
+        const PixelSize framebuffer{framebuffer_size.x, framebuffer_size.y};
+        const PixelSize shown = display.valid()
+            ? PixelSize{display.width, display.height} : framebuffer;
+        const double source = framebuffer.valid()
+            ? double(framebuffer.width) / double(framebuffer.height)
+            : 4.0 / 3.0;
         double target = 0.0;
         float extent = 1.0F;
-        if (widescreen && display.valid()) {
+        if (video.aspect == AspectMode::widescreen && display.valid()) {
             target = widescreen_aspect_target(window_width, window_height,
                 framebuffer_size.x, framebuffer_size.y,
-                display.width, display.height);
+                display.width, display.height, video.max_aspect.value());
             extent = widescreen_horizontal_extent(
                 target, framebuffer_size.x, framebuffer_size.y);
         }
         RT64::UserConfiguration& config = app.userConfig;
+        bool changed = false;
         const bool expand = extent > 1.0F;
         const auto mode = expand ? RT64::UserConfiguration::AspectRatio::Manual
                                  : RT64::UserConfiguration::AspectRatio::Original;
@@ -380,8 +389,28 @@ struct Rt64Shell::Impl {
                 config.aspectTarget = target;
                 config.extAspectTarget = kWidescreenHudAspect;
             }
-            app.updateUserConfig(false);
+            changed = true;
         }
+        // Render resolution: Match output renders exactly the pixels the
+        // presented picture covers (a non-integer multiplier is fine).
+        const PixelSize picture = fit_picture({window_width, window_height},
+            presented_aspect(expand ? target : source, framebuffer, shown));
+        if (framebuffer.valid() && picture.valid()) {
+            const double multiplier = jfg::render_multiplier(
+                video, picture, framebuffer.height);
+            if (config.resolution != RT64::UserConfiguration::Resolution::Manual ||
+                std::abs(config.resolutionMultiplier - multiplier) > 1e-4) {
+                config.resolution = RT64::UserConfiguration::Resolution::Manual;
+                config.resolutionMultiplier = multiplier;
+                changed = true;
+            }
+            render_multiplier = multiplier;
+        }
+        if (changed)
+            app.updateUserConfig(false);
+        if (app.swapChain != nullptr &&
+            app.swapChain->isVsyncEnabled() != video.vsync)
+            app.swapChain->setVsyncEnabled(video.vsync);
         horizontal_extent = extent;
         f3ddkr->set_horizontal_extent(extent);
         capture->horizontal_extent.store(extent);
@@ -843,6 +872,14 @@ std::unique_ptr<Rt64Shell> Rt64Shell::create(
         }
         impl->application->userConfig.developerMode =
             configuration.developer_mode;
+        // RGO: MSAA is chosen before setup. RT64 turns it off itself when the
+        // device lacks the sample count; changing it live would discard every
+        // framebuffer, so it applies the next time the game starts.
+        impl->application->userConfig.antialiasing =
+            configuration.msaa_samples >= 8U ? RT64::UserConfiguration::Antialiasing::MSAA8X
+            : configuration.msaa_samples >= 4U ? RT64::UserConfiguration::Antialiasing::MSAA4X
+            : configuration.msaa_samples >= 2U ? RT64::UserConfiguration::Antialiasing::MSAA2X
+                                               : RT64::UserConfiguration::Antialiasing::None;
         // JFG draws CPU overlays into the buffer selected by the N64 VI.
         // Skipping to a newer rendered buffer can display it before those edits.
         impl->application->enhancementConfig.presentation.mode =
@@ -888,7 +925,7 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
         RT64::Application& application = *impl_->application;
         if (impl_->writeback_pending)
             return Rt64ShellError::conflicting_cpu_write;
-        impl_->update_widescreen();
+        impl_->update_display();
         // RT64 disables extended GBI at every present. The HUD hooks write
         // alignment commands only while the picture is widened.
         if (impl_->horizontal_extent > 1.0F)
@@ -1068,9 +1105,13 @@ Rt64ShellError Rt64Shell::present(const bool capture_frame) noexcept {
     }
 }
 
-void Rt64Shell::set_widescreen(const bool enabled) noexcept {
+void Rt64Shell::set_video_settings(const VideoSettings& settings) noexcept {
     if (impl_ != nullptr)
-        impl_->widescreen = enabled;
+        impl_->video = settings;
+}
+
+double Rt64Shell::render_multiplier() const noexcept {
+    return impl_ != nullptr ? impl_->render_multiplier : 0.0;
 }
 
 float Rt64Shell::horizontal_extent() const noexcept {

@@ -8,5 +8,6 @@
 
 <div id="game-popup" class="game-popup"/>
 <div id="modal" class="modal-shade"><div class="dialog" id="dialog"><div class="dialog-header"><span class="title-mark"/><span id="dialog-title"/><button class="close" data-action="close" aria-label="Close"><span class="close-cross"><span/><span/></span></button></div><div class="dialog-body" id="dialog-body"/><div class="dialog-footer"><span class="muted" id="dialog-note"/><div id="dialog-extra"/><button class="primary" data-action="close">Done</button></div></div></div>
+<div id="fps-counter"/>
 <div id="toast"><span class="notice-dot"/><span id="toast-text"/></div>
 </body></rml>

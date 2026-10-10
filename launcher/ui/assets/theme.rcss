@@ -208,6 +208,14 @@ input.volume sliderprogress { height:4dp; background:#ffb23e; }
 .game-popup button { height:36dp; padding:8dp 14dp; font-size:14dp; }
 .pause-label { position:static; padding:3dp 8dp; border:1dp #4a4231; border-radius:4dp; color:#ffcf86; font-size:11dp; letter-spacing:1dp; margin-right:8dp; }
 #toast { display:flex; align-items:center; gap:10dp; left:20dp; bottom:48dp; padding:12dp 16dp; font-size:14dp; pointer-events:none; max-width:85%; }
+#fps-counter { position:absolute; display:none; top:32dp; right:12dp; padding:4dp 10dp; border-radius:4dp; background:#05070bcc; color:#ffb23e; font-family:Chakra Petch; font-size:14dp; pointer-events:none; }
+#fps-counter.visible { display:block; }
+.fullscreen #fps-counter { top:8dp; }
+.panel-open #fps-counter { display:none; }
+.size-row { min-height:0; }
+.size-input { width:70dp; padding:6dp 8dp; background:#161d2e; border:1dp #2e3a57; border-radius:6dp; text-align:right; }
+.scale-value { min-width:48dp; text-align:right; }
+.video select { min-width:190dp; }
 .notice-dot { width:7dp; height:7dp; background:#6fd3ee; border-radius:4dp; }
 .playing #toast { bottom:20dp; }
 .panel-open #toast { opacity:0; visibility:hidden; }

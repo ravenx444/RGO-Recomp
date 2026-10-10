@@ -55,29 +55,6 @@ bool inside(const std::array<float, jfg::kTrackFrustumFloatCount>& t,
 int main() {
     using namespace jfg;
 
-    // Settings file round trip; anything unexpected is rejected.
-    require(encode_video_settings({AspectMode::widescreen}) ==
-                "version=1\naspect=widescreen\n",
-        "widescreen encoding");
-    require(encode_video_settings({AspectMode::original}) ==
-                "version=1\naspect=original\n",
-        "original encoding");
-    for (const auto mode : {AspectMode::original, AspectMode::widescreen}) {
-        const auto parsed = parse_video_settings(encode_video_settings({mode}));
-        require(parsed && parsed->aspect == mode, "settings round trip");
-    }
-    require(parse_video_settings("version=1\r\naspect=original\r\n")->aspect ==
-                AspectMode::original,
-        "CRLF settings accepted");
-    for (const char* bad :
-         {"", "version=1\n", "version=2\naspect=original\n",
-          "version=1\naspect=wide\n", "version=1\naspect=original",
-          "version=1\naspect=original\nextra=1\n",
-          "aspect=original\nversion=1\n"})
-        require(!parse_video_settings(bad), "invalid settings rejected");
-    require(VideoSettings{}.aspect == AspectMode::widescreen,
-        "widescreen is the default");
-
     // Aspect target for the normal 320x240 mode follows the window.
     require(near(widescreen_aspect_target(1920U, 1080U, 320U, 240U, 320U, 240U),
                  16.0 / 9.0),
@@ -92,8 +69,19 @@ int main() {
                  4.0 / 3.0),
         "narrow window never narrows the picture");
     require(near(widescreen_aspect_target(7680U, 1080U, 320U, 240U, 320U, 240U),
+                 7680.0 / 1080.0),
+        "triple 16:9 is not capped");
+    require(near(widescreen_aspect_target(16000U, 1000U, 320U, 240U, 320U, 240U),
                  kMaximumWidescreenAspect),
         "extreme windows are capped");
+    require(near(widescreen_aspect_target(5120U, 1440U, 320U, 240U, 320U, 240U,
+                                          16.0 / 9.0),
+                 16.0 / 9.0),
+        "max aspect 16:9 pillarboxes 32:9");
+    require(near(widescreen_aspect_target(1920U, 1080U, 320U, 240U, 320U, 240U,
+                                          21.0 / 9.0),
+                 16.0 / 9.0),
+        "max aspect above the window changes nothing");
     require(near(widescreen_aspect_target(0U, 0U, 320U, 240U, 320U, 240U),
                  4.0 / 3.0),
         "unknown window keeps the source shape");

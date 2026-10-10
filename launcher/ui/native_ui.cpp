@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <commdlg.h>
 #include <dcomp.h>
 #include <deque>
@@ -23,10 +25,12 @@
 #include <jfg/audio/master_volume.hpp>
 #include <jfg/runtime/controller_ports.hpp>
 #include <jfg/runtime/pc_input.hpp>
+#include <jfg/renderer/widescreen.hpp>
 #include <memory>
 #include <shellapi.h>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <windows.h>
 #include <wrl/client.h>
 #include <xinput.h>
@@ -80,6 +84,10 @@ struct Ui : Rml::EventListener {
   HWND window = nullptr;
   std::function<void(const std::string &)> action;
   FrontendUiState state;
+  // RGO display settings: text typed into the custom size fields, kept while
+  // the page is rebuilt, and whether the custom output row is shown.
+  std::string outputWidth, outputHeight, renderWidth, renderHeight;
+  bool customOutput = false;
   jfg::ControllerPorts assignments;
   std::array<jfg::ControllerMapping, 4> mappings{};
   std::array<jfg::PcInputConfig,4> pcInput{};
@@ -544,6 +552,207 @@ struct Ui : Rml::EventListener {
            escape(text) + (shortcut.empty() ? "" :
                "<span class=\"menu-shortcut\">" + escape(shortcut) + "</span>") + "</button>";
   }
+  // ---- RGO display settings -------------------------------------------
+  std::vector<jfg::PixelSize> monitorSizes() const {
+    MONITORINFOEXW monitor{};
+    monitor.cbSize = sizeof(monitor);
+    std::vector<jfg::PixelSize> modes;
+    if (!GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+      return modes;
+    DEVMODEW mode{};
+    mode.dmSize = sizeof(mode);
+    for (DWORD i = 0; EnumDisplaySettingsW(monitor.szDevice, i, &mode); ++i)
+      modes.push_back({mode.dmPelsWidth, mode.dmPelsHeight});
+    return jfg::unique_output_sizes(modes);
+  }
+  static std::string sizeText(jfg::PixelSize size) {
+    return std::to_string(size.width) + " x " + std::to_string(size.height);
+  }
+  // The renderer's choice for the current game area, as the shell makes it.
+  jfg::PixelSize plannedRenderSize(const jfg::VideoSettings &v) const {
+    const jfg::PixelSize window{static_cast<std::uint32_t>(std::max(state.viewWidth, 0)),
+                                static_cast<std::uint32_t>(std::max(state.viewHeight, 0))};
+    const jfg::PixelSize framebuffer{320U, 240U};
+    const double source = 4.0 / 3.0;
+    const double target = v.aspect == jfg::AspectMode::widescreen
+        ? jfg::widescreen_aspect_target(window.width, window.height, 320U, 240U, 320U, 240U, v.max_aspect.value())
+        : source;
+    const auto picture = jfg::fit_picture(window, target);
+    if (!picture.valid())
+      return {};
+    return jfg::render_size(jfg::render_multiplier(v, picture, framebuffer.height), framebuffer, target / source);
+  }
+  std::string renderSizeNote(const jfg::VideoSettings &v) const {
+    const auto size = plannedRenderSize(v);
+    return size.valid() ? "Renders at " + sizeText(size) + " for the current game area (" +
+                              std::to_string(state.viewWidth) + " x " + std::to_string(state.viewHeight) + ")."
+                        : "";
+  }
+  static std::string option(const std::string &value, const std::string &text, bool selected) {
+    return "<option value=\"" + value + "\"" + (selected ? " selected=\"selected\"" : "") + ">" +
+           escape(text) + "</option>";
+  }
+  std::string sizeInputs(const std::string &prefix, const std::string &width,
+                         const std::string &height, const std::string &apply) {
+    return "<input type=\"text\" class=\"size-input\" id=\"" + prefix + "-width\" data-action=\"" + prefix +
+           "-width\" size=\"5\" maxlength=\"5\" value=\"" + escape(width) + "\"/><span>x</span>" +
+           "<input type=\"text\" class=\"size-input\" id=\"" + prefix + "-height\" data-action=\"" + prefix +
+           "-height\" size=\"5\" maxlength=\"5\" value=\"" + escape(height) + "\"/>" + button(apply, "Apply");
+  }
+  std::string videoHtml() {
+    const auto &v = state.video;
+    const bool exclusive = v.fullscreen == jfg::FullscreenMode::exclusive;
+    std::string html = "<div class=\"split\"><div class=\"grow\">";
+    html += "<div class=\"row\"><span class=\"grow\">Window mode</span><div class=\"segments\">" +
+            button("window-windowed", "Windowed") + button("window-borderless", "Borderless") +
+            button("window-exclusive", "Exclusive") + "</div></div>";
+    // Output resolution: the monitor's own modes, or any typed size.
+    const auto modes = monitorSizes();
+    const bool listed = !v.output.valid() || std::find(modes.begin(), modes.end(), v.output) != modes.end();
+    const bool custom = customOutput || !listed;
+    if (outputWidth.empty() && v.output.valid()) {
+      outputWidth = std::to_string(v.output.width);
+      outputHeight = std::to_string(v.output.height);
+    }
+    std::string outputNote = state.fullscreen && !exclusive
+        ? "Borderless uses your desktop resolution."
+        : state.fullscreen ? "Display mode for exclusive fullscreen."
+                           : "Sets the game area. You can also resize the window freely.";
+    html += "<div class=\"row\"><div class=\"grow\">Output resolution<div class=\"muted\">" + outputNote +
+            "</div></div><select id=\"output-select\" data-action=\"output-select\">" +
+            option("auto", state.fullscreen ? "Desktop resolution" : "Current window", !v.output.valid() && !custom);
+    for (const auto size : modes)
+      html += option(std::to_string(size.width) + "x" + std::to_string(size.height), sizeText(size),
+                     !custom && size == v.output);
+    html += option("custom", "Custom...", custom) + "</select></div>";
+    if (custom)
+      html += "<div class=\"row size-row\"><span class=\"grow muted\">Custom output size</span>" +
+              sizeInputs("output", outputWidth, outputHeight, "output-apply") + "</div>";
+    // Render resolution.
+    html += "<div class=\"row\"><div class=\"grow\">Render resolution<div class=\"muted\" id=\"render-note\">" +
+            escape(renderSizeNote(v)) + "</div></div><select id=\"render-mode\" data-action=\"render-mode\">" +
+            option("match", "Match output", v.render == jfg::RenderMode::match) +
+            option("scale", "Render scale", v.render == jfg::RenderMode::scale) +
+            option("custom", "Custom size", v.render == jfg::RenderMode::custom) + "</select></div>";
+    if (v.render == jfg::RenderMode::scale)
+      html += "<div class=\"row size-row\"><span class=\"grow muted\">Render scale</span><input class=\"volume\" "
+              "type=\"range\" min=\"25\" max=\"200\" step=\"5\" value=\"" + std::to_string(v.render_scale) +
+              "\" data-action=\"render-scale\"/><span id=\"render-scale-value\" class=\"scale-value\">" +
+              std::to_string(v.render_scale) + "%</span></div>";
+    if (v.render == jfg::RenderMode::custom) {
+      if (renderWidth.empty()) {
+        renderWidth = std::to_string(v.render_size.width);
+        renderHeight = std::to_string(v.render_size.height);
+      }
+      html += "<div class=\"row size-row\"><span class=\"grow muted\">Custom render size</span>" +
+              sizeInputs("render", renderWidth, renderHeight, "render-apply") + "</div>";
+    }
+    html += "<div class=\"row\"><span class=\"grow\">Aspect ratio</span><div class=\"segments\">" +
+            button("aspect-original", "Original 4:3") + button("aspect-widescreen", "Widescreen") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Max aspect ratio<div class=\"muted\">Wider screens get side bars.</div></div>"
+            "<select id=\"max-aspect\" data-action=\"max-aspect\"" +
+            std::string(v.aspect == jfg::AspectMode::widescreen ? "" : " disabled=\"disabled\"") + ">";
+    bool known = false;
+    for (const char *limit : {"unlimited", "32:9", "21:9", "16:9", "16:10"}) {
+      const bool selected = jfg::aspect_limit_text(v.max_aspect) == limit;
+      known |= selected;
+      html += option(limit, std::string(limit) == "unlimited" ? "Unlimited" : limit, selected);
+    }
+    if (!known)
+      html += option(jfg::aspect_limit_text(v.max_aspect), jfg::aspect_limit_text(v.max_aspect), true);
+    html += "</select></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Anti-aliasing<div class=\"muted\">MSAA. Applies the next time the game starts.</div></div>"
+            "<div class=\"segments\">" + button("msaa-1", "Off") + button("msaa-2", "2x") + button("msaa-4", "4x") +
+            button("msaa-8", "8x") + "</div></div>";
+    html += "<div class=\"row\"><span class=\"grow\">VSync</span><div class=\"segments\">" + button("vsync-on", "On") +
+            button("vsync-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><span class=\"grow\">FPS counter</span><div class=\"segments\">" + button("fps-off", "Off") +
+            button("fps-on", "On") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
+            button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
+    html += "</div><div class=\"about\"><div class=\"label\">ABOUT</div><div class=\"name\">Display</div>"
+            "<p>Widescreen keeps the original height of view and shows more to the sides, at any window shape, "
+            "without stretching. Narrow and portrait windows show the original 4:3 picture with bars.</p>"
+            "<p>Match output renders exactly as many pixels as the picture covers. Lower the render scale for "
+            "speed, or raise it for sharper edges.</p><p class=\"muted\">F11 switches between windowed and the "
+            "chosen fullscreen. Leave the game's own Widescreen option off.</p></div></div>";
+    return html;
+  }
+  void saveVideo(const jfg::VideoSettings &v, bool rebuild) {
+    state.video = v;
+    action("video-set\n" + jfg::encode_video_settings(v));
+    if (rebuild && current == "video")
+      modal("video");
+    else if (auto *e = el("render-note"))
+      e->SetInnerRML(escape(renderSizeNote(v)));
+  }
+  // Click actions on the Video page. Returns false for other actions.
+  bool videoAction(const std::string &a) {
+    auto v = state.video;
+    if (a == "aspect-original" || a == "aspect-widescreen")
+      v.aspect = a == "aspect-widescreen" ? jfg::AspectMode::widescreen : jfg::AspectMode::original;
+    else if (a.rfind("msaa-", 0) == 0)
+      v.msaa = static_cast<std::uint8_t>(std::clamp(std::atoi(a.c_str() + 5), 1, 8));
+    else if (a == "vsync-on" || a == "vsync-off")
+      v.vsync = a == "vsync-on";
+    else if (a == "fps-on" || a == "fps-off")
+      v.fps_counter = a == "fps-on";
+    else if (a == "output-apply" || a == "render-apply") {
+      const bool output = a == "output-apply";
+      const auto size = jfg::parse_typed_size(output ? outputWidth : renderWidth, output ? outputHeight : renderHeight,
+                                              output ? jfg::kMinimumOutputDimension : jfg::kMinimumRenderDimension);
+      if (!size) {
+        label("dialog-note", output ? "Enter a width and height of 320 to 16384 pixels."
+                                    : "Enter a width and height of 160 to 16384 pixels.");
+        return true;
+      }
+      (output ? v.output : v.render_size) = *size;
+    } else
+      return false;
+    saveVideo(v, true);
+    return true;
+  }
+  // Change events (selects, slider, typed sizes). Returns false for others.
+  bool videoChange(const std::string &a, Rml::Event &event) {
+    auto v = state.video;
+    const auto value = event.GetParameter<Rml::String>("value", "");
+    if (a == "output-width") { outputWidth = value; return true; }
+    if (a == "output-height") { outputHeight = value; return true; }
+    if (a == "render-width") { renderWidth = value; return true; }
+    if (a == "render-height") { renderHeight = value; return true; }
+    if (a == "output-select") {
+      customOutput = value == "custom";
+      if (customOutput) { modal("video"); return true; }
+      if (value == "auto") v.output = {};
+      else if (const auto split = value.find('x'); split != std::string::npos) {
+        if (const auto size = jfg::parse_typed_size(value.substr(0, split), value.substr(split + 1), jfg::kMinimumOutputDimension))
+          v.output = *size;
+      }
+      saveVideo(v, true);
+      return true;
+    }
+    if (a == "render-mode") {
+      v.render = value == "scale" ? jfg::RenderMode::scale : value == "custom" ? jfg::RenderMode::custom : jfg::RenderMode::match;
+      saveVideo(v, true);
+      return true;
+    }
+    if (a == "render-scale") {
+      const int scale = std::clamp((event.GetParameter<int>("value", 100) + 2) / 5 * 5, 25, 200);
+      if (static_cast<std::uint32_t>(scale) == v.render_scale) return true;
+      v.render_scale = static_cast<std::uint32_t>(scale);
+      label("render-scale-value", std::to_string(scale) + "%");
+      saveVideo(v, false);  // Rebuilding would interrupt the drag.
+      return true;
+    }
+    if (a == "max-aspect") {
+      if (const auto limit = jfg::parse_aspect_limit(value)) {
+        v.max_aspect = *limit;
+        saveVideo(v, true);
+      }
+      return true;
+    }
+    return false;
+  }
   std::string aboutHtml() const {
     const auto resource = FindResourceW(nullptr, MAKEINTRESOURCEW(209), RT_RCDATA);
     const auto data = resource ? LockResource(LoadResource(nullptr, resource)) : nullptr;
@@ -639,7 +848,7 @@ struct Ui : Rml::EventListener {
                           : page == "video"     ? "VIDEO"
                           : page == "audio"     ? "AUDIO"
                                                 : "JFG RECOMP");
-    el("dialog")->SetProperty("width", page == "controllers" ? "880dp"
+    el("dialog")->SetProperty("width", page == "controllers" || page == "video" ? "880dp"
                                        : page == "audio"     ? "480dp"
                                        : page == "setup"     ? "640dp"
                                        : page == "support"   ? "720dp"
@@ -647,7 +856,7 @@ struct Ui : Rml::EventListener {
                                                              : "760dp");
     el("dialog")->SetProperty("height", page == "controllers" ? "600dp"
                                         : page == "audio"     ? "280dp"
-                                        : page == "video"     ? "500dp"
+                                        : page == "video"     ? "620dp"
                                         : page == "setup"     ? "420dp"
                                         : page == "help"      ? "640dp"
                                                               : "460dp");
@@ -672,28 +881,8 @@ struct Ui : Rml::EventListener {
               button("up", "+") + "</div>";
       note = "Applied immediately. Volume is remembered when muted.";
     } else if (page == "video") {
-      html =
-          "<div class=\"split\"><div class=\"grow\"><div class=\"row\"><span "
-          "class=\"grow\">Window mode</span><div class=\"segments\">" +
-          button("windowed", "Windowed") + button("borderless", "Fullscreen") +
-          "</div></div>";
-      html += "<div class=\"row\"><span class=\"grow\">Window size</span><div "
-              "class=\"segments\">" +
-              button("size720", "1280 x 720") +
-              button("size1080", "1920 x 1080") + "</div></div>";
-      html += "<div class=\"row\"><span class=\"grow\">Aspect ratio</span><div "
-              "class=\"segments\">" +
-              button("aspect-original", "Original 4:3") +
-              button("aspect-widescreen", "Widescreen") + "</div></div></div><div "
-              "class=\"about\"><div class=\"label\">ABOUT</div><div "
-              "class=\"name\">Display</div><p>Widescreen shows more of the "
-              "world to the sides and fills wide and ultrawide screens without "
-              "stretching. Original keeps the 4:3 picture.</p><p "
-              "class=\"muted\">F11 switches modes. Leave the game's own "
-              "Widescreen option off when using Widescreen here.</p></div></div>";
-      html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
-              button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
-      note = "Changes apply immediately. Settings dialogs always pause the game.";
+      html = videoHtml();
+      note = "Changes apply immediately. Anti-aliasing applies the next time the game starts.";
     } else if (page == "controllers") {
       auto &m = mappings[player];
       loadPcInput();
@@ -842,10 +1031,18 @@ struct Ui : Rml::EventListener {
       if (auto *focus = el(focusId.c_str()))
         focus->Focus(true);
     if (page == "video") {
-      el(state.fullscreen ? "action-borderless" : "action-windowed")
-          ->SetClass("selected", true);
-      el(state.widescreen ? "action-aspect-widescreen" : "action-aspect-original")
-          ->SetClass("selected", true);
+      const auto &v = state.video;
+      const char *selected[] = {
+          !state.fullscreen ? "action-window-windowed"
+          : v.fullscreen == jfg::FullscreenMode::exclusive ? "action-window-exclusive"
+                                                           : "action-window-borderless",
+          v.aspect == jfg::AspectMode::widescreen ? "action-aspect-widescreen" : "action-aspect-original",
+          v.msaa >= 8U ? "action-msaa-8" : v.msaa >= 4U ? "action-msaa-4" : v.msaa >= 2U ? "action-msaa-2" : "action-msaa-1",
+          v.vsync ? "action-vsync-on" : "action-vsync-off",
+          v.fps_counter ? "action-fps-on" : "action-fps-off"};
+      for (const char *id : selected)
+        if (auto *e = el(id))
+          e->SetClass("selected", true);
     }
     if (page == "controllers") {
       if(auto *e=el("action-invertx"))e->SetClass("selected", mappings[player].invert_x);
@@ -923,6 +1120,8 @@ struct Ui : Rml::EventListener {
               std::to_string((*value * 100 + 16383) / 32767) + "%");
         return;
       }
+      if (current == "video" && videoChange(a, event))
+        return;
       if (a == "volume") {
         volume = std::clamp(event.GetParameter<int>("value", volume), 0, 100);
         saveAudio();
@@ -943,6 +1142,14 @@ struct Ui : Rml::EventListener {
         if(d>=0 && deviceAvailable(d))pickerDevice=d;
         return;
       }
+      return;
+    }
+    if (current == "video" && videoAction(a))
+      return;
+    if (a == "window-windowed" || a == "window-borderless" || a == "window-exclusive") {
+      // The frontend owns the window; it saves the fullscreen kind and
+      // reports the new state back through FrontendUiState.
+      action(a);
       return;
     }
     if(a=="device-open") {
@@ -1370,7 +1577,7 @@ void FrontendUiFrame(const FrontendUiState &state) {
           (ui.current == "menu-game" || ui.current == "setup") ||
       (state.fullscreen != ui.state.fullscreen && (ui.current == "video" || ui.current == "menu-video")) ||
       (state.pauseInactive != ui.state.pauseInactive && ui.current == "video") ||
-      (state.widescreen != ui.state.widescreen && ui.current == "video") ||
+      (!(state.video == ui.state.video) && ui.current == "video") ||
       (ui.current == "help" && (state.rom != ui.state.rom || state.playing != ui.state.playing));
   if (state.playing != ui.state.playing) {
     if (state.playing) {
@@ -1402,7 +1609,22 @@ void FrontendUiFrame(const FrontendUiState &state) {
       e->SetInnerRML("<span>" + escape(u8(state.status)) + "</span>");
   }
   ui.doc->SetClass("paused", paused);
+  // RGO FPS counter, reported by the game twice a second.
+  if (auto *fps = ui.el("fps-counter")) {
+    const bool show = state.playing && state.video.fps_counter && state.fpsTenths >= 0;
+    fps->SetClass("visible", show);
+    if (show && state.fpsTenths != ui.state.fpsTenths) {
+      char text[32];
+      std::snprintf(text, sizeof(text), "%d.%d FPS", state.fpsTenths / 10, state.fpsTenths % 10);
+      fps->SetInnerRML(text);
+    }
+  }
+  const bool viewChanged = state.viewWidth != ui.state.viewWidth || state.viewHeight != ui.state.viewHeight;
   ui.state = state;
+  // The render size note follows the game area without rebuilding the page.
+  if (viewChanged && ui.current == "video")
+    if (auto *note = ui.el("render-note"))
+      note->SetInnerRML(escape(ui.renderSizeNote(state.video)));
   if (refreshPanel)
     ui.modal(ui.current);
   if (ui.current == "support") {

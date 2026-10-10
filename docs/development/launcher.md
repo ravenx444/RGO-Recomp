@@ -11,7 +11,7 @@ Use the top menu during play. F11 toggles fullscreen; Esc opens or closes the Ga
 the 3D view widens to the window's shape) or Original 4:3 (pillarboxed); it
 applies while playing and is stored in the profile's `video.ini`. See
 [RGO widescreen](../rgo/widescreen.md). It is independent of the original
-in-game widescreen setting, which is best left off with Widescreen. Audio provides a live volume slider and mute. Settings modals pause the game at a frame boundary and resume it when closed. Menu dropdowns keep gameplay running. Video settings also offers Pause when inactive. In fullscreen, the menu bar is hidden until Esc or F10 opens the controls.
+in-game widescreen setting, which is best left off with Widescreen. Video settings also chooses the window mode (windowed, borderless or exclusive fullscreen), output and render resolution, Max aspect ratio, MSAA, VSync and an FPS counter; see [RGO display settings](../rgo/display-settings.md). Audio provides a live volume slider and mute. Settings modals pause the game at a frame boundary and resume it when closed. Menu dropdowns keep gameplay running. Video settings also offers Pause when inactive. In fullscreen, the menu bar is hidden until Esc or F10 opens the controls.
 
 Controllers provides Player 1 through Player 4 tabs. Choose a distinct physical
 XInput device for each player. Changes save automatically. Click a binding,

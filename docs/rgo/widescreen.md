@@ -125,8 +125,9 @@ in the private Windows game build.
      launcher passes the path as `JFG_VIDEO_CONFIG`; the game re-reads it
      every 250 ms, so the setting applies while playing.
    - The shell sets RT64 to **Manual** with
-     `target = window_aspect * source / display` (capped at 32:9, never below
-     the source). With the normal 320x240 mode this equals RT64's Expand. With
+     `target = window_aspect * source / display` (capped by Max aspect ratio,
+     8:1 when unlimited; never below the source; see
+     [display settings](display-settings.md)). With the normal 320x240 mode this equals RT64's Expand. With
      the game's own Widescreen option the scanout is already 16:9, so a 16:9
      window gets no extra widening instead of being widened twice, and
      ultrawide only widens the remainder.
