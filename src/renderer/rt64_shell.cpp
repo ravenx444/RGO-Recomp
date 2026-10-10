@@ -414,7 +414,7 @@ struct Rt64Shell::Impl {
             render_multiplier = multiplier;
         }
         // Frame rate: RT64 blends extra frames up to this target.
-        const Rt64RefreshPlan refresh = refresh_plan(video.framerate);
+        const Rt64RefreshPlan refresh = refresh_plan(video);
         const auto refresh_mode = refresh.mode == Rt64RefreshMode::display
             ? RT64::UserConfiguration::RefreshRate::Display
             : refresh.mode == Rt64RefreshMode::manual
@@ -965,7 +965,7 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
         // RGO frame interpolation: tell RT64 the game's own rate for this
         // task (RT64 would otherwise infer 60 from this port's presents) and
         // give the shell the camera and object matrix tags.
-        const bool interpolating = interpolation_requested(impl_->video.framerate);
+        const bool interpolating = interpolation_requested(impl_->video);
         impl_->f3ddkr->set_interpolation(interpolating,
             impl_->video.interpolate_objects, &impl_->matrix_tags);
         if (interpolating)

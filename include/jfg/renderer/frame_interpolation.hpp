@@ -24,23 +24,27 @@ struct Rt64RefreshPlan {
     friend bool operator==(const Rt64RefreshPlan&, const Rt64RefreshPlan&) = default;
 };
 
-[[nodiscard]] constexpr Rt64RefreshPlan refresh_plan(const FrameRate rate) noexcept {
-    switch (rate) {
-    case FrameRate::sixty:
-        return {Rt64RefreshMode::manual, 60};
-    case FrameRate::display:
-        return {Rt64RefreshMode::display, 60};
-    case FrameRate::unlocked:
-        return {Rt64RefreshMode::manual, kUnlockedRefreshTarget};
-    case FrameRate::original:
-    default:
-        return {};
-    }
+// RT64 blends frames only above the game's own rate: with true 60 fps logic
+// that means Display or Unlocked, and only when "Interpolate extra frames"
+// is on.
+[[nodiscard]] constexpr bool interpolation_requested(const VideoSettings& settings) noexcept {
+    return settings.interpolate_frames &&
+        (settings.framerate == FrameRate::display || settings.framerate == FrameRate::unlocked);
 }
 
-[[nodiscard]] constexpr bool interpolation_requested(const FrameRate rate) noexcept {
-    return rate != FrameRate::original;
+[[nodiscard]] constexpr Rt64RefreshPlan refresh_plan(const VideoSettings& settings) noexcept {
+    if (!interpolation_requested(settings))
+        return {};
+    return settings.framerate == FrameRate::unlocked
+        ? Rt64RefreshPlan{Rt64RefreshMode::manual, kUnlockedRefreshTarget}
+        : Rt64RefreshPlan{Rt64RefreshMode::display, 60};
 }
+
+// True 60 fps logic: around every viFrameSync (US 0x80054FBC, gameVi.c) the
+// hook sets the game's own runInOneFrame flag (0x800FECCC), which makes it
+// wait for one VI per frame and pass updateRate 1 to every tick function.
+inline constexpr std::uint32_t kViFrameSync = 0x80054FBCU;
+inline constexpr std::uint32_t kRunInOneFrame = 0x800FECCCU;
 
 // The game's logic rate for one game frame: 60 / the VIs it took (2 normally,
 // 3 after slow frames). Long stalls (loading) are clamped to 10 per second.

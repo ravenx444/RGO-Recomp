@@ -42,13 +42,14 @@ enum class RenderMode : std::uint8_t {
     custom,
 };
 
-// RGO frame interpolation: how many frames RT64 presents. Game logic keeps
-// its original rate; RT64 renders blended frames in between.
+// RGO frame rate. Above Original the game itself runs its logic and draws
+// at 60 per second (its own 1-VI mode); RT64 can blend extra frames on top
+// up to the display's rate or uncapped (docs/rgo/framerate.md).
 enum class FrameRate : std::uint8_t {
-    original,  // one frame per game frame (30 or 20 fps)
-    sixty,     // 60 fps
-    display,   // the display's refresh rate
-    unlocked,  // as many as RT64 can render, uncapped
+    original,  // the game's own 30 fps (20 in its slow mode)
+    sixty,     // true 60: game logic and drawing at 60 per second
+    display,   // true 60, blended up to the display's refresh rate
+    unlocked,  // true 60, blended as fast as RT64 can render
 };
 
 struct PixelSize {
@@ -98,6 +99,8 @@ struct VideoSettings {
     bool vsync = true;
     bool fps_counter = false;
     FrameRate framerate = FrameRate::original;
+    // Blend extra frames above the game's rate (Display / Unlocked).
+    bool interpolate_frames = true;
     // Experimental (no settings page entry yet): also blend object matrices.
     bool interpolate_objects = false;
     // Reproduce the N64's slowdown: heavy scenes drop to 20 fps because the
@@ -219,6 +222,8 @@ parse_pair(std::string_view text, const char separator) noexcept {
             : settings.framerate == FrameRate::display  ? "display"
             : settings.framerate == FrameRate::unlocked ? "unlocked"
                                                         : "original";
+    text += settings.interpolate_frames ? "\ninterpolate_frames=on"
+                                        : "\ninterpolate_frames=off";
     text += settings.interpolate_objects ? "\ninterpolate_objects=on"
                                          : "\ninterpolate_objects=off";
     text += settings.n64_slowdown ? "\nn64_slowdown=on\n" : "\nn64_slowdown=off\n";
@@ -257,10 +262,11 @@ parse_pair(std::string_view text, const char separator) noexcept {
             return std::nullopt;
         const std::string_view key = line.substr(0U, equals);
         const std::string_view value = line.substr(equals + 1U);
-        constexpr std::array<std::string_view, 13U> keys{
+        constexpr std::array<std::string_view, 14U> keys{
             "aspect", "max_aspect", "fullscreen", "output", "render",
             "render_scale", "render_size", "msaa", "vsync", "fps_counter",
-            "framerate", "interpolate_objects", "n64_slowdown"};
+            "framerate", "interpolate_objects", "n64_slowdown",
+            "interpolate_frames"};
         const auto found = std::find(keys.begin(), keys.end(), key);
         if (found == keys.end()) {
             for (const char ch : key)
@@ -332,6 +338,8 @@ parse_pair(std::string_view text, const char separator) noexcept {
             else ok = false;
         } else if (key == "interpolate_objects") {
             ok = on_off(settings.interpolate_objects);
+        } else if (key == "interpolate_frames") {
+            ok = on_off(settings.interpolate_frames);
         } else {
             ok = on_off(settings.n64_slowdown);
         }
@@ -345,12 +353,20 @@ parse_pair(std::string_view text, const char separator) noexcept {
 
 // Emulated CPU overclock (power of two) for the original-timing runtime:
 // Count advances by instruction cost / (2 << shift). 0 is the N64's own
-// speed; 4x leaves even the heaviest scenes well inside two VIs per frame.
+// speed; 4x leaves even the heaviest scenes well inside two VIs per frame,
+// and true 60 fps logic (one VI per frame) gets 8x.
 inline constexpr std::uint32_t kNoSlowdownOverclockShift = 2U;
+inline constexpr std::uint32_t kTrue60OverclockShift = 3U;
+
+[[nodiscard]] constexpr bool true_logic_60(const VideoSettings& settings) noexcept {
+    return settings.framerate != FrameRate::original;
+}
 
 [[nodiscard]] constexpr std::uint32_t cpu_overclock_shift(
     const VideoSettings& settings) noexcept {
-    return settings.n64_slowdown ? 0U : kNoSlowdownOverclockShift;
+    if (settings.n64_slowdown)
+        return 0U;
+    return true_logic_60(settings) ? kTrue60OverclockShift : kNoSlowdownOverclockShift;
 }
 
 // ---------------------------------------------------------------------------

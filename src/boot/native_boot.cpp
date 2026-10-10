@@ -5636,6 +5636,26 @@ bool hud_aligned_call(State &state, hle::GuestMemory &memory,
   return true;
 }
 
+// RGO true 60 fps logic: run viFrameSync with the game's own runInOneFrame
+// flag set, so it waits for one VI per frame and returns updateRate 1. The
+// game's value is restored afterwards for any code that reads it.
+bool true60_dispatch(State &state, const std::uint32_t target,
+                     std::uint8_t *rdram, recomp_context *context) {
+  if (target != jfg::kViFrameSync)
+    return false;
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  std::uint32_t saved = 0U;
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+  if (original == nullptr || !memory.read_u32(jfg::kRunInOneFrame, saved))
+    return false;
+  (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+  original(rdram, context);
+  (void)memory.write_u32(jfg::kRunInOneFrame, saved);
+  return true;
+}
+
 // RGO frame interpolation, phase 2 (experimental, interpolate_objects=on):
 // run the game's object matrix writers and tag each matrix they write with an
 // ID from the object pointer and how many matrices it pushed since the last
@@ -5863,9 +5883,14 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       return 1;
     }
   }
+  // RGO true 60 fps logic (Frame rate above Original). Replays and captures
+  // keep the game's own frame pacing.
+  if (state.video_managed && !state.input_replay_loaded &&
+      jfg::true_logic_60(state.video) && true60_dispatch(state, target, rdram, context))
+    return 1;
   // RGO frame interpolation: tag object matrices (experimental).
   if (state.rt64_shell != nullptr && state.video.interpolate_objects &&
-      jfg::interpolation_requested(state.video.framerate) &&
+      jfg::interpolation_requested(state.video) &&
       interpolation_tag_dispatch(state, target, rdram, context))
     return 1;
   // RGO widescreen HUD: track the HUD frame and its element groups, and

@@ -39,19 +39,36 @@ bool near(const float a, const float b, const float tolerance = 1e-3F) {
 int main() {
     using namespace jfg;
 
-    // Frame rate setting -> RT64 refresh configuration.
-    require(refresh_plan(FrameRate::original) == Rt64RefreshPlan{}, "original");
-    require(refresh_plan(FrameRate::sixty) ==
-                Rt64RefreshPlan{Rt64RefreshMode::manual, 60},
-        "60");
-    require(refresh_plan(FrameRate::display).mode == Rt64RefreshMode::display,
+    // Frame rate setting -> RT64 refresh configuration. Blending only above
+    // the game's own (true 60) rate, and only with Interpolate extra frames.
+    auto with = [](FrameRate rate, bool interpolate) {
+        VideoSettings settings;
+        settings.framerate = rate;
+        settings.interpolate_frames = interpolate;
+        return settings;
+    };
+    require(refresh_plan(with(FrameRate::original, true)) == Rt64RefreshPlan{}, "original");
+    require(refresh_plan(with(FrameRate::sixty, true)) == Rt64RefreshPlan{},
+        "true 60 needs no blending");
+    require(refresh_plan(with(FrameRate::display, true)).mode == Rt64RefreshMode::display,
         "display");
-    require(refresh_plan(FrameRate::unlocked) ==
+    require(refresh_plan(with(FrameRate::unlocked, true)) ==
                 Rt64RefreshPlan{Rt64RefreshMode::manual, kUnlockedRefreshTarget},
         "unlocked");
-    require(!interpolation_requested(FrameRate::original) &&
-                interpolation_requested(FrameRate::sixty),
-        "interpolation only above original");
+    require(refresh_plan(with(FrameRate::display, false)) == Rt64RefreshPlan{} &&
+                !interpolation_requested(with(FrameRate::unlocked, false)),
+        "interpolation off: true 60 only");
+    require(!interpolation_requested(with(FrameRate::original, true)) &&
+                !interpolation_requested(with(FrameRate::sixty, true)) &&
+                interpolation_requested(with(FrameRate::display, true)),
+        "interpolation only above true 60");
+    require(!true_logic_60(with(FrameRate::original, true)) &&
+                true_logic_60(with(FrameRate::sixty, false)) &&
+                true_logic_60(with(FrameRate::unlocked, true)),
+        "true 60 logic above original");
+    require(cpu_overclock_shift(with(FrameRate::sixty, true)) == kTrue60OverclockShift &&
+                cpu_overclock_shift(with(FrameRate::original, true)) == kNoSlowdownOverclockShift,
+        "true 60 gets a larger overclock");
 
     // The game's own rate per frame.
     require(game_rate_from_retraces(2U) == 30U, "two VIs: 30 fps");

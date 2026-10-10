@@ -664,10 +664,13 @@ struct Ui : Rml::EventListener {
     html += "<div class=\"row\"><div class=\"grow\">Anti-aliasing<div class=\"muted\">MSAA. Applies the next time the game starts.</div></div>"
             "<div class=\"segments\">" + button("msaa-1", "Off") + button("msaa-2", "2x") + button("msaa-4", "4x") +
             button("msaa-8", "8x") + "</div></div>";
-    html += "<div class=\"row\"><div class=\"grow\">Frame rate<div class=\"muted\">Blends extra frames between the game's own. "
+    html += "<div class=\"row\"><div class=\"grow\">Frame rate<div class=\"muted\">Above Original the game itself runs at 60. "
             "Game speed stays the same.</div></div><div class=\"segments\">" + button("framerate-original", "Original") +
-            button("framerate-60", "60") + button("framerate-display", "Display") + button("framerate-unlocked", "Unlocked") +
+            button("framerate-60", "True 60") + button("framerate-display", "Display") + button("framerate-unlocked", "Unlocked") +
             "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Interpolate extra frames<div class=\"muted\">Display and Unlocked: blend frames "
+            "between the game's 60 to reach your display's rate.</div></div><div class=\"segments\">" +
+            button("interpolate-on", "On") + button("interpolate-off", "Off") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">On: heavy scenes drop to 20 fps "
             "as on the console. Off keeps the full frame rate.</div></div><div class=\"segments\">" +
             button("slowdown-off", "Off") + button("slowdown-on", "On") + "</div></div>";
@@ -681,8 +684,8 @@ struct Ui : Rml::EventListener {
             "<p>Widescreen keeps the original height of view and shows more to the sides, at any window shape, "
             "without stretching. Narrow and portrait windows show the original 4:3 picture with bars.</p>"
             "<p>Match output renders exactly as many pixels as the picture covers. Lower the render scale for "
-            "speed, or raise it for sharper edges.</p><p>Frame rate above Original is experimental: the camera "
-            "and the world move smoothly, moving objects still step at the game's rate.</p><p class=\"muted\">F11 switches between windowed and the "
+            "speed, or raise it for sharper edges.</p><p>True 60 runs the game's own logic and drawing at 60 "
+            "per second. Display and Unlocked add blended frames on top (experimental).</p><p class=\"muted\">F11 switches between windowed and the "
             "chosen fullscreen. Leave the game's own Widescreen option off.</p></div></div>";
     return html;
   }
@@ -707,6 +710,8 @@ struct Ui : Rml::EventListener {
       v.fps_counter = a == "fps-on";
     else if (a == "slowdown-on" || a == "slowdown-off")
       v.n64_slowdown = a == "slowdown-on";
+    else if (a == "interpolate-on" || a == "interpolate-off")
+      v.interpolate_frames = a == "interpolate-on";
     else if (a == "framerate-original" || a == "framerate-60" || a == "framerate-display" ||
              a == "framerate-unlocked")
       v.framerate = a == "framerate-60"        ? jfg::FrameRate::sixty
@@ -1057,6 +1062,7 @@ struct Ui : Rml::EventListener {
           v.vsync ? "action-vsync-on" : "action-vsync-off",
           v.fps_counter ? "action-fps-on" : "action-fps-off",
           v.n64_slowdown ? "action-slowdown-on" : "action-slowdown-off",
+          v.interpolate_frames ? "action-interpolate-on" : "action-interpolate-off",
           v.framerate == jfg::FrameRate::sixty      ? "action-framerate-60"
           : v.framerate == jfg::FrameRate::display  ? "action-framerate-display"
           : v.framerate == jfg::FrameRate::unlocked ? "action-framerate-unlocked"
