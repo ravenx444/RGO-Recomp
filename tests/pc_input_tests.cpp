@@ -69,7 +69,7 @@ int main() {
   check(gate.blocked(true,raw),"settings capture");raw[0].buttons=1;check(gate.blocked(false,raw),"aim deflection prevents premature release");raw[0].buttons=0;check(!gate.blocked(false,raw),"neutral release");
   config=jfg::pc_keyboard_preset();check(config.modern==1,"modern keyboard preset");
   auto old=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23"}) {
     const auto at=old.find(std::string(name)+"=");old.erase(at,old.find('\n',at)-at+1);
   }
   old.replace(old.find("version=4"),9,"version=1");
@@ -119,7 +119,7 @@ int main() {
   pad.axes[2]=0;check(jfg::pc_aim_stick(config,pad,0)==jfg::N64StickSample{},"curve neutral stays neutral");
   config={};config.mouse_sensitivity=175;config.aim_sensitivity=125;
   auto v2=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23"}) {
     const auto at=v2.find(std::string(name)+"=");v2.erase(at,v2.find('\n',at)-at+1);
   }
   v2.replace(v2.find("version=4"),9,"version=2");
@@ -134,13 +134,63 @@ int main() {
   {
     auto v3=text;v3.replace(v3.find("version=4"),9,"version=3");
     invalid(v3);
-    v3.erase(v3.find("rumble=100\n"),11);
+    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed"}) {
+      const auto at=v3.find(std::string(name)+"=");v3.erase(at,v3.find('\n',at)-at+1);
+    }
     check(jfg::parse_pc_input(v3,roundtrip)&&roundtrip.rumble==100,"v3 profile loads with default rumble");
     auto v4=text;v4.erase(v4.find("rumble=100\n"),11);
     check(jfg::parse_pc_input(v4,roundtrip)&&roundtrip.rumble==100,"missing v4 extension keeps its default");
     jfg::PcInputConfig quiet;quiet.rumble=0;
     check(jfg::parse_pc_input(jfg::serialize_pc_input(quiet),roundtrip)&&roundtrip.rumble==0,"rumble strength roundtrips");
     invalid(text+"rumble=50\n");
+    // RGO direct aim: aim keys, toggle and key speed are optional too.
+    const auto legacy=v3;
+    check(jfg::parse_pc_input(legacy,roundtrip)&&roundtrip.keys[20]==0x68&&roundtrip.keys[23]==0x66&&
+      roundtrip.aim_toggle==0&&roundtrip.key_aim_speed==120,"v3 profile gets default aim keys");
+    invalid(legacy+"key20=38\n");
+    replace("aim_toggle=0","aim_toggle=2");replace("key_aim_speed=120","key_aim_speed=29");
+    replace("key_aim_speed=120","key_aim_speed=361");replace("key23=102","key23=258");
+    jfg::PcInputConfig aimKeys;aimKeys.keys[20]='I';aimKeys.aim_toggle=1;aimKeys.key_aim_speed=200;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(aimKeys),roundtrip)&&roundtrip.keys[20]=='I'&&
+      roundtrip.aim_toggle==1&&roundtrip.key_aim_speed==200,"aim keys and options roundtrip");
+  }
+  {
+    // Keyboard aim keys turn at a set speed and stop dead on release.
+    jfg::PcInputConfig keyConfig;keyConfig.key_aim_speed=120;
+    std::array<bool,258> held{};
+    const auto down=[&](int k){return held[static_cast<std::size_t>(k)];};
+    jfg::PcKeyAim keyAim;
+    check(keyAim.take(keyConfig,down,1.0/30.0)==jfg::PcLookDelta{},"no keys, no turn");
+    held[0x66]=true;int total=0;
+    for(int i=0;i<15;++i){const auto d=keyAim.take(keyConfig,down,1.0/30.0);total+=d.x;check(d.y==0,"right key is horizontal");}
+    check(total>=10921 && total<=10923,"half a second at 120 deg/s turns 60 degrees");
+    held[0x66]=false;
+    check(keyAim.take(keyConfig,down,1.0/30.0)==jfg::PcLookDelta{},"aim stays where it is on release");
+    held[0x68]=true;
+    check(keyAim.take(keyConfig,down,1.0/30.0).y>0,"aim up is positive like the mouse");
+    held[0x68]=false;held[0x62]=true;
+    check(keyAim.take(keyConfig,down,1.0/30.0).y<0,"aim down is negative");
+    held[0x62]=false;held[0x64]=true;
+    check(keyAim.take(keyConfig,down,1.0/30.0).x<0,"aim left is negative");
+    check(keyAim.take(keyConfig,down,5.0).x>=-2185,"a long stall is clamped to 0.1 s");
+    held[0x66]=true;
+    check(keyAim.take(keyConfig,down,1.0/30.0)==jfg::PcLookDelta{},"opposite keys cancel");
+    keyConfig.keys[22]=0;held={};held[0]=true;
+    check(keyAim.take(keyConfig,down,1.0/30.0)==jfg::PcLookDelta{},"unbound aim key is ignored");
+    check(jfg::pc_add_look({16000,-16000},{1000,-1000})==jfg::PcLookDelta{16384,-16384},"look sources add with a bound");
+    check(jfg::pc_add_look({10,20},{-3,5})==jfg::PcLookDelta{7,25},"look sources add");
+  }
+  {
+    jfg::PcAimLatch latch;
+    check(latch.apply(true,false,true) && !latch.apply(false,false,true),"hold aim follows the button");
+    check(latch.apply(true,true,true),"toggle press starts aiming");
+    check(latch.apply(false,true,true),"toggle aim stays on after release");
+    check(!latch.apply(true,true,true) && !latch.apply(false,true,true),"second press stops aiming");
+    check(latch.apply(true,true,true),"toggle on again");
+    check(!latch.apply(false,true,false),"menus release a toggled aim");
+    check(!latch.apply(false,true,true),"aim stays off after returning to gameplay");
+    check(latch.apply(true,true,false),"menus use plain hold");
+    check(!latch.apply(true,true,true),"a button held across a menu does not toggle");
   }
   jfg::ControllerMapping guestMapping;
   jfg::StandardControllerSample menuPad;menuPad.axes[2]=32767;

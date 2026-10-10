@@ -232,16 +232,18 @@ struct Ui : Rml::EventListener {
       (keyboard?button("controller-settings",controllerSettings?"Hide settings":"Settings",!enabled):std::string{})+"</div>";
     if(enabled && controllerSettings) {
       html+="<div class=\"row\">"+
-        button(keyboard?"pc-mouse":"pc-dual",keyboard?(c.mouse_aim?"Mouse look: on":"Mouse look: off"):(c.dual_stick?"Dual-stick aim: on":"Dual-stick aim: off"))+
+        button(keyboard?"pc-mouse":"pc-dual",keyboard?(c.mouse_aim?"Mouse look and aim: on":"Mouse look and aim: off"):(c.dual_stick?"Dual-stick aim: on":"Dual-stick aim: off"))+
         button("pc-modern",c.modern?"Modern camera + movement: on":"Modern camera + movement: off")+"</div>";
       html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Modern camera and aim movement currently support single-player.</p>";
-      const char* labels[]={"Mouse camera sensitivity","Aim stick sensitivity","Aim stick deadzone","Mouse aim sensitivity","Camera stick sensitivity","Mouse vertical scale","Stick vertical scale"};
-      const int values[]={c.mouse_sensitivity,c.aim_sensitivity,c.aim_deadzone,c.mouse_aim_sensitivity,c.camera_sensitivity,c.mouse_vertical_sensitivity,c.stick_vertical_sensitivity};
-      const int maxima[]={500,300,30000,500,300,300,300};
-      for(int i=0;i<7;++i) {
-        if(keyboard!=(i==0 || i==3 || i==5))continue;
-        html+="<div class=\"row\"><span>"+std::string(labels[i])+"</span><input class=\"volume\" type=\"range\" min=\""+std::to_string(i==2?0:10)+"\" max=\""+std::to_string(maxima[i])+"\" value=\""+std::to_string(values[i])+"\" data-action=\"pc-tune"+std::to_string(i)+"\"/><span id=\"pc-value"+std::to_string(i)+"\">"+std::to_string(values[i])+"</span></div>";
+      const char* labels[]={"Mouse look sensitivity (camera)","Aim stick sensitivity","Aim stick deadzone","Mouse aim sensitivity","Camera stick sensitivity","Mouse vertical scale","Stick vertical scale","Aim key speed (degrees/s)"};
+      const int values[]={c.mouse_sensitivity,c.aim_sensitivity,c.aim_deadzone,c.mouse_aim_sensitivity,c.camera_sensitivity,c.mouse_vertical_sensitivity,c.stick_vertical_sensitivity,c.key_aim_speed};
+      const int maxima[]={500,300,30000,500,300,300,300,360};
+      for(int i=0;i<8;++i) {
+        if(keyboard!=(i==0 || i==3 || i==5 || i==7))continue;
+        html+="<div class=\"row\"><span>"+std::string(labels[i])+"</span><input class=\"volume\" type=\"range\" min=\""+std::to_string(i==2?0:i==7?30:10)+"\" max=\""+std::to_string(maxima[i])+"\" value=\""+std::to_string(values[i])+"\" data-action=\"pc-tune"+std::to_string(i)+"\"/><span id=\"pc-value"+std::to_string(i)+"\">"+std::to_string(values[i])+"</span></div>";
       }
+      if(keyboard)html+="<div class=\"row\"><span>Aim button</span>"+button("pc-aim-toggle",c.aim_toggle?"Toggle":"Hold")+
+        "<span class=\"muted\">Toggle: press R / aim once to start aiming, again to stop.</span></div>";
       if(!keyboard)html+="<div class=\"row\"><span>Stick response</span>"+button("pc-curve",c.aim_curve==0?"Linear":c.aim_curve==1?"Precise":"Extra precise")+"<span class=\"muted\">Precise response slows small movements near the center.</span></div>";
       html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
     }
@@ -249,7 +251,7 @@ struct Ui : Rml::EventListener {
     html+="<div class=\"label\">KEYBOARD AND MOUSE BINDINGS</div>";
     if(!enabled)html+="<p class=\"muted\">Bindings are always active. Experimental controls add mouse look and modern movement.</p>";
     const auto &shown=c;
-    const char* names[]={"A / confirm","B / weapon","Z / fire","Start","D-pad up","D-pad down","D-pad left","D-pad right","L","R / aim","C up / Normal jump","C down","C left","C right","Move forward","Move back","Move left","Move right","Full movement","Alternate A"};
+    const char* names[]={"A / confirm","B / weapon","Z / fire","Start","D-pad up","D-pad down","D-pad left","D-pad right","L","R / aim","C up / Normal jump","C down","C left","C right","Move forward","Move back","Move left","Move right","Full movement","Alternate A","Aim up","Aim down","Aim left","Aim right"};
     for(std::size_t i=0;i<shown.keys.size();++i) {
       html+="<div class=\"key-binding-row\"><span>"+std::string(names[i])+"</span>"+
         button("pc-bind"+std::to_string(i),pcKeyName(shown.keys[i]))+
@@ -1155,15 +1157,15 @@ struct Ui : Rml::EventListener {
       }
       if(a.rfind("pc-key",0)==0) {
         const auto i=static_cast<std::size_t>(std::stoi(a.substr(6)));
-        if(i<20){pcInput[static_cast<std::size_t>(player)].keys[i]=std::clamp(event.GetParameter<int>("value",0),0,257);savePcInput();}
+        if(i<pcInput[0].keys.size()){pcInput[static_cast<std::size_t>(player)].keys[i]=std::clamp(event.GetParameter<int>("value",0),0,257);savePcInput();}
         return;
       }
       if(a.rfind("pc-tune",0)==0) {
         const int i=std::stoi(a.substr(7));auto &c=pcInput[static_cast<std::size_t>(player)];
-        if(i<0 || i>6)return;
-        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity};
+        if(i<0 || i>7)return;
+        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed};
         int* value=values[i];
-        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:10,i==2?30000:(i==0 || i==3)?500:300);
+        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:i==7?30:10,i==2?30000:(i==0 || i==3)?500:i==7?360:300);
         savePcInput();label(("pc-value"+std::to_string(i)).c_str(),std::to_string(*value));return;
       }
       if (a.rfind("tune-", 0) == 0) {
@@ -1229,14 +1231,14 @@ struct Ui : Rml::EventListener {
       return;
     }
     if(a.rfind("pc-bind",0)==0 && pcKeyboard()) {
-      const int index=std::stoi(a.substr(7));if(index<0 || index>=20)return;
+      const int index=std::stoi(a.substr(7));if(index<0 || index>=static_cast<int>(pcInput[0].keys.size()))return;
       learning=-1;keyLearning=index;keyReleased=false;
       keyDeadline=Rml::GetSystemInterface()->GetElapsedTime()+12;
       modal("controllers");label(("action-pc-bind"+std::to_string(index)).c_str(),"Press an input...");
       label("dialog-note","Release keys and mouse buttons first. Esc cancels.");return;
     }
     if(a.rfind("pc-unbind",0)==0 && pcKeyboard()) {
-      const int index=std::stoi(a.substr(9));if(index<0 || index>=20)return;
+      const int index=std::stoi(a.substr(9));if(index<0 || index>=static_cast<int>(pcInput[0].keys.size()))return;
       keyLearning=-1;pcInput[static_cast<std::size_t>(player)].keys[static_cast<std::size_t>(index)]=0;
       savePcInput();modal("controllers");return;
     }
@@ -1261,7 +1263,10 @@ struct Ui : Rml::EventListener {
         auto next=a=="pc-reset"?jfg::PcInputConfig{}:jfg::pc_keyboard_preset(a=="pc-expert");
         next.dual_stick=c.dual_stick;next.aim_sensitivity=c.aim_sensitivity;
         next.aim_deadzone=c.aim_deadzone;next.aim_invert_y=c.aim_invert_y;
-        next.camera_sensitivity=c.camera_sensitivity;next.aim_curve=c.aim_curve;next.stick_vertical_sensitivity=c.stick_vertical_sensitivity;c=next;
+        next.camera_sensitivity=c.camera_sensitivity;next.aim_curve=c.aim_curve;next.stick_vertical_sensitivity=c.stick_vertical_sensitivity;
+        next.rumble=c.rumble;
+        if(a!="pc-reset"){next.aim_toggle=c.aim_toggle;next.key_aim_speed=c.key_aim_speed;}
+        c=next;
       }
       else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;}
       else if(a=="pc-curve")c.aim_curve=(c.aim_curve+1)%3;
@@ -1269,6 +1274,7 @@ struct Ui : Rml::EventListener {
       else if(a=="pc-mouse")c.mouse_aim=!c.mouse_aim;
       else if(a=="pc-dual")c.dual_stick=!c.dual_stick;
       else if(a=="pc-invert-mouse")c.mouse_invert_y=!c.mouse_invert_y;
+      else if(a=="pc-aim-toggle")c.aim_toggle=!c.aim_toggle;
       else if(a=="pc-invert-stick")c.aim_invert_y=!c.aim_invert_y;
       else return;
       savePcInput();modal("controllers");return;

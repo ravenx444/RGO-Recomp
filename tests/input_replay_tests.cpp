@@ -141,7 +141,12 @@ void test_independent_look() {
     check(sample.stick_x==80 && sample.stick_y==-40 && sample.look_x==180 && sample.look_y==-90 && sample.pc_mode==3,"movement and mouse look stay independent");
     check(replay.sample_at(120).pc_mode==0 && replay.sample_at(120).neutral(),"look ends at event boundary");
     const auto before=replay.events();
-    for(const auto* row:{"1,2,1,0,0,0,5,0,0","1,2,1,0,0,0,0,1,0",
+    // RGO: mode 5 is direct mouse/key aim angles with the stock camera.
+    const TemporaryReplay direct("jfg-phase8-input-v3\n100,120,1,10,0,0,5,900,-300\n");
+    check(jfg::DeterministicInputReplay::load(direct.path(),replay)==jfg::InputReplayError::none &&
+          replay.sample_at(105).pc_mode==5 && replay.sample_at(105).look_x==900,"mode 5 angle look loads");
+    check(jfg::DeterministicInputReplay::load(valid.path(),replay)==jfg::InputReplayError::none,"v3 independent look reloads");
+    for(const auto* row:{"1,2,1,0,0,0,6,0,0","1,2,1,0,0,0,0,1,0",
         "1,2,0,0,0,0,3,1,0","1,2,1,0,0,0,2,128,0","1,2,1,0,0,0,3,32768,0",
         "1,2,1,0,0,0,3,2","1,2,1,0,0,0,3,1,2,3"}) {
       const TemporaryReplay bad(std::string("jfg-phase8-input-v3\n")+row+"\n");

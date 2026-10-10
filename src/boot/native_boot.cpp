@@ -1568,6 +1568,10 @@ struct State : JfgOriginalTimingFast {
   std::array<int,4> pc_devices{-2,-2,-2,-2};
   jfg::PcWheelPulses pc_wheel;
   jfg::PcMouseMotion pc_mouse;
+  // RGO direct aim: keyboard aim keys and hold/toggle aim.
+  jfg::PcKeyAim pc_key_aim;
+  std::chrono::steady_clock::time_point pc_key_aim_time{};
+  std::array<jfg::PcAimLatch,4> pc_aim_latch{};
   int pc_wheel_key = 0;
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
@@ -2119,15 +2123,24 @@ void reload_controller_ports(State &state) {
       state.controller_ports.configure(p, mapping);
   }
 }
-jfg::ControllerPortSample sample_keyboard_port(const State &state,std::size_t port) {
-  const auto down=[&](int key) {
-    return key>=256?state.pc_wheel_key==key:host_key_down(state,key);
-  };
-  auto sample=jfg::map_pc_keyboard(jfg::effective_pc_input(state.pc_experimental,state.pc_input[port]),down);
+bool pc_key_down(const State &state,int key) {
+  return key>=256?state.pc_wheel_key==key:host_key_down(state,key);
+}
+jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port) {
+  const auto down=[&](int key){return pc_key_down(state,key);};
+  const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[port]);
+  auto sample=jfg::map_pc_keyboard(config,down);
   jfg::mod::Memory memory({state.rdram,kRdramSize});
   if(state.pc_experimental && (memory.u8(0x800FD7BDU)!=0 ||
      (memory.u8(0x800A4FC4U)==0 && !jfg::mod::gameplay_active(memory,state.phase9_player_actor))))
     sample=jfg::map_pc_menu(sample,down);
+  // RGO: hold or toggle aim (R). Toggle only during gameplay; menus, pauses,
+  // cutscenes and blocked input release it.
+  const bool active=state.pc_experimental && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
+    jfg::mod::gameplay_active(memory,state.phase9_player_actor) &&
+    !jfg::mod::scripted_camera_active(memory,state.phase9_player_actor);
+  const bool aim=state.pc_aim_latch[port].apply((sample.buttons&0x10U)!=0U,config.aim_toggle!=0,active);
+  sample.buttons=static_cast<std::uint16_t>((sample.buttons&~0x10U)|(aim?0x10U:0U));
   return sample;
 }
 void sample_controller_ports(State &state) {
@@ -2275,18 +2288,28 @@ void sample_live_controller(State &state) noexcept {
     state.pc_mouse.clear();
   }
   state.pc_mouse_captured=want_mouse;
-  if(block_physical){state.pc_aim.fill({});state.pc_wheel.clear();state.pc_mouse.clear();state.pc_orbits.fill({});}
+  if(block_physical){state.pc_aim.fill({});state.pc_wheel.clear();state.pc_mouse.clear();state.pc_key_aim.clear();state.pc_orbits.fill({});}
   if(!state.pc_experimental || pc_memory.u8(0x800FD7BDU)!=0 || !jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) ||
      jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor))state.pc_orbits.fill({});
+  const auto key_aim_now=std::chrono::steady_clock::now();
+  const double key_aim_seconds=state.pc_key_aim_time==std::chrono::steady_clock::time_point{}?0.0:
+    std::chrono::duration<double>(key_aim_now-state.pc_key_aim_time).count();
+  state.pc_key_aim_time=key_aim_now;
   if(state.pc_experimental && !state.input_replay_loaded && !block_physical &&
      (state.input_record_path.empty() || state.pc_record_extended)) {
     for(std::size_t p=0;p<4;++p) {
       auto &frame=state.pc_frames[p];const auto &config=state.pc_input[p];
-      if(state.pc_devices[p]==-3 && config.mouse_aim && state.pc_mouse_captured) {
-        frame.pc_mode=config.modern?3:1;
-        jfg::PcLookDelta motion;
-        if(config.modern)motion=state.pc_mouse.take_angles(config,(state.controller_ports.samples[p].buttons&0x10)!=0);
-        else {const auto raw=state.pc_mouse.take(config);motion={raw.x,raw.y};}
+      const bool aiming=(state.controller_ports.samples[p].buttons&0x10)!=0;
+      // RGO: the mouse and the aim keys turn the aim (and the modern camera)
+      // by angle deltas, never as a fake stick: nothing springs back when
+      // input stops. Without the modern camera they only work while aiming.
+      const auto key_down=[&](int key){return pc_key_down(state,key);};
+      const bool mouse=state.pc_devices[p]==-3 && config.mouse_aim && state.pc_mouse_captured;
+      const bool keys=state.pc_devices[p]==-3 && (config.modern || aiming) && jfg::PcKeyAim::held(config,key_down);
+      if(mouse || keys) {
+        frame.pc_mode=config.modern?3:5;
+        auto motion=state.pc_key_aim.take(config,key_down,key_aim_seconds);
+        if(mouse)motion=jfg::pc_add_look(state.pc_mouse.take_angles(config,aiming),motion);
         frame.look_x=static_cast<std::int16_t>(motion.x);frame.look_y=static_cast<std::int16_t>(motion.y);
       } else if(state.pc_devices[p]>=0 && config.dual_stick) {
         frame.pc_mode=config.modern?4:2;frame.look_x=state.pc_aim[p].x;frame.look_y=state.pc_aim[p].y;
@@ -6013,8 +6036,8 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       const auto port=pc_memory.u8(control);
       if(port<4U && state.controller_ports.samples[port].connected) {
         const auto &frame=state.pc_frames[port];
-        const bool mouse=frame.pc_mode==1 || frame.pc_mode==3;
-        const bool direct=frame.pc_mode==3 || frame.pc_mode==4;
+        const bool mouse=frame.pc_mode==1 || frame.pc_mode==3 || frame.pc_mode==5;
+        const bool direct=frame.pc_mode==3 || frame.pc_mode==4 || frame.pc_mode==5;
         if(frame.pc_mode!=0) {
           auto look=jfg::PcLookDelta{frame.look_x,frame.look_y};
           if(mouse && state.pc_mouse_used[port])look={};

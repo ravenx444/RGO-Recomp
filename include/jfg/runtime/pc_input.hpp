@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 namespace jfg {
 // Windows virtual keys, with two portable binding IDs for wheel pulses.
@@ -20,10 +21,14 @@ struct PcInputConfig {
   int mouse_vertical_sensitivity = 100, stick_vertical_sensitivity = 100;
   // RGO (version 4) extension settings; see kPcExtensions.
   int rumble = 100;
-  // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A.
-  std::array<int,20> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
-                           'W','S','A','D',16,'Z'};
+  int aim_toggle = 0, key_aim_speed = 120; // key_aim_speed in degrees per second
+  // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A,
+  // and (RGO, version 4) aim up/down/left/right: Numpad 8/2/4/6.
+  std::array<int,24> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
+                           'W','S','A','D',16,'Z',0x68,0x62,0x64,0x66};
 };
+// Keys 0..19 exist in every version; later keys are optional (version 4).
+inline constexpr std::size_t kPcLegacyKeys = 20;
 // This separate profile-wide opt-in keeps old per-player profiles disabled.
 inline bool pc_experiments_enabled(std::string_view text) {
   return text == "version=1\nexperimental=1\n" ||
@@ -45,8 +50,10 @@ inline constexpr std::array<std::string_view,14> kPcSettings{
 // RGO: version 4 adds these optional settings. A missing one keeps its default,
 // so files written before a setting existed still load.
 struct PcExtension { std::string_view name; int minimum, maximum; int PcInputConfig::*field; };
-inline constexpr std::array<PcExtension,1> kPcExtensions{{
-  {"rumble",0,200,&PcInputConfig::rumble}}};
+inline constexpr std::array<PcExtension,3> kPcExtensions{{
+  {"rumble",0,200,&PcInputConfig::rumble},
+  {"aim_toggle",0,1,&PcInputConfig::aim_toggle},
+  {"key_aim_speed",30,360,&PcInputConfig::key_aim_speed}}};
 inline std::string serialize_pc_input(const PcInputConfig &c) {
   const std::array<int,14> values{4,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
     c.dual_stick,c.aim_sensitivity,c.aim_deadzone,c.aim_invert_y,c.modern,
@@ -61,7 +68,7 @@ inline std::string serialize_pc_input(const PcInputConfig &c) {
 inline bool parse_pc_input(std::string_view text,PcInputConfig &result) {
   if(text.empty() || text.size()>4096) return false;
   PcInputConfig c;
-  constexpr std::size_t kExtensionSlot=34;
+  constexpr std::size_t kExtensionSlot=kPcSettings.size()+std::tuple_size_v<decltype(c.keys)>;
   std::array<int,kExtensionSlot+kPcExtensions.size()> values{};
   std::array<bool,kExtensionSlot+kPcExtensions.size()> seen{};
   while(!text.empty()) {
@@ -80,6 +87,11 @@ inline bool parse_pc_input(std::string_view text,PcInputConfig &result) {
     seen[slot]=true;values[slot]=number;
   }
   if(values[0]<1 || values[0]>4)return false;
+  for(std::size_t i=kPcLegacyKeys;i<c.keys.size();++i) {
+    const auto slot=kPcSettings.size()+i;
+    if(!seen[slot]){values[slot]=c.keys[i];seen[slot]=true;}
+    else if(values[0]<4)return false;
+  }
   for(std::size_t i=0;i<kPcExtensions.size();++i) {
     const auto &e=kPcExtensions[i];auto &value=values[kExtensionSlot+i];
     if(!seen[kExtensionSlot+i]){value=c.*e.field;seen[kExtensionSlot+i]=true;}
@@ -243,5 +255,47 @@ public:
     return {x,y};
   }
   void clear(){x_=y_=0;}
+};
+// RGO: angle deltas from several sources (mouse, aim keys, gyro) add up.
+inline PcLookDelta pc_add_look(PcLookDelta a,PcLookDelta b) {
+  return {std::clamp(a.x+b.x,-16384,16384),std::clamp(a.y+b.y,-16384,16384)};
+}
+// RGO: keyboard aim keys turn the aim at key_aim_speed degrees per second.
+// The result is a direct angle delta, so the aim stays put when the keys are
+// released. Up and right are positive, as for the mouse.
+class PcKeyAim {
+  double x_=0,y_=0;
+public:
+  template<class Down> PcLookDelta take(const PcInputConfig &c,Down down,double seconds) {
+    const auto held=[&](std::size_t i){return c.keys[i]!=0 && down(c.keys[i]);};
+    const int dx=int(held(23))-int(held(22)),dy=int(held(20))-int(held(21));
+    if(!dx){x_=0;}
+    if(!dy){y_=0;}
+    if(!(seconds>0.0))return {};
+    const double units=double(std::clamp(c.key_aim_speed,30,360))*65536.0/360.0*std::min(seconds,0.1);
+    x_+=dx*units;y_+=dy*units;
+    const int x=static_cast<int>(std::trunc(x_)),y=static_cast<int>(std::trunc(y_));
+    x_-=x;y_-=y;
+    return {x,y};
+  }
+  template<class Down> static bool held(const PcInputConfig &c,Down down) {
+    for(std::size_t i=20;i<24;++i)if(c.keys[i]!=0 && down(c.keys[i]))return true;
+    return false;
+  }
+  void clear(){x_=y_=0;}
+};
+// RGO: hold or toggle aim (the R button). Toggle only applies while gameplay
+// is active; anywhere else, and whenever input is blocked, R is plain hold
+// and a toggled aim is released, so it can never stick on in a menu.
+class PcAimLatch {
+  bool latched_=false,previous_=false;
+public:
+  bool apply(bool held,bool toggle,bool active) {
+    const bool pressed=held && !previous_;
+    previous_=held;
+    if(!toggle || !active){latched_=false;return held;}
+    if(pressed)latched_=!latched_;
+    return latched_;
+  }
 };
 } // namespace jfg

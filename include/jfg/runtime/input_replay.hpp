@@ -22,7 +22,8 @@ struct ControllerReplaySample {
     std::int8_t stick_x = 0;
     std::int8_t stick_y = 0;
 
-    // 0: stock, 1/2: legacy mouse/stick aim, 3/4: modern mouse/stick look.
+    // 0: stock, 1/2: legacy mouse/stick aim, 3/4: modern mouse/stick look,
+    // 5 (RGO): direct mouse/key aim angles with the stock camera.
     std::uint8_t pc_mode = 0;
     std::int16_t look_x = 0, look_y = 0;
 
