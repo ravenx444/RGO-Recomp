@@ -155,9 +155,35 @@ opt-in for the hooks above). For the player on mouse and keyboard:
 - Settings live in `pc-input.ini` (version 4 keys `aim_toggle`,
   `key_aim_speed`, `key20`-`key23`). Older files load with the defaults.
 
+## Gyro aiming (PR 3)
+
+For DualShock 4, DualSense, Switch Pro and Joy-Con (any SDL controller with a
+gyro), with the Experimental switch on:
+
+- The SDL input thread enables the gyro and accelerometer, integrates the
+  gyro at about 500 Hz using the sensor timestamps, and removes the drift
+  bias: whenever the controller lies still for a second, its average rate
+  becomes the new bias. Tiny remaining rates are tightened towards zero.
+- Each poll, the rotation since the last poll becomes direct angle deltas
+  (`PcGyroAim`): yaw turns the aim left/right, pitch up/down. 100% turns the
+  aim exactly as far as the controller turned. The deltas go through the same
+  direct-aim path as the mouse: added to the heading and pitch after the game
+  aims (stock aiming), or added to the mouse/stick deltas in the direct modes.
+- **Active: while aiming** (default) or **always**. Outside aiming the gyro
+  turns the camera only when the modern camera is active for that player
+  (Modern camera + Dual-stick aim on); otherwise it does nothing there.
+- **Ratchet**: any controller binding (default none). While it is held the
+  gyro is ignored, so you can re-centre your hands.
+- Settings (Controllers > gamepad player > Settings > Gyro aim): on/off,
+  sensitivity 10-1000%, while aiming/always, Gyro Y invert, ratchet.
+  `pc-input.ini` keys `gyro`, `gyro_sensitivity`, `gyro_mode`,
+  `gyro_ratchet`, `gyro_invert_y`.
+- Gyro is not written to input recordings, and is off while recording, so
+  recordings replay exactly.
+
 ## Status
 
 - PR 1 (DualShock 4 / DualSense, rumble): in review.
 - PR 2 (direct mouse/keyboard aim): in review.
-- PR 3 (gyro): planned.
+- PR 3 (gyro): in review.
 - PR 4 (dual input): planned.

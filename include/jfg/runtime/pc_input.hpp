@@ -22,6 +22,9 @@ struct PcInputConfig {
   // RGO (version 4) extension settings; see kPcExtensions.
   int rumble = 100;
   int aim_toggle = 0, key_aim_speed = 120; // key_aim_speed in degrees per second
+  // Gyro aim: sensitivity in percent of real rotation; mode 0 while aiming,
+  // 1 always; ratchet is a controller binding (-1 none) that pauses the gyro.
+  int gyro = 1, gyro_sensitivity = 150, gyro_mode = 0, gyro_ratchet = -1, gyro_invert_y = 0;
   // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A,
   // and (RGO, version 4) aim up/down/left/right: Numpad 8/2/4/6.
   std::array<int,24> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
@@ -39,7 +42,7 @@ inline std::string serialize_pc_experiments(bool enabled) {
 }
 inline PcInputConfig effective_pc_input(bool enabled,const PcInputConfig &saved) {
   auto active=saved;
-  if(!enabled)active.modern=active.mouse_aim=active.dual_stick=0;
+  if(!enabled)active.modern=active.mouse_aim=active.dual_stick=active.gyro=0;
   return active;
 }
 inline constexpr std::array<std::string_view,14> kPcSettings{
@@ -50,10 +53,15 @@ inline constexpr std::array<std::string_view,14> kPcSettings{
 // RGO: version 4 adds these optional settings. A missing one keeps its default,
 // so files written before a setting existed still load.
 struct PcExtension { std::string_view name; int minimum, maximum; int PcInputConfig::*field; };
-inline constexpr std::array<PcExtension,3> kPcExtensions{{
+inline constexpr std::array<PcExtension,8> kPcExtensions{{
   {"rumble",0,200,&PcInputConfig::rumble},
   {"aim_toggle",0,1,&PcInputConfig::aim_toggle},
-  {"key_aim_speed",30,360,&PcInputConfig::key_aim_speed}}};
+  {"key_aim_speed",30,360,&PcInputConfig::key_aim_speed},
+  {"gyro",0,1,&PcInputConfig::gyro},
+  {"gyro_sensitivity",10,1000,&PcInputConfig::gyro_sensitivity},
+  {"gyro_mode",0,1,&PcInputConfig::gyro_mode},
+  {"gyro_ratchet",-1,kBindingCount-1,&PcInputConfig::gyro_ratchet},
+  {"gyro_invert_y",0,1,&PcInputConfig::gyro_invert_y}}};
 inline std::string serialize_pc_input(const PcInputConfig &c) {
   const std::array<int,14> values{4,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
     c.dual_stick,c.aim_sensitivity,c.aim_deadzone,c.aim_invert_y,c.modern,
@@ -284,6 +292,27 @@ public:
   }
   void clear(){x_=y_=0;}
 };
+// RGO: gyro rotation (radians, as integrated from SDL) becomes the same angle
+// deltas as the mouse. 100% sensitivity turns the aim as far as the
+// controller turned. Fractions carry over to the next poll.
+class PcGyroAim {
+  double x_=0,y_=0;
+public:
+  PcLookDelta apply(const PcInputConfig &c,double yaw,double pitch) {
+    if(!std::isfinite(yaw) || !std::isfinite(pitch))return {};
+    const double scale=65536.0/6.283185307179586*double(std::clamp(c.gyro_sensitivity,10,1000))/100.0;
+    x_=std::clamp(x_-yaw*scale,-16384.0,16384.0);
+    y_=std::clamp(y_+pitch*scale*(c.gyro_invert_y?-1.0:1.0),-16384.0,16384.0);
+    const int x=static_cast<int>(std::trunc(x_)),y=static_cast<int>(std::trunc(y_));
+    x_-=x;y_-=y;
+    return {x,y};
+  }
+  void clear(){x_=y_=0;}
+};
+// Gyro applies while aiming, or always (gyro_mode 1), unless the ratchet is held.
+inline bool pc_gyro_active(const PcInputConfig &c,bool aiming,bool ratchet) {
+  return c.gyro!=0 && !ratchet && (aiming || c.gyro_mode==1);
+}
 // RGO: hold or toggle aim (the R button). Toggle only applies while gameplay
 // is active; anywhere else, and whenever input is blocked, R is plain hold
 // and a toggled aim is released, so it can never stick on in a menu.

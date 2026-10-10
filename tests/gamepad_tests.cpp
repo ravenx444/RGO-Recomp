@@ -96,6 +96,47 @@ int main() {
   rumble.apply({GameRumbleCall::start, 0, 70, 1.0F}, 30.0);
   rumble.stop_all();
   check(rumble.output(0, 30.0, 100) == jfg::HostRumble{}, "stop_all on pause or focus loss");
+  // Gyro: a controller at rest drifts; the bias is learnt while it is still.
+  {
+    jfg::GyroIntegrator gyro;
+    const std::array<float, 3> rest{0.01F, 0.02F, -0.01F}, gravity{0.0F, 9.81F, 0.0F};
+    for (int i = 0; i < 100; ++i) gyro.add(rest, gravity, 0.004); // 0.4 s
+    check(!gyro.calibrated(), "not calibrated before a full second of rest");
+    const auto drift = gyro.take();
+    check(drift.yaw > 0.0079 && drift.yaw < 0.0081, "uncalibrated drift integrates");
+    for (int i = 0; i < 200; ++i) gyro.add(rest, gravity, 0.004);
+    check(gyro.calibrated() && near(static_cast<float>(gyro.bias()[1]), 0.02F), "bias learnt at rest");
+    (void)gyro.take();
+    for (int i = 0; i < 250; ++i) gyro.add(rest, gravity, 0.004);
+    const auto still = gyro.take();
+    check(std::abs(still.yaw) < 1e-6 && std::abs(still.pitch) < 1e-6, "calibrated controller at rest is still");
+    // Turn right at 1 rad/s for half a second.
+    const std::array<float, 3> right{0.01F, -0.98F, -0.01F};
+    for (int i = 0; i < 125; ++i) gyro.add(right, gravity, 0.004);
+    auto turned = gyro.take();
+    check(turned.yaw < -0.499 && turned.yaw > -0.501 && std::abs(turned.pitch) < 1e-6, "turn integrates without the bias");
+    check(near(static_cast<float>(gyro.bias()[1]), 0.02F), "motion does not change the bias");
+    // Holding very slowly (below the noise threshold) is tightened to almost nothing.
+    const std::array<float, 3> creep{0.01F, 0.021F, -0.01F};
+    for (int i = 0; i < 100; ++i) gyro.add(creep, gravity, 0.004);
+    turned = gyro.take();
+    check(std::abs(turned.yaw) < 0.4 * 0.001, "tiny noise is tightened");
+    // Large time steps (stalls) do not integrate.
+    gyro.add(right, gravity, 1.0);
+    check(gyro.take().yaw == 0.0, "stalls are dropped");
+    // Moving the controller (accelerometer changes) prevents calibration.
+    jfg::GyroIntegrator moving;
+    for (int i = 0; i < 500; ++i) {
+      const std::array<float, 3> shaken{0.0F, 9.81F + ((i & 1) ? 1.0F : -1.0F), 0.0F};
+      moving.add(rest, shaken, 0.004);
+    }
+    check(!moving.calibrated(), "a moving controller is not calibrated");
+    std::array<float, 3> bad{0.0F, std::nanf(""), 0.0F};
+    moving.add(bad, gravity, 0.004);
+    check(std::isfinite(moving.take().yaw), "invalid samples are ignored");
+    moving.reset();
+    check(!moving.calibrated() && moving.take().yaw == 0.0, "reset");
+  }
   std::cout << checks << " gamepad checks passed\n";
   return 0;
 }

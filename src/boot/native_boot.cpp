@@ -1572,6 +1572,11 @@ struct State : JfgOriginalTimingFast {
   jfg::PcKeyAim pc_key_aim;
   std::chrono::steady_clock::time_point pc_key_aim_time{};
   std::array<jfg::PcAimLatch,4> pc_aim_latch{};
+  // RGO: direct angle deltas that add to the look channel (gyro), applied
+  // by the aim and camera hooks once per poll. Not part of input recordings.
+  std::array<jfg::PcLookDelta,4> pc_direct{};
+  std::array<bool,4> pc_direct_used{};
+  std::array<jfg::PcGyroAim,4> pc_gyro_aim{};
   int pc_wheel_key = 0;
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
@@ -2081,6 +2086,14 @@ void rumble_request(State &state, const std::uint32_t target, const recomp_conte
   }
 }
 
+// RGO: the direct angle deltas (gyro) for a port, once per poll.
+jfg::PcLookDelta take_direct(State &state, std::size_t port) {
+  if (port >= state.pc_direct.size() || state.pc_direct_used[port])
+    return {};
+  state.pc_direct_used[port] = true;
+  return state.pc_direct[port];
+}
+
 void reload_controller_ports(State &state) {
   const auto now = std::chrono::steady_clock::now();
   if (now - state.controller_config_check < std::chrono::milliseconds(250))
@@ -2147,6 +2160,7 @@ void sample_controller_ports(State &state) {
   reload_controller_ports(state);
   state.pc_wheel_key=state.pc_wheel.sample();
   state.pc_aim.fill({});
+  state.pc_direct.fill({});
   std::array<bool, 4> available{};
   std::array<jfg::StandardControllerSample, 4> hardware{};
   if (read_gamepads(state)) {
@@ -2184,6 +2198,20 @@ void sample_controller_ports(State &state) {
     if(state.pc_experimental && state.pc_input[p].dual_stick)
       state.pc_aim[p]=jfg::pc_aim_stick(state.pc_input[p],hardware[static_cast<std::size_t>(device)],
         state.controller_ports.mappings[p].stick,!state.pc_input[p].modern || (mapped.buttons&0x10)!=0);
+    // RGO gyro aim: rotation since the last poll becomes direct angle deltas,
+    // while aiming or always, unless the ratchet binding is held. Input
+    // recordings stay gyro-free so they replay exactly.
+    if(state.gamepads) {
+      const auto gyro=state.gamepads->take_gyro(device);
+      const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[p]);
+      const bool ratchet=jfg::binding_down(state.controller_ports.mappings[p],
+        hardware[static_cast<std::size_t>(device)],config.gyro_ratchet);
+      if(look_active && state.input_record_path.empty() &&
+         jfg::pc_gyro_active(config,(mapped.buttons&0x10)!=0,ratchet))
+        state.pc_direct[p]=jfg::pc_add_look(state.pc_direct[p],state.pc_gyro_aim[p].apply(config,gyro.yaw,gyro.pitch));
+      else
+        state.pc_gyro_aim[p].clear();
+    }
   }
   state.controller_mapping = state.controller_ports.mappings[0];
   state.controller_mapping.device = devices[0];
@@ -2243,8 +2271,8 @@ void sample_live_controller(State &state) noexcept {
   int stick_x = 0;
   int stick_y = 0;
   if(!state.input_replay_loaded)sample_controller_ports(state);
-  else reload_controller_ports(state);
-  state.pc_frames.fill({});state.pc_mouse_used.fill(false);
+  else {reload_controller_ports(state);state.pc_direct.fill({});}
+  state.pc_frames.fill({});state.pc_mouse_used.fill(false);state.pc_direct_used.fill(false);
   bool connected = state.controller_ports.samples[0].connected;
   if (state.input_replay_loaded) {
     const jfg::ControllerReplaySample replay =
@@ -2288,7 +2316,7 @@ void sample_live_controller(State &state) noexcept {
     state.pc_mouse.clear();
   }
   state.pc_mouse_captured=want_mouse;
-  if(block_physical){state.pc_aim.fill({});state.pc_wheel.clear();state.pc_mouse.clear();state.pc_key_aim.clear();state.pc_orbits.fill({});}
+  if(block_physical){state.pc_aim.fill({});state.pc_direct.fill({});state.pc_wheel.clear();state.pc_mouse.clear();state.pc_key_aim.clear();state.pc_orbits.fill({});}
   if(!state.pc_experimental || pc_memory.u8(0x800FD7BDU)!=0 || !jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) ||
      jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor))state.pc_orbits.fill({});
   const auto key_aim_now=std::chrono::steady_clock::now();
@@ -6010,8 +6038,8 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
             }
             state.pc_camera_actor=actor;state.pc_camera_control=control;
             state.pc_camera_stack=static_cast<std::uint32_t>(context->r29)-0xF0U;
-            state.pc_camera_look=jfg::pc_camera_delta(frame.pc_mode,look,
-              std::bit_cast<float>(static_cast<std::uint32_t>(context->r6)));
+            state.pc_camera_look=jfg::pc_add_look(jfg::pc_camera_delta(frame.pc_mode,look,
+              std::bit_cast<float>(static_cast<std::uint32_t>(context->r6))),take_direct(state,port));
             original(rdram,context);
             state.pc_camera_actor=state.pc_camera_control=state.pc_camera_stack=0;state.pc_camera_look={};
             return 1;
@@ -6038,7 +6066,8 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
         const auto &frame=state.pc_frames[port];
         const bool mouse=frame.pc_mode==1 || frame.pc_mode==3 || frame.pc_mode==5;
         const bool direct=frame.pc_mode==3 || frame.pc_mode==4 || frame.pc_mode==5;
-        if(frame.pc_mode!=0) {
+        const auto extra=take_direct(state,port); // RGO: gyro
+        if(frame.pc_mode!=0 || extra.x || extra.y) {
           auto look=jfg::PcLookDelta{frame.look_x,frame.look_y};
           if(mouse && state.pc_mouse_used[port])look={};
           if(mouse)state.pc_mouse_used[port]=true;
@@ -6054,17 +6083,30 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
           if(memory.read_u32(0x800F6DB4U,x) && memory.read_u32(0x800F6DB8U,y)) {
             auto* original=jfg_generated_lookup_function(static_cast<std::int32_t>(target));
             if(original) {
-              (void)memory.write_u32(0x800F6DB4U,direct?0U:static_cast<std::uint32_t>(look.x));
-              (void)memory.write_u32(0x800F6DB8U,direct?0U:static_cast<std::uint32_t>(look.y));
+              // Stock aiming (mode 0, gyro only) keeps the game's own stick.
+              if(frame.pc_mode!=0) {
+                (void)memory.write_u32(0x800F6DB4U,direct?0U:static_cast<std::uint32_t>(look.x));
+                (void)memory.write_u32(0x800F6DB8U,direct?0U:static_cast<std::uint32_t>(look.y));
+              }
               original(rdram,context);
-              (void)memory.write_u32(0x800F6DB4U,x);(void)memory.write_u32(0x800F6DB8U,y);
+              if(frame.pc_mode!=0) {(void)memory.write_u32(0x800F6DB4U,x);(void)memory.write_u32(0x800F6DB8U,y);}
               ++state.pc_aim_calls;
-              if(direct && valid_limits && minimum>=-32768 && maximum<=32767 && minimum<=maximum) {
-                const auto after=jfg::pc_direct_aim(before.x,before.y,look,minimum,maximum);
-                pc_memory.put16(control+0x11CU,static_cast<std::uint16_t>(after.x));
-                pc_memory.put16(control+0x1E2U,static_cast<std::uint16_t>(after.y));
-                (void)memory.write_u32(control+0x1E4U,0);(void)memory.write_u32(control+0x1E8U,0);
-                ++state.pc_direct_aim_calls;
+              if(valid_limits && minimum>=-32768 && maximum<=32767 && minimum<=maximum) {
+                if(direct) {
+                  const auto after=jfg::pc_direct_aim(before.x,before.y,jfg::pc_add_look(look,extra),minimum,maximum);
+                  pc_memory.put16(control+0x11CU,static_cast<std::uint16_t>(after.x));
+                  pc_memory.put16(control+0x1E2U,static_cast<std::uint16_t>(after.y));
+                  (void)memory.write_u32(control+0x1E4U,0);(void)memory.write_u32(control+0x1E8U,0);
+                  ++state.pc_direct_aim_calls;
+                } else if(extra.x || extra.y) {
+                  // RGO: gyro on top of the game's own aiming: turn from where
+                  // the game left the aim this update.
+                  const auto after=jfg::pc_direct_aim(pc_memory.s16(control+0x11CU),pc_memory.s16(control+0x1E2U),
+                    extra,minimum,maximum);
+                  pc_memory.put16(control+0x11CU,static_cast<std::uint16_t>(after.x));
+                  pc_memory.put16(control+0x1E2U,static_cast<std::uint16_t>(after.y));
+                  ++state.pc_direct_aim_calls;
+                }
               }
               // Ground aiming otherwise ignores the movement stick. The guest
               // consumes these local velocities in its ordinary physics/collision

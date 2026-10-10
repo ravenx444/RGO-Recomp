@@ -199,6 +199,26 @@ struct Ui : Rml::EventListener {
       "<div class=\"muted\">Opt in to modern controls. This switch applies to the whole profile.</div></div>"+
       button("pc-experimental",pcExperimental()?"On":"Off")+"</div>";
   }
+  // RGO gyro aim settings for a gamepad player.
+  std::string gyroHtml(const jfg::PcInputConfig &c) {
+    const int d=devices[player];
+    const auto &info=pads.info[static_cast<std::size_t>(d>=0 && d<4?d:0)];
+    std::string html="<div class=\"label\">GYRO AIM</div>";
+    if(d<0 || !info.connected)return html+"<p class=\"muted\">Connect the controller to set up gyro aim.</p>";
+    if(!info.gyro)return html+"<p class=\"muted\">This controller has no motion sensor. DualShock 4, DualSense and Switch Pro controllers do.</p>";
+    html+="<div class=\"row\">"+button("pc-gyro",c.gyro?"Gyro: on":"Gyro: off")+
+      button("pc-gyro-mode",c.gyro_mode?"Active: always":"Active: while aiming")+
+      button("pc-gyro-invert",c.gyro_invert_y?"Gyro Y: inverted":"Gyro Y: normal")+"</div>";
+    html+="<div class=\"row\"><span>Gyro sensitivity (%)</span><input class=\"volume\" type=\"range\" min=\"10\" max=\"1000\" step=\"10\" value=\""+
+      std::to_string(c.gyro_sensitivity)+"\" data-action=\"pc-tune8\"/><span id=\"pc-value8\">"+std::to_string(c.gyro_sensitivity)+"</span></div>";
+    html+="<div class=\"row\"><span>Ratchet (hold to pause gyro)</span><select id=\"gyro-ratchet\" data-action=\"pc-gyro-ratchet\">";
+    for(int b=-1;b<jfg::kBindingCount;++b)
+      html+="<option value=\""+std::to_string(b)+"\""+(b==c.gyro_ratchet?" selected=\"selected\"":"")+">"+escape(bindingName(b))+"</option>";
+    html+="</select></div><p class=\"muted\">100% turns the aim as far as you turn the controller. "+
+      std::string(info.gyro_calibrated?"Gyro calibrated.":"Put the controller down for a second to calibrate the gyro.")+
+      " Always: outside aiming the gyro turns the camera when Modern camera and Dual-stick aim are on.</p>";
+    return html;
+  }
   std::string pcFile() const { return player ? "pc-input-"+std::to_string(player+1)+".ini" : "pc-input.ini"; }
   void loadPcInput() {
     pcInput[static_cast<std::size_t>(player)]={};
@@ -244,6 +264,7 @@ struct Ui : Rml::EventListener {
       }
       if(keyboard)html+="<div class=\"row\"><span>Aim button</span>"+button("pc-aim-toggle",c.aim_toggle?"Toggle":"Hold")+
         "<span class=\"muted\">Toggle: press R / aim once to start aiming, again to stop.</span></div>";
+      if(!keyboard)html+=gyroHtml(c);
       if(!keyboard)html+="<div class=\"row\"><span>Stick response</span>"+button("pc-curve",c.aim_curve==0?"Linear":c.aim_curve==1?"Precise":"Extra precise")+"<span class=\"muted\">Precise response slows small movements near the center.</span></div>";
       html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
     }
@@ -1155,6 +1176,11 @@ struct Ui : Rml::EventListener {
         label("rumble-value",c.rumble?std::to_string(c.rumble)+"%":std::string("Off"));
         return;
       }
+      if(a=="pc-gyro-ratchet") {
+        auto &c=pcInput[static_cast<std::size_t>(player)];
+        c.gyro_ratchet=std::clamp(event.GetParameter<int>("value",c.gyro_ratchet),-1,jfg::kBindingCount-1);
+        savePcInput();return;
+      }
       if(a.rfind("pc-key",0)==0) {
         const auto i=static_cast<std::size_t>(std::stoi(a.substr(6)));
         if(i<pcInput[0].keys.size()){pcInput[static_cast<std::size_t>(player)].keys[i]=std::clamp(event.GetParameter<int>("value",0),0,257);savePcInput();}
@@ -1162,10 +1188,10 @@ struct Ui : Rml::EventListener {
       }
       if(a.rfind("pc-tune",0)==0) {
         const int i=std::stoi(a.substr(7));auto &c=pcInput[static_cast<std::size_t>(player)];
-        if(i<0 || i>7)return;
-        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed};
+        if(i<0 || i>8)return;
+        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed,&c.gyro_sensitivity};
         int* value=values[i];
-        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:i==7?30:10,i==2?30000:(i==0 || i==3)?500:i==7?360:300);
+        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:i==7?30:10,i==2?30000:(i==0 || i==3)?500:i==7?360:i==8?1000:300);
         savePcInput();label(("pc-value"+std::to_string(i)).c_str(),std::to_string(*value));return;
       }
       if (a.rfind("tune-", 0) == 0) {
@@ -1268,7 +1294,12 @@ struct Ui : Rml::EventListener {
         if(a!="pc-reset"){next.aim_toggle=c.aim_toggle;next.key_aim_speed=c.key_aim_speed;}
         c=next;
       }
-      else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;}
+      else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;
+        const jfg::PcInputConfig defaults;c.gyro=defaults.gyro;c.gyro_sensitivity=defaults.gyro_sensitivity;c.gyro_mode=defaults.gyro_mode;
+        c.gyro_ratchet=defaults.gyro_ratchet;c.gyro_invert_y=defaults.gyro_invert_y;}
+      else if(a=="pc-gyro")c.gyro=!c.gyro;
+      else if(a=="pc-gyro-mode")c.gyro_mode=!c.gyro_mode;
+      else if(a=="pc-gyro-invert")c.gyro_invert_y=!c.gyro_invert_y;
       else if(a=="pc-curve")c.aim_curve=(c.aim_curve+1)%3;
       else if(a=="pc-modern")c.modern=!c.modern;
       else if(a=="pc-mouse")c.mouse_aim=!c.mouse_aim;
