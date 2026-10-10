@@ -30,6 +30,10 @@ option(JFG_BUILD_PHASE7_RT64_RUNNER
     "Build the private-input Phase 7 RT64 captured-task runner" OFF)
 option(JFG_BUILD_PHASE8_LIVE
     "Build the private Phase 8 live generated-code runtime" OFF)
+# RGO: the live runtime on Linux without a window or GPU renderer, for
+# measuring the game's timing in the cloud (docs/rgo/framerate.md).
+option(JFG_HEADLESS_LIVE
+    "Build the live runtime headless on Linux (no window, no RT64)" OFF)
 # ExecutorShutdown unwinds through generated extern "C" guest frames. MSVC's
 # default /EHsc lets the compiler assume extern "C" callees never throw, which
 # makes that unwind undefined for every host of the executor. /EHs keeps
@@ -83,10 +87,14 @@ endif()
 if(JFG_BUILD_PHASE6_NATIVE_BOOT AND NOT JFG_ENABLE_GENERATED_CODE)
     message(FATAL_ERROR "JFG_BUILD_PHASE6_NATIVE_BOOT requires JFG_ENABLE_GENERATED_CODE")
 endif()
+if(JFG_HEADLESS_LIVE AND (WIN32 OR JFG_ENABLE_RT64))
+    message(FATAL_ERROR "JFG_HEADLESS_LIVE is a Linux build without RT64")
+endif()
 if(JFG_BUILD_PHASE8_LIVE AND
-   (NOT JFG_BUILD_PHASE6_NATIVE_BOOT OR NOT JFG_ENABLE_RT64))
+   (NOT JFG_BUILD_PHASE6_NATIVE_BOOT OR
+    (NOT JFG_ENABLE_RT64 AND NOT JFG_HEADLESS_LIVE)))
     message(FATAL_ERROR
-        "JFG_BUILD_PHASE8_LIVE requires JFG_BUILD_PHASE6_NATIVE_BOOT and JFG_ENABLE_RT64")
+        "JFG_BUILD_PHASE8_LIVE requires JFG_BUILD_PHASE6_NATIVE_BOOT and JFG_ENABLE_RT64 (or JFG_HEADLESS_LIVE)")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -271,6 +279,7 @@ if(JFG_ENABLE_RT64)
 
     include(cmake/rt64_vi_presentation.cmake)
     include(cmake/rt64_depth_bounds.cmake)
+    include(cmake/rt64_frame_interpolation.cmake)
 
     # The pinned Plume D3D12 backend assumes every CopyTextureRegion
     # destination is a texture when configuring programmable sample
@@ -341,6 +350,7 @@ if(JFG_ENABLE_RT64)
         src/renderer/rt64_f3ddkr.cpp
         src/renderer/rt64_callbacks.cpp
         src/renderer/rt64_shell.cpp
+        src/renderer/rt64_shell_memory.cpp
     )
     target_include_directories(jfg_rt64_renderer
         PUBLIC
@@ -406,6 +416,19 @@ if(JFG_ENABLE_RT64)
                 "$<TARGET_FILE_DIR:jfg-phase7-rt64-task>"
             VERBATIM)
     endif()
+endif()
+
+if(JFG_HEADLESS_LIVE)
+    # The same shell interface without a GPU: tasks complete, presents count.
+    add_library(jfg_rt64_renderer STATIC
+        src/renderer/rt64_shell_memory.cpp
+        src/renderer/rt64_shell_headless.cpp
+    )
+    target_include_directories(jfg_rt64_renderer PUBLIC
+        "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
+    target_link_libraries(jfg_rt64_renderer PUBLIC jfg_runtime)
+    target_compile_features(jfg_rt64_renderer PUBLIC cxx_std_20)
+    jfg_set_project_warnings(jfg_rt64_renderer)
 endif()
 
 add_library(jfg_testkernel STATIC
@@ -575,22 +598,31 @@ if(JFG_ENABLE_GENERATED_CODE)
                 "${jfg_phase8_private_audio_adapter_root}")
             target_include_directories(jfg-native-boot SYSTEM PRIVATE
                 "${jfg_phase8_private_audio_runtime_include}"
-                "${jfg_phase8_private_audio_runtime_root}/ultramodern/include"
-                "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+                "${jfg_phase8_private_audio_runtime_root}/ultramodern/include")
             target_compile_definitions(jfg-native-boot PRIVATE
                 JFG_PHASE8_LIVE_RUNTIME=1
                 SDL_MAIN_HANDLED=1)
-            target_link_directories(jfg-native-boot PRIVATE
-                "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
-            target_link_libraries(jfg-native-boot PRIVATE
-                jfg_rt64_renderer SDL2 user32)
-            add_custom_command(TARGET jfg-native-boot POST_BUILD
-                COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-                    "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64/SDL2.dll"
-                    "${jfg_rt64_root}/src/contrib/dxc/bin/x64/dxcompiler.dll"
-                    "${jfg_rt64_root}/src/contrib/dxc/bin/x64/dxil.dll"
-                    "$<TARGET_FILE_DIR:jfg-native-boot>"
-                VERBATIM)
+            if(JFG_HEADLESS_LIVE)
+                find_package(SDL2 REQUIRED)
+                target_compile_definitions(jfg-native-boot PRIVATE
+                    JFG_HEADLESS_LIVE=1)
+                target_link_libraries(jfg-native-boot PRIVATE
+                    jfg_rt64_renderer SDL2::SDL2)
+            else()
+                target_include_directories(jfg-native-boot SYSTEM PRIVATE
+                    "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+                target_link_directories(jfg-native-boot PRIVATE
+                    "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
+                target_link_libraries(jfg-native-boot PRIVATE
+                    jfg_rt64_renderer SDL2 user32)
+                add_custom_command(TARGET jfg-native-boot POST_BUILD
+                    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                        "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64/SDL2.dll"
+                        "${jfg_rt64_root}/src/contrib/dxc/bin/x64/dxcompiler.dll"
+                        "${jfg_rt64_root}/src/contrib/dxc/bin/x64/dxil.dll"
+                        "$<TARGET_FILE_DIR:jfg-native-boot>"
+                    VERBATIM)
+            endif()
             if(MSVC)
                 target_link_options(jfg-native-boot PRIVATE
                     "/MAP:${CMAKE_CURRENT_BINARY_DIR}/phase8-private-native-boot.map")

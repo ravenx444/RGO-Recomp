@@ -1,7 +1,10 @@
 #include "rt64_f3ddkr.hpp"
 #include "jfg/renderer/rt64_f3ddkr_address.hpp"
+#include "jfg/renderer/frame_interpolation.hpp"
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
 
+#include "common/rt64_math.h"
 #include "gbi/rt64_gbi_f3d.h"
 #include "gbi/rt64_gbi_rdp.h"
 #include "hle/rt64_application.h"
@@ -13,8 +16,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <utility>
 
 namespace jfg {
 namespace {
@@ -71,6 +76,23 @@ struct Context {
     float horizontal_extent = 1.0F;
     bool billboard = false;
     bool failed = false;
+    // RGO frame interpolation (docs/rgo/framerate.md). Off: every matrix is
+    // a model matrix with an identity camera and is never interpolated.
+    bool interpolate = false;
+    bool interpolate_objects = false;
+    const Rt64MatrixTags* matrix_tags = nullptr;
+    std::uint32_t color_image_width = 0U;
+    // The last slot-0 matrix could not be used as a camera (not invertible).
+    bool camera_identity = false;
+    // Per task: cameras seen so far, by [orthographic][screen target].
+    std::array<std::array<std::uint32_t, 2>, 2> camera_ordinals{};
+    // The interpolation group of each loaded slot, and the last tagged object
+    // with how many bone matrices followed it.
+    std::array<std::uint32_t, kMatrixCount> matrix_ids{};
+    std::uint32_t object_id = 0U;
+    std::uint32_t bone_index = 0U;
+    // Across tasks: the two previous poses of every camera ID.
+    std::unordered_map<std::uint32_t, std::pair<CameraPose, CameraPose>> camera_history;
 };
 
 std::mutex contexts_mutex;
@@ -156,16 +178,8 @@ void reject(RT64::State* state, RT64::DisplayList** dl) noexcept {
         state.rsp->fromSegmented(address));
 }
 
-void select_matrix(Context& context) noexcept {
-    RT64::RSP& rsp = *context.application->state->rsp;
-    const std::size_t index = context.selected_matrix;
-    rsp.modelMatrixStackSize = 1;
-    rsp.modelMatrixStack[0] = context.matrices[index];
-    rsp.modelMatrixSegmentedAddressStack[0] =
-        context.matrix_segmented_addresses[index];
-    rsp.modelMatrixPhysicalAddressStack[0] =
-        context.matrix_physical_addresses[index];
-    RT64::TransformGroup& group = rsp.extended.modelMatrixIdStack[0];
+RT64::TransformGroup ignored_group() noexcept {
+    RT64::TransformGroup group;
     group.matrixId = G_EX_ID_IGNORE;
     group.decompose = false;
     group.positionInterpolation = G_EX_COMPONENT_SKIP;
@@ -175,6 +189,149 @@ void select_matrix(Context& context) noexcept {
     group.perspectiveInterpolation = G_EX_COMPONENT_SKIP;
     group.tileInterpolation = G_EX_COMPONENT_SKIP;
     group.ordering = G_EX_ORDER_LINEAR;
+    return group;
+}
+
+// RGO frame interpolation: a tagged object matrix. Decomposed, so rotating
+// objects keep their shape; position AUTO snaps on velocity jumps
+// (teleports, respawns, reused object slots).
+RT64::TransformGroup object_group(const std::uint32_t id) noexcept {
+    RT64::TransformGroup group;
+    group.matrixId = id;
+    group.decompose = true;
+    group.positionInterpolation = G_EX_COMPONENT_AUTO;
+    group.rotationInterpolation = G_EX_COMPONENT_INTERPOLATE;
+    group.scaleInterpolation = G_EX_COMPONENT_INTERPOLATE;
+    group.skewInterpolation = G_EX_COMPONENT_SKIP;
+    group.perspectiveInterpolation = G_EX_COMPONENT_SKIP;
+    group.vertexInterpolation = G_EX_COMPONENT_SKIP;
+    group.texcoordInterpolation = G_EX_COMPONENT_SKIP;
+    group.tileInterpolation = G_EX_COMPONENT_AUTO;
+    group.ordering = G_EX_ORDER_LINEAR;
+    return group;
+}
+
+// RGO frame interpolation: slot 0 is the camera (view x projection, or the
+// HUD's ortho matrix). Give it to RT64 as the projection so RT64 can blend
+// the camera between game frames; RT64 splits view and projection itself.
+// RT64 divides every inserted MVP by the camera, so the camera must be
+// cleanly invertible: finite, and camera x inverse close to the identity.
+[[nodiscard]] bool invertible(const hlslpp::float4x4& camera) noexcept {
+    const hlslpp::float4x4 inverse = hlslpp::inverse(camera);
+    const hlslpp::float4x4 product = hlslpp::mul(camera, inverse);
+    for (int row = 0; row < 4; ++row)
+        for (int column = 0; column < 4; ++column) {
+            const float value = float(product[row][column]);
+            const float expected = row == column ? 1.0F : 0.0F;
+            if (!std::isfinite(float(inverse[row][column])) ||
+                !(std::abs(value - expected) < 1e-3F))
+                return false;
+        }
+    return true;
+}
+
+void apply_camera(Context& context) noexcept {
+    RT64::RSP& rsp = *context.application->state->rsp;
+    const int top = rsp.projectionMatrixStackSize - 1;
+    if (!invertible(context.matrices[0U])) {
+        // Keep the old handling for this slot: an identity camera, with the
+        // matrix itself as each draw's MVP. Nothing here is blended.
+        const hlslpp::float4x4 identity = hlslpp::float4x4::identity();
+        rsp.viewMatrixStack[top] = identity;
+        rsp.projMatrixStack[top] = identity;
+        rsp.viewProjMatrixStack[top] = identity;
+        rsp.projectionMatrixChanged = true;
+        rsp.projectionMatrixInversed = false;
+        auto& extended = rsp.extended;
+        extended.viewProjMatrixIdStack[extended.viewProjMatrixIdStackSize - 1] = ignored_group();
+        extended.viewProjMatrixIdStackChanged = true;
+        context.camera_identity = true;
+        return;
+    }
+    context.camera_identity = false;
+    const hlslpp::float4x4& camera = context.matrices[0U];
+    rsp.viewProjMatrixStack[top] = camera;
+    if (RT64::isMatrixViewProj(camera)) {
+        RT64::matrixDecomposeViewProj(camera, rsp.viewMatrixStack[top], rsp.projMatrixStack[top]);
+    } else {
+        rsp.projMatrixStack[top] = camera;
+        rsp.viewMatrixStack[top] = hlslpp::float4x4::identity();
+    }
+    rsp.projectionMatrixSegmentedAddressStack[top] = context.matrix_segmented_addresses[0U];
+    rsp.projectionMatrixPhysicalAddressStack[top] = context.matrix_physical_addresses[0U];
+    rsp.projectionMatrixChanged = true;
+    rsp.projectionMatrixInversed = false;
+
+    const hlslpp::float4x4& projection = rsp.projMatrixStack[top];
+    const bool orthographic = !(float(projection[3][3]) == 0.0F &&
+                                std::abs(float(projection[1][1])) > 1e-6F);
+    const bool screen = context.color_image_width >= 256U;
+    std::uint32_t& ordinal =
+        context.camera_ordinals[orthographic ? 1U : 0U][screen ? 1U : 0U];
+    const std::uint32_t id = camera_group_id(orthographic, screen, ordinal++);
+    bool cut = false;
+    if (!orthographic) {
+        std::array<std::array<float, 4>, 4> view{};
+        for (int row = 0; row < 4; ++row)
+            for (int column = 0; column < 4; ++column)
+                view[std::size_t(row)][std::size_t(column)] =
+                    float(rsp.viewMatrixStack[top][row][column]);
+        const CameraPose pose = camera_pose_from_view(view, float(projection[1][1]));
+        auto& history = context.camera_history[id];
+        cut = camera_cut(history.first, history.second, pose);
+        history = {history.second, pose};
+        if (context.camera_history.size() > 256U)
+            context.camera_history.clear();
+    }
+    RT64::TransformGroup group;
+    group.matrixId = id;
+    group.decompose = false;  // cameras blend best in simple mode
+    const std::uint8_t component = cut ? G_EX_COMPONENT_SKIP : G_EX_COMPONENT_INTERPOLATE;
+    group.positionInterpolation = component;
+    group.rotationInterpolation = component;
+    group.scaleInterpolation = component;
+    group.skewInterpolation = component;
+    group.perspectiveInterpolation = component;
+    group.vertexInterpolation = G_EX_COMPONENT_SKIP;
+    group.texcoordInterpolation = G_EX_COMPONENT_SKIP;
+    group.ordering = G_EX_ORDER_LINEAR;
+    auto& extended = rsp.extended;
+    extended.viewProjMatrixIdStack[extended.viewProjMatrixIdStackSize - 1] = group;
+    extended.viewProjMatrixIdStackChanged = true;
+}
+
+void select_matrix(Context& context, const bool anchored = false) noexcept {
+    RT64::RSP& rsp = *context.application->state->rsp;
+    const std::size_t index = context.selected_matrix;
+    rsp.modelMatrixStackSize = 1;
+    rsp.modelMatrixSegmentedAddressStack[0] =
+        context.matrix_segmented_addresses[index];
+    rsp.modelMatrixPhysicalAddressStack[0] =
+        context.matrix_physical_addresses[index];
+    if (context.interpolate) {
+        if (index == 0U && !anchored && context.loaded_matrices.test(0U) &&
+            !context.camera_identity) {
+            // World geometry: drawn with the camera alone.
+            rsp.modelMatrixStack[0] = hlslpp::float4x4::identity();
+            rsp.modelViewProjInserted = false;
+            rsp.modelViewProjChanged = true;
+            rsp.extended.modelMatrixIdStack[0] = ignored_group();
+        } else {
+            // A complete MVP: RT64 stores MVP x inverse(camera) as the world
+            // matrix and still transforms vertices on the CPU with the MVP.
+            rsp.modelMatrixStack[0] = context.matrices[index];
+            rsp.modelViewProjMatrix = context.matrices[index];
+            rsp.modelViewProjInserted = true;
+            rsp.modelViewProjChanged = false;
+            const std::uint32_t id = anchored ? 0U : context.matrix_ids[index];
+            rsp.extended.modelMatrixIdStack[0] =
+                id != 0U ? object_group(id) : ignored_group();
+        }
+        rsp.extended.modelMatrixIdStackChanged = true;
+        return;
+    }
+    rsp.modelMatrixStack[0] = context.matrices[index];
+    rsp.extended.modelMatrixIdStack[0] = ignored_group();
     rsp.extended.modelMatrixIdStackChanged = true;
 
     const int projection = rsp.projectionMatrixStackSize - 1;
@@ -225,6 +382,14 @@ void dma_matrix(RT64::State* state, RT64::DisplayList** dl) {
             ? context->simulation_rdram.data() + address
             : state->fromRDRAM(address));
     hlslpp::float4x4 decoded = fixed->toMatrix4x4();
+    {
+        // RGO frame diagnostics: what this frame shows, by matrix content.
+        std::array<std::uint32_t, 16> words{};
+        std::memcpy(words.data(), fixed, sizeof(words));
+        context->stats.scene_hash = mix_content_hash(context->stats.scene_hash, words);
+        if (index == 0U && !multiply)
+            context->stats.camera_hash = mix_content_hash(context->stats.camera_hash, words);
+    }
     if (multiply) {
         if (!context->loaded_matrices.test(0U)) {
             reject(state, dl);
@@ -239,6 +404,30 @@ void dma_matrix(RT64::State* state, RT64::DisplayList** dl) {
     context->matrix_segmented_addresses[index] = command.w1;
     context->matrix_physical_addresses[index] = address;
     context->selected_matrix = index;
+    if (context->interpolate) {
+        std::uint32_t id = 0U;
+        if (context->interpolate_objects && index != 0U) {
+            if (multiply) {
+                // Bone matrices follow the object matrix loaded before them.
+                id = bone_group_id(context->object_id, context->bone_index++);
+            } else if (context->matrix_tags != nullptr) {
+                std::array<std::uint32_t, 16> words{};
+                const std::uint8_t* source = context->simulation_rdram.size() == kRdramBytes
+                    ? context->simulation_rdram.data() + address
+                    : state->fromRDRAM(address);
+                std::memcpy(words.data(), source, sizeof(words));
+                const auto tag = context->matrix_tags->find(address);
+                if (tag != context->matrix_tags->end() &&
+                    tag->second.first == matrix_words_hash(words))
+                    id = tag->second.second;
+                context->object_id = id;
+                context->bone_index = 0U;
+            }
+        }
+        context->matrix_ids[index] = id;
+        if (index == 0U && !multiply)
+            apply_camera(*context);
+    }
     select_matrix(*context);
 }
 
@@ -269,6 +458,7 @@ void set_color_image(RT64::State* state, RT64::DisplayList** dl) {
         (*dl)->p0(0U, 12U) + 1U);
     context->stats.color_image_address =
         segmented_physical(*state, (*dl)->w1);
+    context->color_image_width = width;
     state->rdp->setColorImage(
         format, size, width, context->stats.color_image_address);
 }
@@ -399,7 +589,7 @@ void dma_vertex(RT64::State* state, RT64::DisplayList** dl) {
             workload.drawData.posTransformed[anchor_index];
         anchored_billboard = true;
     }
-    select_matrix(*context);
+    select_matrix(*context, anchored_billboard);
     std::array<std::byte, sizeof(RT64::RSP::Vertex) * 32U> saved{};
     auto* scratch = state->fromRDRAM(kScratchAddress);
     const std::size_t scratch_bytes = count * sizeof(RT64::RSP::Vertex);
@@ -931,6 +1121,12 @@ void reset(RT64::State* state) {
         context->matrix_physical_addresses.fill(0U);
         context->loaded_matrices.reset();
         context->billboard = false;
+        context->camera_ordinals = {};
+        context->matrix_ids.fill(0U);
+        context->object_id = 0U;
+        context->bone_index = 0U;
+        context->color_image_width = 0U;
+        context->camera_identity = false;
     }
 }
 
@@ -1001,6 +1197,13 @@ void Rt64F3ddkr::install() noexcept {
     RT64::Application& application = *context.application;
     application.interpreter->hleGBI = &context.gbi;
     application.state->rsp->setGBI(&context.gbi);
+}
+
+void Rt64F3ddkr::set_interpolation(const bool enabled, const bool objects,
+                                   const Rt64MatrixTags* tags) noexcept {
+    impl_->context.interpolate = enabled;
+    impl_->context.interpolate_objects = enabled && objects;
+    impl_->context.matrix_tags = tags;
 }
 
 void Rt64F3ddkr::set_horizontal_extent(const float extent) noexcept {

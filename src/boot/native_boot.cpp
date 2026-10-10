@@ -10,6 +10,7 @@
 #include "jfg/boot/original_timing_fast.h"
 #endif
 #include "jfg/boot/hle.hpp"
+#include "jfg/boot/mmio_instruction.hpp"
 #include "jfg/boot/sync_print_sink.hpp"
 #include "jfg/boot/sound_queue_recovery.hpp"
 #include "jfg/boot/reset_handoff.hpp"
@@ -25,6 +26,7 @@
 #include "jfg/audio/playback_buffer.hpp"
 #include "jfg/audio/vi_playback_clock.hpp"
 #include "jfg/runtime/window_input_mailbox.hpp"
+#include "jfg/runtime/precise_wait.hpp"
 #include <future>
 #include <atomic>
 #include "jfg/boot/runlink_module_table.hpp"
@@ -63,9 +65,12 @@
 #include "jfg/runtime/cic_nus_6105.hpp"
 #include "jfg/testkernel/sha256.hpp"
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
+#include "jfg/rgo/headless_autopilot.hpp"
 #include "jfg/evidence/g2_private_task_adapter.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/frame_interpolation.hpp"
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
 #include "jfg/runtime/audio_task_bridge.hpp"
 #include "jfg/runtime/input_replay.hpp"
@@ -110,6 +115,20 @@
 #include "jfg/platform/sdl_gamepads.hpp"
 #endif
 extern "C" BOOLEAN WINAPI SystemFunction036(PVOID, ULONG);
+#elif defined(JFG_HEADLESS_LIVE)
+// RGO: the live runtime without a window or GPU renderer, for measuring the
+// game's timing on Linux (docs/rgo/framerate.md, "Headless measurement").
+#include "jfg/boot/headless_win32_compat.hpp"
+#include <csignal>
+#include <sys/mman.h>
+#include <ucontext.h>
+#if defined(JFG_PHASE8_LIVE_RUNTIME)
+#include <SDL.h>
+#endif
+#endif
+// The live runtime: Windows, or the headless Linux build.
+#if defined(JFG_PHASE8_LIVE_RUNTIME) && (defined(_WIN32) || defined(JFG_HEADLESS_LIVE))
+#define JFG_LIVE_RUNTIME 1
 #endif
 
 #if !defined(JFG_PHASE6_BUILD_IDENTITY)
@@ -119,7 +138,11 @@ extern "C" BOOLEAN WINAPI SystemFunction036(PVOID, ULONG);
 #error "JFG_PHASE6_SANITIZER_ID must bind the native runner instrumentation"
 #endif
 
-extern "C" { JfgOriginalTimingFast* jfg_original_timing_state = nullptr; }
+extern "C" {
+JfgOriginalTimingFast* jfg_original_timing_state = nullptr;
+std::uint32_t jfg_fast_budget = 0U;
+std::uint32_t jfg_fast_fpu = 0U;
+}
 
 namespace jfg::boot::native {
 extern "C" {
@@ -259,6 +282,9 @@ struct MmioTrace final {
   bool guest_execution = false;
   std::uint64_t guest_count = 0U;
   std::uint64_t vi_next = 0U;
+  // RGO fast clock: recent reads of the VI line register (a polling wait).
+  std::uint64_t vi_line_poll_count = 0U;
+  std::uint32_t vi_line_polls = 0U;
   std::uint64_t execution_io_revision = 0U;
   std::uint32_t vi_period = 500000U;
   std::uint32_t vi_v_sync = 0U;
@@ -297,6 +323,10 @@ struct MmioTrace final {
   // page is single-stepping on our behalf; a trap-flag exception on any
   // other thread (debugger, GPU driver) must be left alone.
   std::uint32_t pending_thread = 0U;
+  // RGO one-trap MMIO: perform plain 32-bit moves in the fault handler
+  // instead of single-stepping them (mmio_emulate_move).
+  bool emulate_moves = false;
+  std::uint64_t emulated_accesses = 0U;
   std::uint64_t accesses = 0U;
   std::uint64_t unsupported_accesses = 0U;
   std::uint64_t ai_register_writes = 0U;
@@ -338,9 +368,328 @@ struct MmioTrace final {
   }
 };
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
 MmioTrace *g_mmio_trace = nullptr;
 
+// A guarded MMIO page was touched: present the register value for a read
+// and arm the single step. Windows reports the access through a guard-page
+// exception, the headless Linux build through SIGSEGV. Returns false for an
+// unsupported access, which must not be resumed.
+bool mmio_start_access(const std::size_t index, const std::uintptr_t address,
+                       const bool write) noexcept {
+  // RGO fast clock: device registers see the Count of this instruction.
+  if (jfg_original_timing_state != nullptr)
+    jfg_fast_run_sync(jfg_original_timing_state);
+  const auto page = reinterpret_cast<std::uintptr_t>(g_mmio_trace->pages[index]);
+  const auto offset = static_cast<std::uint32_t>(address - page);
+  if (g_mmio_trace->guest_execution && !write && index >= 10U) {
+    if (index != 10U || offset != 0U) g_mmio_trace->device_error = "unsupported-flash-read";
+    const auto value = g_mmio_trace->flash_bus.status();
+    std::memcpy(reinterpret_cast<void*>(address), &value, 4U);
+  }
+  if (g_mmio_trace->guest_execution && !write && index == 5U) {
+    const auto value = g_mmio_trace->pi_dma.read(offset);
+    if (!value) g_mmio_trace->device_error = "unsupported-pi-register";
+    const auto result = value.value_or(0U);
+    std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
+  }
+  if (g_mmio_trace->guest_execution && !write && index == 4U) {
+    const auto value = g_mmio_trace->ai_dma.read(offset, g_mmio_trace->guest_count);
+    if (!value) g_mmio_trace->device_error = "unsupported-ai-register";
+    const auto result = value.value_or(0U);
+    std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
+  }
+  if (g_mmio_trace->guest_execution && !write && index == 7U) {
+    const auto value = g_mmio_trace->si_dma.read(offset);
+    if (!value) g_mmio_trace->device_error = "unsupported-si-register";
+    const auto result = value.value_or(0U);
+    std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
+  }
+  if (g_mmio_trace->guest_execution && !write && index == 2U && offset == 8U)
+    std::memcpy(reinterpret_cast<void*>(address), &g_mmio_trace->mi_pending, 4U);
+  if (g_mmio_trace->guest_execution && !write && index == 3U && offset == 0x10U) {
+    // RGO fast clock: a loop polling the VI line (__osViInit waits for the
+    // top of the screen) waits for the next VI; skip to it, as for an idle
+    // loop. The line reads past the bottom until the VI event is taken.
+    auto *const timing = jfg_original_timing_state;
+    if (timing != nullptr && timing->fast_clock != 0U) {
+      g_mmio_trace->vi_line_polls = g_mmio_trace->guest_count - g_mmio_trace->vi_line_poll_count <= 256U
+          ? g_mmio_trace->vi_line_polls + 1U : 1U;
+      g_mmio_trace->vi_line_poll_count = g_mmio_trace->guest_count;
+      if (g_mmio_trace->vi_line_polls >= 16U && g_mmio_trace->vi_next > g_mmio_trace->guest_count) {
+        jfg_fast_run_end(timing);
+        timing->cpu_count = g_mmio_trace->vi_next;
+        g_mmio_trace->guest_count = g_mmio_trace->vi_next;
+        g_mmio_trace->vi_line_poll_count = g_mmio_trace->vi_next;
+        g_mmio_trace->vi_line_polls = 0U;
+      }
+    }
+    const auto origin = g_mmio_trace->vi_next - g_mmio_trace->vi_period;
+    const auto line = g_mmio_trace->vi_period == 783520U ?
+        static_cast<std::uint32_t>(((g_mmio_trace->guest_count - origin) * 263U) /
+            g_mmio_trace->vi_period) * 2U :
+        static_cast<std::uint32_t>((g_mmio_trace->guest_count - origin) / 1500U) & ~1U;
+    std::memcpy(reinterpret_cast<void*>(address), &line, 4U);
+  }
+  if (index == 9U && (!g_mmio_trace->guest_pif_boot || offset != 0x7fcU)) {
+    ++g_mmio_trace->unsupported_accesses;
+    return false;
+  }
+  if (!write && index == 9U) {
+    const auto control = g_mmio_trace->pif_boot.read();
+    std::memcpy(reinterpret_cast<void*>(address), &control, 4U);
+  }
+  if (!write && g_mmio_trace->guest_sp_status && (index == 0U || index == 8U)) {
+    const auto value = index == 8U ? (offset == 0U ?
+        std::optional<std::uint32_t>{g_mmio_trace->sp_dma.pc()} : std::nullopt) :
+        offset == 0x10U ? std::optional<std::uint32_t>{g_mmio_trace->sp_status.read()} :
+        g_mmio_trace->sp_dma.read(offset);
+    if (!value.has_value()) {
+      ++g_mmio_trace->unsupported_accesses;
+      return false;
+    }
+    std::memcpy(reinterpret_cast<void*>(address), &*value, 4U);
+  }
+  if (!write && g_mmio_trace->guest_mi_mask && index == 2U && offset == 0x0cU) {
+    const auto mask = g_mmio_trace->mi_mask.read();
+    std::memcpy(reinterpret_cast<void*>(address), &mask, 4U);
+  }
+  if (!g_mmio_trace->guest_execution && !write && index == 4U && offset == 0x04U) {
+    std::memcpy(reinterpret_cast<void *>(address),
+                &g_mmio_trace->ai_emulated_remaining_length,
+                sizeof(g_mmio_trace->ai_emulated_remaining_length));
+  }
+  g_mmio_trace->record(index, address, write);
+  g_mmio_trace->pending_page = g_mmio_trace->pages[index];
+  g_mmio_trace->pending_page_index = index;
+  g_mmio_trace->pending_address = address;
+  g_mmio_trace->pending_write = write;
+  g_mmio_trace->pending_thread = GetCurrentThreadId();
+  return true;
+}
+
+// The guest instruction that touched an MMIO page has retired (single step):
+// apply a register write to the device models. Returns false for an
+// unsupported access. The caller re-arms the page and clears the trap flag.
+bool mmio_finish_access() noexcept {
+  // RGO fast clock: a write may give a device a new deadline; end any skip
+  // run. Reads change no device state.
+  if (jfg_original_timing_state != nullptr && g_mmio_trace->pending_write)
+    jfg_fast_run_end(jfg_original_timing_state);
+  if (g_mmio_trace->pending_page_index == 9U && g_mmio_trace->pending_write) {
+    std::uint32_t command = 0U;
+    std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
+    if (!g_mmio_trace->guest_pif_boot ||
+        g_mmio_trace->pending_address - reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page) != 0x7fcU ||
+        !g_mmio_trace->pif_boot.write(command)) {
+      ++g_mmio_trace->unsupported_accesses;
+      return false;
+    }
+    const auto control = g_mmio_trace->pif_boot.read();
+    std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &control, 4U);
+    if (g_mmio_trace->guest_execution) {
+      if (!g_mmio_trace->si_dma.boot_command(g_mmio_trace->guest_count)) {
+        ++g_mmio_trace->unsupported_accesses;
+        return false;
+      }
+      // Independently phased direct PIF-command-8 probe: SI assertion is
+      // 2304 Count ticks after retirement, not immediate acknowledgement.
+    }
+  }
+  if (g_mmio_trace->guest_sp_status && g_mmio_trace->pending_write &&
+      (g_mmio_trace->pending_page_index == 0U ||
+       g_mmio_trace->pending_page_index == 8U)) {
+    std::uint32_t command = 0U;
+    std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
+    const auto offset = static_cast<std::uint32_t>(g_mmio_trace->pending_address -
+        reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page));
+    const bool status_register = g_mmio_trace->pending_page_index == 0U && offset == 0x10U;
+    const bool stopped = (g_mmio_trace->sp_status.read() & 0x1dU) == 1U;
+    const bool valid = status_register ? g_mmio_trace->sp_status.command(command) :
+        g_mmio_trace->pending_page_index == 8U ?
+          (stopped && offset == 0U && g_mmio_trace->sp_dma.write_pc(command)) :
+          (stopped && g_mmio_trace->sp_dma.write(offset, command, g_mmio_trace->sp_rdram));
+    if (!valid) {
+      ++g_mmio_trace->unsupported_accesses;
+      return false;
+    }
+    if (status_register) {
+      const auto status = g_mmio_trace->sp_status.read();
+      if (g_mmio_trace->guest_execution) {
+        g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~1U) |
+            (g_mmio_trace->sp_status.interrupt() ? 1U : 0U);
+        if (stopped && (status & 1U) == 0U) {
+          if (g_mmio_trace->sp_launch || g_mmio_trace->sp_deadline)
+            g_mmio_trace->device_error = "overlapping-sp-launch";
+          else g_mmio_trace->sp_launch = g_mmio_trace->guest_count;
+        }
+      }
+      std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &status, 4U);
+    }
+  }
+  if (g_mmio_trace->guest_mi_mask && g_mmio_trace->pending_write &&
+      g_mmio_trace->pending_page_index == 2U &&
+      g_mmio_trace->pending_address ==
+          reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page) + 0x0cU) {
+    std::uint32_t command = 0U;
+    std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
+    if (!g_mmio_trace->mi_mask.command(command)) {
+      ++g_mmio_trace->unsupported_accesses;
+      return false;
+    }
+    const auto mask = g_mmio_trace->mi_mask.read();
+    std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &mask, 4U);
+  }
+  if (g_mmio_trace->guest_execution && g_mmio_trace->pending_write) {
+    ++g_mmio_trace->execution_io_revision;
+    const auto offset = static_cast<std::uint32_t>(g_mmio_trace->pending_address -
+        reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page));
+    std::uint32_t value = 0U;
+    std::memcpy(&value, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
+    g_mmio_trace->device_write_page = static_cast<std::uint32_t>(g_mmio_trace->pending_page_index);
+    g_mmio_trace->device_write_offset = offset;
+    g_mmio_trace->device_write_value = value;
+    if (g_mmio_trace->pending_page_index == 2U && offset == 0U && (value & 0x800U))
+      g_mmio_trace->mi_pending &= ~32U;
+    if (g_mmio_trace->pending_page_index == 3U) {
+      if (offset == 0x10U) {
+        if (g_mmio_trace->mi_pending & 8U) ++g_mmio_trace->vi_acknowledgements;
+        g_mmio_trace->mi_pending &= ~8U;
+      }
+      if (offset == 0x18U) g_mmio_trace->vi_v_sync = value;
+      if (offset == 0x1cU) g_mmio_trace->vi_h_sync = value;
+    }
+    if (g_mmio_trace->pending_page_index == 7U) {
+      g_mmio_trace->device_si_offset = offset;
+      g_mmio_trace->device_si_value = value;
+      g_mmio_trace->device_si_prior_deadline = g_mmio_trace->si_dma.deadline();
+      ++g_mmio_trace->device_si_sequence;
+      if (!g_mmio_trace->si_dma.write(offset, value, g_mmio_trace->guest_count,
+              g_mmio_trace->device_rdram))
+        g_mmio_trace->device_error = "unsupported-si-transaction";
+      g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~2U) |
+          (g_mmio_trace->si_dma.interrupt() ? 2U : 0U);
+    }
+    if (g_mmio_trace->pending_page_index == 4U) {
+      if (!g_mmio_trace->ai_dma.write(offset, value, g_mmio_trace->guest_count,
+              g_mmio_trace->device_rdram.size(), g_mmio_trace->vi_period))
+        g_mmio_trace->device_error = "unsupported-ai-transaction";
+      g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~4U) |
+          (g_mmio_trace->ai_dma.interrupt() ? 4U : 0U);
+    }
+    if (g_mmio_trace->pending_page_index == 5U) {
+      g_mmio_trace->device_pi_offset = offset;
+      g_mmio_trace->device_pi_value = value;
+      if (!g_mmio_trace->pi_dma.write(offset, value, g_mmio_trace->guest_count,
+              g_mmio_trace->device_rdram, g_mmio_trace->device_rom,
+              [](void* device, bool to_ram, std::uint32_t cart, std::uint32_t dram,
+                 std::uint32_t length, std::span<std::uint8_t> ram) {
+                return static_cast<jfg::boot::ReferenceFlashBus*>(device)->transfer(to_ram, cart, dram, length, ram);
+              }, &g_mmio_trace->flash_bus))
+        g_mmio_trace->device_error = "unsupported-pi-transaction";
+      g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~16U) |
+          (g_mmio_trace->pi_dma.interrupt() ? 16U : 0U);
+    }
+    if (g_mmio_trace->pending_page_index >= 10U) {
+      const bool valid = offset == 0U && (g_mmio_trace->pending_page_index == 10U ?
+          g_mmio_trace->flash_bus.write_status(value) :
+          g_mmio_trace->pending_page_index == 11U &&
+            g_mmio_trace->flash_bus.command(value, g_mmio_trace->device_rdram));
+      if (!valid) g_mmio_trace->device_error = "unsupported-flash-command";
+    }
+  }
+  if (g_mmio_trace->pending_write &&
+      g_mmio_trace->pending_page_index == 4U) {
+    const auto page = reinterpret_cast<std::uintptr_t>(
+        g_mmio_trace->pending_page);
+    const auto offset = static_cast<std::uint32_t>(
+        g_mmio_trace->pending_address - page);
+    std::uint32_t value = 0U;
+    std::memcpy(&value,
+                reinterpret_cast<const void *>(
+                    g_mmio_trace->pending_address),
+                sizeof(value));
+    ++g_mmio_trace->ai_register_writes;
+    switch (offset) {
+    case 0x00U:
+      g_mmio_trace->ai_dram_address = value;
+      break;
+    case 0x04U:
+      g_mmio_trace->ai_length = value;
+      ++g_mmio_trace->ai_buffer_submissions;
+      if (value != 0U) {
+        if (g_mmio_trace->ai_submission_write -
+                g_mmio_trace->ai_submission_read >=
+            MmioTrace::kAiSubmissionCapacity) {
+          ++g_mmio_trace->ai_submission_overflows;
+        } else {
+          const std::size_t slot = static_cast<std::size_t>(
+              g_mmio_trace->ai_submission_write %
+              MmioTrace::kAiSubmissionCapacity);
+          g_mmio_trace->ai_submissions[slot] = {
+              g_mmio_trace->ai_dram_address, value,
+              g_mmio_trace->ai_dac_rate};
+          ++g_mmio_trace->ai_submission_write;
+        }
+      }
+      break;
+    case 0x08U:
+      g_mmio_trace->ai_control = value;
+      break;
+    case 0x10U:
+      g_mmio_trace->ai_dac_rate = value;
+      break;
+    case 0x14U:
+      g_mmio_trace->ai_bit_rate = value;
+      break;
+    default:
+      break;
+    }
+  }
+  return true;
+}
+
+void mmio_clear_pending() noexcept {
+  g_mmio_trace->pending_page = nullptr;
+  g_mmio_trace->pending_page_index = SIZE_MAX;
+  g_mmio_trace->pending_address = 0U;
+  g_mmio_trace->pending_write = false;
+  g_mmio_trace->pending_thread = 0U;
+}
+
+// RGO one-trap MMIO (docs/rgo/framerate.md). Called after
+// mmio_start_access on the opened page: when the faulting host instruction
+// is a plain 32-bit move, do its load or store on the page here, so the
+// caller can finish the access at once and skip the instruction instead of
+// single-stepping it. The register page and the order (start, move, finish)
+// are the same as with single-stepping. Returns the instruction length, or 0
+// when the instruction is not one it decodes (the caller single-steps).
+template <typename RegisterSlot>
+std::uint32_t mmio_emulate_move(const std::uintptr_t address, const bool write,
+                                const std::uint8_t *code,
+                                RegisterSlot &&register_slot) noexcept {
+  if (!g_mmio_trace->emulate_moves || (address & 3U) != 0U || code == nullptr)
+    return 0U;
+  const auto instruction = jfg::boot::decode_mmio_instruction(code);
+  if (instruction.length == 0U || (write ? !instruction.store() : !instruction.load()))
+    return 0U;
+  std::uint64_t *const slot = register_slot(instruction.reg);
+  if (slot == nullptr)
+    return 0U;
+  if (write) {
+    const std::uint32_t word = jfg::boot::mmio_store_word(instruction, *slot);
+    std::memcpy(reinterpret_cast<void *>(address), &word, sizeof(word));
+  } else {
+    std::uint32_t word = 0U;
+    std::memcpy(&word, reinterpret_cast<const void *>(address), sizeof(word));
+    *slot = jfg::boot::mmio_load_result(instruction, word);
+  }
+  ++g_mmio_trace->emulated_accesses;
+  return instruction.length;
+}
+#endif
+
+#if defined(_WIN32)
 LONG CALLBACK mmio_exception_handler(EXCEPTION_POINTERS *exception) {
   if (g_mmio_trace == nullptr || exception == nullptr ||
       exception->ExceptionRecord == nullptr ||
@@ -350,184 +699,12 @@ LONG CALLBACK mmio_exception_handler(EXCEPTION_POINTERS *exception) {
   if (code == EXCEPTION_SINGLE_STEP &&
       g_mmio_trace->pending_page != nullptr &&
       g_mmio_trace->pending_thread == GetCurrentThreadId()) {
-    if (g_mmio_trace->pending_page_index == 9U && g_mmio_trace->pending_write) {
-      std::uint32_t command = 0U;
-      std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
-      if (!g_mmio_trace->guest_pif_boot ||
-          g_mmio_trace->pending_address - reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page) != 0x7fcU ||
-          !g_mmio_trace->pif_boot.write(command)) {
-        ++g_mmio_trace->unsupported_accesses;
-        return EXCEPTION_CONTINUE_SEARCH;
-      }
-      const auto control = g_mmio_trace->pif_boot.read();
-      std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &control, 4U);
-      if (g_mmio_trace->guest_execution) {
-        if (!g_mmio_trace->si_dma.boot_command(g_mmio_trace->guest_count)) {
-          ++g_mmio_trace->unsupported_accesses;
-          return EXCEPTION_CONTINUE_SEARCH;
-        }
-        // Independently phased direct PIF-command-8 probe: SI assertion is
-        // 2304 Count ticks after retirement, not immediate acknowledgement.
-      }
-    }
-    if (g_mmio_trace->guest_sp_status && g_mmio_trace->pending_write &&
-        (g_mmio_trace->pending_page_index == 0U ||
-         g_mmio_trace->pending_page_index == 8U)) {
-      std::uint32_t command = 0U;
-      std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
-      const auto offset = static_cast<std::uint32_t>(g_mmio_trace->pending_address -
-          reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page));
-      const bool status_register = g_mmio_trace->pending_page_index == 0U && offset == 0x10U;
-      const bool stopped = (g_mmio_trace->sp_status.read() & 0x1dU) == 1U;
-      const bool valid = status_register ? g_mmio_trace->sp_status.command(command) :
-          g_mmio_trace->pending_page_index == 8U ?
-            (stopped && offset == 0U && g_mmio_trace->sp_dma.write_pc(command)) :
-            (stopped && g_mmio_trace->sp_dma.write(offset, command, g_mmio_trace->sp_rdram));
-      if (!valid) {
-        ++g_mmio_trace->unsupported_accesses;
-        return EXCEPTION_CONTINUE_SEARCH;
-      }
-      if (status_register) {
-        const auto status = g_mmio_trace->sp_status.read();
-        if (g_mmio_trace->guest_execution) {
-          g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~1U) |
-              (g_mmio_trace->sp_status.interrupt() ? 1U : 0U);
-          if (stopped && (status & 1U) == 0U) {
-            if (g_mmio_trace->sp_launch || g_mmio_trace->sp_deadline)
-              g_mmio_trace->device_error = "overlapping-sp-launch";
-            else g_mmio_trace->sp_launch = g_mmio_trace->guest_count;
-          }
-        }
-        std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &status, 4U);
-      }
-    }
-    if (g_mmio_trace->guest_mi_mask && g_mmio_trace->pending_write &&
-        g_mmio_trace->pending_page_index == 2U &&
-        g_mmio_trace->pending_address ==
-            reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page) + 0x0cU) {
-      std::uint32_t command = 0U;
-      std::memcpy(&command, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
-      if (!g_mmio_trace->mi_mask.command(command)) {
-        ++g_mmio_trace->unsupported_accesses;
-        return EXCEPTION_CONTINUE_SEARCH;
-      }
-      const auto mask = g_mmio_trace->mi_mask.read();
-      std::memcpy(reinterpret_cast<void*>(g_mmio_trace->pending_address), &mask, 4U);
-    }
-    if (g_mmio_trace->guest_execution && g_mmio_trace->pending_write) {
-      ++g_mmio_trace->execution_io_revision;
-      const auto offset = static_cast<std::uint32_t>(g_mmio_trace->pending_address -
-          reinterpret_cast<std::uintptr_t>(g_mmio_trace->pending_page));
-      std::uint32_t value = 0U;
-      std::memcpy(&value, reinterpret_cast<const void*>(g_mmio_trace->pending_address), 4U);
-      g_mmio_trace->device_write_page = static_cast<std::uint32_t>(g_mmio_trace->pending_page_index);
-      g_mmio_trace->device_write_offset = offset;
-      g_mmio_trace->device_write_value = value;
-      if (g_mmio_trace->pending_page_index == 2U && offset == 0U && (value & 0x800U))
-        g_mmio_trace->mi_pending &= ~32U;
-      if (g_mmio_trace->pending_page_index == 3U) {
-        if (offset == 0x10U) {
-          if (g_mmio_trace->mi_pending & 8U) ++g_mmio_trace->vi_acknowledgements;
-          g_mmio_trace->mi_pending &= ~8U;
-        }
-        if (offset == 0x18U) g_mmio_trace->vi_v_sync = value;
-        if (offset == 0x1cU) g_mmio_trace->vi_h_sync = value;
-      }
-      if (g_mmio_trace->pending_page_index == 7U) {
-        g_mmio_trace->device_si_offset = offset;
-        g_mmio_trace->device_si_value = value;
-        g_mmio_trace->device_si_prior_deadline = g_mmio_trace->si_dma.deadline();
-        ++g_mmio_trace->device_si_sequence;
-        if (!g_mmio_trace->si_dma.write(offset, value, g_mmio_trace->guest_count,
-                g_mmio_trace->device_rdram))
-          g_mmio_trace->device_error = "unsupported-si-transaction";
-        g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~2U) |
-            (g_mmio_trace->si_dma.interrupt() ? 2U : 0U);
-      }
-      if (g_mmio_trace->pending_page_index == 4U) {
-        if (!g_mmio_trace->ai_dma.write(offset, value, g_mmio_trace->guest_count,
-                g_mmio_trace->device_rdram.size(), g_mmio_trace->vi_period))
-          g_mmio_trace->device_error = "unsupported-ai-transaction";
-        g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~4U) |
-            (g_mmio_trace->ai_dma.interrupt() ? 4U : 0U);
-      }
-      if (g_mmio_trace->pending_page_index == 5U) {
-        g_mmio_trace->device_pi_offset = offset;
-        g_mmio_trace->device_pi_value = value;
-        if (!g_mmio_trace->pi_dma.write(offset, value, g_mmio_trace->guest_count,
-                g_mmio_trace->device_rdram, g_mmio_trace->device_rom,
-                [](void* device, bool to_ram, std::uint32_t cart, std::uint32_t dram,
-                   std::uint32_t length, std::span<std::uint8_t> ram) {
-                  return static_cast<jfg::boot::ReferenceFlashBus*>(device)->transfer(to_ram, cart, dram, length, ram);
-                }, &g_mmio_trace->flash_bus))
-          g_mmio_trace->device_error = "unsupported-pi-transaction";
-        g_mmio_trace->mi_pending = (g_mmio_trace->mi_pending & ~16U) |
-            (g_mmio_trace->pi_dma.interrupt() ? 16U : 0U);
-      }
-      if (g_mmio_trace->pending_page_index >= 10U) {
-        const bool valid = offset == 0U && (g_mmio_trace->pending_page_index == 10U ?
-            g_mmio_trace->flash_bus.write_status(value) :
-            g_mmio_trace->pending_page_index == 11U &&
-              g_mmio_trace->flash_bus.command(value, g_mmio_trace->device_rdram));
-        if (!valid) g_mmio_trace->device_error = "unsupported-flash-command";
-      }
-    }
-    if (g_mmio_trace->pending_write &&
-        g_mmio_trace->pending_page_index == 4U) {
-      const auto page = reinterpret_cast<std::uintptr_t>(
-          g_mmio_trace->pending_page);
-      const auto offset = static_cast<std::uint32_t>(
-          g_mmio_trace->pending_address - page);
-      std::uint32_t value = 0U;
-      std::memcpy(&value,
-                  reinterpret_cast<const void *>(
-                      g_mmio_trace->pending_address),
-                  sizeof(value));
-      ++g_mmio_trace->ai_register_writes;
-      switch (offset) {
-      case 0x00U:
-        g_mmio_trace->ai_dram_address = value;
-        break;
-      case 0x04U:
-        g_mmio_trace->ai_length = value;
-        ++g_mmio_trace->ai_buffer_submissions;
-        if (value != 0U) {
-          if (g_mmio_trace->ai_submission_write -
-                  g_mmio_trace->ai_submission_read >=
-              MmioTrace::kAiSubmissionCapacity) {
-            ++g_mmio_trace->ai_submission_overflows;
-          } else {
-            const std::size_t slot = static_cast<std::size_t>(
-                g_mmio_trace->ai_submission_write %
-                MmioTrace::kAiSubmissionCapacity);
-            g_mmio_trace->ai_submissions[slot] = {
-                g_mmio_trace->ai_dram_address, value,
-                g_mmio_trace->ai_dac_rate};
-            ++g_mmio_trace->ai_submission_write;
-          }
-        }
-        break;
-      case 0x08U:
-        g_mmio_trace->ai_control = value;
-        break;
-      case 0x10U:
-        g_mmio_trace->ai_dac_rate = value;
-        break;
-      case 0x14U:
-        g_mmio_trace->ai_bit_rate = value;
-        break;
-      default:
-        break;
-      }
-    }
+    if (!mmio_finish_access())
+      return EXCEPTION_CONTINUE_SEARCH;
     DWORD previous = 0U;
     (void)VirtualProtect(g_mmio_trace->pending_page, kMmioPageSize,
                          PAGE_READWRITE | PAGE_GUARD, &previous);
-    g_mmio_trace->pending_page = nullptr;
-    g_mmio_trace->pending_page_index = SIZE_MAX;
-    g_mmio_trace->pending_address = 0U;
-    g_mmio_trace->pending_write = false;
-    g_mmio_trace->pending_thread = 0U;
+    mmio_clear_pending();
     exception->ContextRecord->EFlags &= ~DWORD{0x100U};
     return EXCEPTION_CONTINUE_EXECUTION;
   }
@@ -543,82 +720,140 @@ LONG CALLBACK mmio_exception_handler(EXCEPTION_POINTERS *exception) {
       continue;
     const bool write =
         exception->ExceptionRecord->ExceptionInformation[0] == 1U;
-    const auto offset = static_cast<std::uint32_t>(address - page);
-    if (g_mmio_trace->guest_execution && !write && index >= 10U) {
-      if (index != 10U || offset != 0U) g_mmio_trace->device_error = "unsupported-flash-read";
-      const auto value = g_mmio_trace->flash_bus.status();
-      std::memcpy(reinterpret_cast<void*>(address), &value, 4U);
-    }
-    if (g_mmio_trace->guest_execution && !write && index == 5U) {
-      const auto value = g_mmio_trace->pi_dma.read(offset);
-      if (!value) g_mmio_trace->device_error = "unsupported-pi-register";
-      const auto result = value.value_or(0U);
-      std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
-    }
-    if (g_mmio_trace->guest_execution && !write && index == 4U) {
-      const auto value = g_mmio_trace->ai_dma.read(offset, g_mmio_trace->guest_count);
-      if (!value) g_mmio_trace->device_error = "unsupported-ai-register";
-      const auto result = value.value_or(0U);
-      std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
-    }
-    if (g_mmio_trace->guest_execution && !write && index == 7U) {
-      const auto value = g_mmio_trace->si_dma.read(offset);
-      if (!value) g_mmio_trace->device_error = "unsupported-si-register";
-      const auto result = value.value_or(0U);
-      std::memcpy(reinterpret_cast<void*>(address), &result, 4U);
-    }
-    if (g_mmio_trace->guest_execution && !write && index == 2U && offset == 8U)
-      std::memcpy(reinterpret_cast<void*>(address), &g_mmio_trace->mi_pending, 4U);
-    if (g_mmio_trace->guest_execution && !write && index == 3U && offset == 0x10U) {
-      const auto origin = g_mmio_trace->vi_next - g_mmio_trace->vi_period;
-      const auto line = g_mmio_trace->vi_period == 783520U ?
-          static_cast<std::uint32_t>(((g_mmio_trace->guest_count - origin) * 263U) /
-              g_mmio_trace->vi_period) * 2U :
-          static_cast<std::uint32_t>((g_mmio_trace->guest_count - origin) / 1500U) & ~1U;
-      std::memcpy(reinterpret_cast<void*>(address), &line, 4U);
-    }
-    if (index == 9U && (!g_mmio_trace->guest_pif_boot || offset != 0x7fcU)) {
-      ++g_mmio_trace->unsupported_accesses;
+    if (!mmio_start_access(index, address, write))
       return EXCEPTION_CONTINUE_SEARCH;
-    }
-    if (!write && index == 9U) {
-      const auto control = g_mmio_trace->pif_boot.read();
-      std::memcpy(reinterpret_cast<void*>(address), &control, 4U);
-    }
-    if (!write && g_mmio_trace->guest_sp_status && (index == 0U || index == 8U)) {
-      const auto value = index == 8U ? (offset == 0U ?
-          std::optional<std::uint32_t>{g_mmio_trace->sp_dma.pc()} : std::nullopt) :
-          offset == 0x10U ? std::optional<std::uint32_t>{g_mmio_trace->sp_status.read()} :
-          g_mmio_trace->sp_dma.read(offset);
-      if (!value.has_value()) {
-        ++g_mmio_trace->unsupported_accesses;
+    CONTEXT *const registers = exception->ContextRecord;
+    const std::uint32_t length = mmio_emulate_move(
+        address, write, reinterpret_cast<const std::uint8_t *>(registers->Rip),
+        [registers](const std::uint8_t number) -> std::uint64_t * {
+          DWORD64 *slot = nullptr;
+          switch (number) {
+          case 0U: slot = &registers->Rax; break;
+          case 1U: slot = &registers->Rcx; break;
+          case 2U: slot = &registers->Rdx; break;
+          case 3U: slot = &registers->Rbx; break;
+          case 4U: slot = &registers->Rsp; break;
+          case 5U: slot = &registers->Rbp; break;
+          case 6U: slot = &registers->Rsi; break;
+          case 7U: slot = &registers->Rdi; break;
+          case 8U: slot = &registers->R8; break;
+          case 9U: slot = &registers->R9; break;
+          case 10U: slot = &registers->R10; break;
+          case 11U: slot = &registers->R11; break;
+          case 12U: slot = &registers->R12; break;
+          case 13U: slot = &registers->R13; break;
+          case 14U: slot = &registers->R14; break;
+          case 15U: slot = &registers->R15; break;
+          default: break;
+          }
+          return reinterpret_cast<std::uint64_t *>(slot);
+        });
+    if (length != 0U) {
+      // The move is done: finish now and re-arm the guard, no single step.
+      if (!mmio_finish_access())
         return EXCEPTION_CONTINUE_SEARCH;
-      }
-      std::memcpy(reinterpret_cast<void*>(address), &*value, 4U);
+      DWORD previous = 0U;
+      (void)VirtualProtect(g_mmio_trace->pending_page, kMmioPageSize,
+                           PAGE_READWRITE | PAGE_GUARD, &previous);
+      mmio_clear_pending();
+      registers->Rip += length;
+      return EXCEPTION_CONTINUE_EXECUTION;
     }
-    if (!write && g_mmio_trace->guest_mi_mask && index == 2U && offset == 0x0cU) {
-      const auto mask = g_mmio_trace->mi_mask.read();
-      std::memcpy(reinterpret_cast<void*>(address), &mask, 4U);
-    }
-    if (!g_mmio_trace->guest_execution && !write && index == 4U && offset == 0x04U) {
-      std::memcpy(reinterpret_cast<void *>(address),
-                  &g_mmio_trace->ai_emulated_remaining_length,
-                  sizeof(g_mmio_trace->ai_emulated_remaining_length));
-    }
-    g_mmio_trace->record(index, address, write);
-    g_mmio_trace->pending_page = g_mmio_trace->pages[index];
-    g_mmio_trace->pending_page_index = index;
-    g_mmio_trace->pending_address = address;
-    g_mmio_trace->pending_write = write;
-    g_mmio_trace->pending_thread = GetCurrentThreadId();
-    exception->ContextRecord->EFlags |= DWORD{0x100U};
+    registers->EFlags |= DWORD{0x100U};
     return EXCEPTION_CONTINUE_EXECUTION;
   }
   return EXCEPTION_CONTINUE_SEARCH;
 }
+#elif defined(JFG_HEADLESS_LIVE)
+// Linux: MMIO pages are PROT_NONE while armed. SIGSEGV opens the page and
+// sets the x86-64 trap flag; SIGTRAP after the instruction retires applies a
+// write and closes the page again, as the Windows guard-page handler does.
+struct sigaction g_mmio_previous_segv{};
+struct sigaction g_mmio_previous_trap{};
+
+// Set once the game runs: prints the guest calls that led to a crash.
+void (*g_crash_report)(int) noexcept = nullptr;
+
+[[noreturn]] void mmio_fail(const int signal_number) noexcept {
+  static bool reported = false;
+  if (g_crash_report != nullptr && !reported) {
+    reported = true;
+    g_crash_report(signal_number);
+  }
+  ::signal(signal_number, SIG_DFL);
+  ::raise(signal_number);
+  ::_exit(128 + signal_number);
+}
+
+void mmio_segv_handler(int signal_number, siginfo_t *info, void *context) {
+  auto *const user = static_cast<ucontext_t *>(context);
+  const auto address = reinterpret_cast<std::uintptr_t>(info->si_addr);
+  if (g_mmio_trace != nullptr && g_mmio_trace->pending_page == nullptr) {
+    for (std::size_t index = 0U; index < g_mmio_trace->pages.size(); ++index) {
+      const auto page = reinterpret_cast<std::uintptr_t>(g_mmio_trace->pages[index]);
+      if (page == 0U || address < page || address >= page + kMmioPageSize)
+        continue;
+      // Page-fault error code bit 1: the access was a write.
+      const bool write = (user->uc_mcontext.gregs[REG_ERR] & 2) != 0;
+      if (::mprotect(g_mmio_trace->pages[index], kMmioPageSize,
+                     PROT_READ | PROT_WRITE) != 0 ||
+          !mmio_start_access(index, address, write))
+        mmio_fail(signal_number);
+      auto &registers = user->uc_mcontext.gregs;
+      const std::uint32_t length = mmio_emulate_move(
+          address, write, reinterpret_cast<const std::uint8_t *>(registers[REG_RIP]),
+          [&registers](const std::uint8_t number) -> std::uint64_t * {
+            static constexpr std::array<int, 16U> kSlots = {
+                REG_RAX, REG_RCX, REG_RDX, REG_RBX, REG_RSP, REG_RBP, REG_RSI, REG_RDI,
+                REG_R8, REG_R9, REG_R10, REG_R11, REG_R12, REG_R13, REG_R14, REG_R15};
+            static_assert(sizeof(greg_t) == sizeof(std::uint64_t));
+            return number < kSlots.size()
+                       ? reinterpret_cast<std::uint64_t *>(&registers[kSlots[number]])
+                       : nullptr;
+          });
+      if (length != 0U) {
+        // The move is done: finish now and close the page, no single step.
+        if (!mmio_finish_access()) mmio_fail(signal_number);
+        (void)::mprotect(g_mmio_trace->pending_page, kMmioPageSize, PROT_NONE);
+        mmio_clear_pending();
+        registers[REG_RIP] += length;
+        return;
+      }
+      registers[REG_EFL] |= 0x100;
+      return;
+    }
+  }
+  mmio_fail(signal_number);
+}
+
+void mmio_trap_handler(int signal_number, siginfo_t *, void *context) {
+  auto *const user = static_cast<ucontext_t *>(context);
+  if (g_mmio_trace == nullptr || g_mmio_trace->pending_page == nullptr ||
+      g_mmio_trace->pending_thread != GetCurrentThreadId())
+    mmio_fail(signal_number);
+  if (!mmio_finish_access()) mmio_fail(signal_number);
+  (void)::mprotect(g_mmio_trace->pending_page, kMmioPageSize, PROT_NONE);
+  mmio_clear_pending();
+  user->uc_mcontext.gregs[REG_EFL] &= ~0x100;
+}
+
+bool install_mmio_signal_handlers() noexcept {
+  struct sigaction action{};
+  action.sa_flags = SA_SIGINFO | SA_NODEFER;
+  sigemptyset(&action.sa_mask);
+  action.sa_sigaction = mmio_segv_handler;
+  if (::sigaction(SIGSEGV, &action, &g_mmio_previous_segv) != 0) return false;
+  action.sa_sigaction = mmio_trap_handler;
+  return ::sigaction(SIGTRAP, &action, &g_mmio_previous_trap) == 0;
+}
+
+void remove_mmio_signal_handlers() noexcept {
+  (void)::sigaction(SIGSEGV, &g_mmio_previous_segv, nullptr);
+  (void)::sigaction(SIGTRAP, &g_mmio_previous_trap, nullptr);
+}
 #endif
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 class HostAudioDevice final {
 public:
   HostAudioDevice() = default;
@@ -1006,6 +1241,13 @@ public:
       CloseHandle(mapping_);
     if (rom_mapping_ != nullptr)
       CloseHandle(rom_mapping_);
+#elif defined(JFG_HEADLESS_LIVE)
+    if (handlers_installed_)
+      remove_mmio_signal_handlers();
+    if (g_mmio_trace == &mmio_trace_)
+      g_mmio_trace = nullptr;
+    if (span_ != nullptr)
+      (void)::munmap(span_, kGuestAddressSpan);
 #endif
   }
   GuestBacking(const GuestBacking &) = delete;
@@ -1121,13 +1363,15 @@ public:
       base_ = nullptr;
     }
     return false;
+#elif defined(JFG_HEADLESS_LIVE)
+    return create_headless();
 #else
     bytes_.resize(kRdramSize);
     return true;
 #endif
   }
   std::span<std::uint8_t> bytes() noexcept {
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
     return {base_, base_ == nullptr ? 0U : kRdramSize};
 #else
     return bytes_;
@@ -1191,6 +1435,14 @@ public:
 #endif
 
   bool arm_mmio_monitor(EventJournal &journal) noexcept {
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
+    // JFG_RGO_MMIO_SINGLE_STEP=1 single-steps every access, as before.
+    char single_step[4]{};
+    mmio_trace_.emulate_moves =
+        GetEnvironmentVariableA("JFG_RGO_MMIO_SINGLE_STEP", single_step,
+                                static_cast<DWORD>(sizeof(single_step))) == 0U ||
+        single_step[0] != '1';
+#endif
 #if defined(_WIN32)
     mmio_trace_.journal = &journal;
     mmio_trace_.pages = mmio_;
@@ -1208,6 +1460,19 @@ public:
                          &previous) == 0)
         return false;
     }
+    return true;
+#elif defined(JFG_HEADLESS_LIVE)
+    mmio_trace_.journal = &journal;
+    mmio_trace_.pages = mmio_;
+    g_mmio_trace = &mmio_trace_;
+    if (!install_mmio_signal_handlers()) {
+      g_mmio_trace = nullptr;
+      return false;
+    }
+    handlers_installed_ = true;
+    for (void *page : mmio_)
+      if (page == nullptr || ::mprotect(page, kMmioPageSize, PROT_NONE) != 0)
+        return false;
     return true;
 #else
     (void)journal;
@@ -1251,6 +1516,33 @@ public:
       }
     }
     return true;
+#elif defined(JFG_HEADLESS_LIVE)
+    if (rom.size() != kRomSize || cart_cached_ == nullptr ||
+        cart_uncached_ == nullptr ||
+        overlays_.size() != jfg_generated_section_count())
+      return false;
+    for (std::size_t index = 0U; index < rom.size(); ++index)
+      cart_cached_[index ^ 3U] = rom[index];
+    if (::mprotect(cart_cached_, kRomSize, PROT_READ) != 0)
+      return false;
+    for (std::uint32_t section = 0U; section < overlays_.size(); ++section) {
+      JfgGeneratedSectionMetadata metadata{};
+      if (jfg_generated_section_metadata(section, &metadata) == 0)
+        return false;
+      if (metadata.is_overlay != 1U)
+        continue;
+      const std::uint64_t initialized =
+          std::uint64_t{metadata.text_size} + metadata.data_size;
+      if (overlays_[section] == nullptr || metadata.rom_start > rom.size() ||
+          initialized > rom.size() - metadata.rom_start)
+        return false;
+      auto *destination = static_cast<std::uint8_t *>(overlays_[section]);
+      for (std::size_t index = 0U;
+           index < static_cast<std::size_t>(initialized); ++index) {
+        destination[index ^ 3U] = rom[metadata.rom_start + index];
+      }
+    }
+    return true;
 #else
     (void)rom;
     return false;
@@ -1269,6 +1561,86 @@ private:
   std::vector<void *> overlays_;
   std::vector<void *> gaps_;
   PVOID exception_handler_ = nullptr;
+#elif defined(JFG_HEADLESS_LIVE)
+  // One no-access reservation of the guest span. RDRAM and the cartridge
+  // are shared-memory files mapped at their KSEG0/KSEG1 offsets inside it,
+  // so every alias sees the same bytes, as with the Windows file views.
+  bool create_headless() {
+    const int rdram_file = ::memfd_create("jfg-rdram", 0U);
+    const int rom_file = ::memfd_create("jfg-cartridge", 0U);
+    bool ok = rdram_file >= 0 && rom_file >= 0 &&
+        ::ftruncate(rdram_file, static_cast<off_t>(kRdramSize)) == 0 &&
+        ::ftruncate(rom_file, static_cast<off_t>(kRomSize)) == 0;
+    void *const span = ok ? ::mmap(nullptr, kGuestAddressSpan, PROT_NONE,
+        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0) : MAP_FAILED;
+    ok = ok && span != MAP_FAILED;
+    if (ok) {
+      span_ = static_cast<std::uint8_t *>(span);
+      const auto view = [&](std::size_t offset, std::size_t size, int file,
+                            int protection) -> std::uint8_t * {
+        void *const address = span_ + offset;
+        void *const mapped = file >= 0
+            ? ::mmap(address, size, protection, MAP_SHARED | MAP_FIXED, file, 0)
+            : ::mmap(address, size, protection,
+                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+        return mapped == address ? static_cast<std::uint8_t *>(mapped) : nullptr;
+      };
+      base_ = view(0U, kRdramSize, rdram_file, PROT_READ | PROT_WRITE);
+      alias_ = view(kKseg1AliasOffset, kRdramSize, rdram_file,
+                    PROT_READ | PROT_WRITE);
+      cart_cached_ = view(kCartCachedAliasOffset, kRomSize, rom_file,
+                          PROT_READ | PROT_WRITE);
+      cart_uncached_ = view(kCartUncachedAliasOffset, kRomSize, rom_file,
+                            PROT_READ);
+      ok = base_ != nullptr && alias_ != nullptr && cart_cached_ != nullptr &&
+           cart_uncached_ != nullptr;
+      for (std::size_t index = 0U; ok && index < mmio_.size(); ++index) {
+        mmio_[index] = view(kMmioHostOffsets[index], kMmioPageSize, -1,
+                            PROT_READ | PROT_WRITE);
+        ok = mmio_[index] != nullptr;
+      }
+      if (ok)
+        overlays_.assign(jfg_generated_section_count(), nullptr);
+      for (std::uint32_t section = 0U; ok && section < overlays_.size();
+           ++section) {
+        JfgGeneratedSectionMetadata metadata{};
+        if (jfg_generated_section_metadata(section, &metadata) == 0) {
+          ok = false;
+          break;
+        }
+        if (metadata.is_overlay != 1U)
+          continue;
+        const std::uint64_t extent = std::uint64_t{metadata.text_size} +
+                                     metadata.data_size + metadata.bss_size;
+        const std::uint64_t allocation =
+            (extent + kWindowsAllocationGranularity - 1U) &
+            ~(std::uint64_t{kWindowsAllocationGranularity} - 1U);
+        const std::uint64_t host_offset =
+            std::uint64_t{0x80000000U} + metadata.linked_vram;
+        if (extent == 0U || host_offset > kGuestAddressSpan ||
+            allocation > kGuestAddressSpan - host_offset) {
+          ok = false;
+          break;
+        }
+        overlays_[section] = view(static_cast<std::size_t>(host_offset),
+            static_cast<std::size_t>(allocation), -1, PROT_READ | PROT_WRITE);
+        ok = overlays_[section] != nullptr;
+      }
+    }
+    // The views keep the files alive.
+    if (rdram_file >= 0) (void)::close(rdram_file);
+    if (rom_file >= 0) (void)::close(rom_file);
+    return ok;
+  }
+
+  std::uint8_t *span_ = nullptr;
+  std::uint8_t *base_ = nullptr;
+  std::uint8_t *alias_ = nullptr;
+  std::uint8_t *cart_cached_ = nullptr;
+  std::uint8_t *cart_uncached_ = nullptr;
+  std::array<void *, kMmioHostOffsets.size()> mmio_{};
+  std::vector<void *> overlays_;
+  bool handlers_installed_ = false;
 #else
   std::vector<std::uint8_t> bytes_;
 #endif
@@ -1689,15 +2061,75 @@ struct State : JfgOriginalTimingFast {
   bool video_managed = false;
   jfg::VideoSettings video{jfg::AspectMode::original};
   bool widescreen = false;
-  // FPS counter: presents counted since the last report to the frontend.
+  // FPS counter: game frames and swap-chain presents (interpolated frames
+  // included) counted since the last report to the frontend.
   std::uint64_t frame_rate_presents = 0U;
+  std::uint64_t frame_rate_display_start = 0U;
   std::chrono::steady_clock::time_point frame_rate_start{};
+  // FPS counter, Detailed (jfg/renderer/frame_stats.hpp): game logic
+  // updates and their VI ticks, drawn/new/camera/repeated presents and the
+  // gaps between game presents, all since the last report.
+  std::uint64_t frame_logic_ticks = 0U;
+  std::uint64_t frame_drawn = 0U;
+  std::uint64_t frame_new = 0U;
+  std::uint64_t frame_camera = 0U;
+  std::uint64_t frame_repeats = 0U;
+  std::uint64_t frame_input_start = 0U;
+  jfg::IntervalRange frame_gaps{};
+  jfg::FrameContentTracker frame_content{};
+  // RGO frame interpolation: the VI count at the previous game frame, and
+  // how many object matrices each object pushed since the last camera.
+  std::uint64_t last_frame_retrace = 0U;
+  // True 60: texture scroller ticks waiting to run in pairs, and whether the
+  // previous frame ran at true 60 (to hand the game back its 30 fps mode).
+  std::uint32_t scroller_pending_ticks = 0U;
+  bool true60_active = false;
+  jfg::True60Governor true60_governor;
+  std::uint32_t true60_level = 0U;  // the governor's scene (kCurrentLevel)
+  // RGO fast clock real-time floor: the Count of the last paced VI and the
+  // wall time it was due, so Count can follow the wall clock when the host
+  // falls behind (JFG_RGO_DETERMINISTIC_CLOCK=1 turns this off).
+  std::uint64_t wall_anchor_count = 0U;
+  std::chrono::steady_clock::time_point wall_anchor_time{};
+  bool wall_anchor_valid = false;
+  bool wall_floor_disabled = false;
+  bool fast_run_disabled = false;  // JFG_RGO_NO_FAST_RUNS: check every instruction
+  // Headless JFG_RGO_UNPACED=1: VIs do not wait for the wall clock, so a
+  // deterministic run measures how fast the host can run the game.
+  bool unpaced = false;
+  std::uint32_t wall_floor_calls = 0U;
+  std::uint64_t wall_floor_jumps = 0U;
+  std::uint64_t wall_floor_resets = 0U;
+  // RGO fast clock: recent empty NOBLOCK receives per call site and queue,
+  // to recognize a polling wait.
+  struct EmptyPollSite {
+    std::uint32_t queue = 0U;
+    std::uint32_t caller = 0U;
+    std::uint64_t last_count = 0U;
+    std::uint32_t streak = 0U;
+  };
+  std::array<EmptyPollSite, 8> empty_poll_sites{};
+  std::uint64_t empty_poll_skips = 0U;
+  // RGO FPS counter: game logic updates (viFrameSync calls).
+  std::uint64_t logic_frames = 0U;
+  std::uint64_t frame_rate_logic_start = 0U;
+  bool counter_log = false;  // headless: print the counter to stderr
+  // RGO frame trace (JFG_RGO_FRAME_TRACE): one row per game frame.
+  std::FILE *rgo_frame_trace = nullptr;
+  std::chrono::steady_clock::time_point rgo_frame_trace_start{};
+#if defined(JFG_HEADLESS_LIVE)
+  // RGO headless measurement: new game without a player (JFG_RGO_AUTOPILOT).
+  std::optional<jfg::rgo::NewGameAutopilot> autopilot;
+  std::uint8_t autopilot_front_mode = 0xFFU;
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> autopilot_overlays;
+#endif
+  std::unordered_map<std::uint32_t, std::uint32_t> object_matrix_pushes;
   float widescreen_extent = 1.0F;
   // HUD anchoring is active for the current frontUpdate frame.
   bool hud_anchoring = false;
   jfg::mod::WidescreenHud hud;
   std::chrono::steady_clock::time_point video_settings_next_read{};
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
   std::unique_ptr<jfg::AsyncVolumeFile> video_settings_file;
 #endif
   std::unique_ptr<jfg::Rt64Shell> rt64_shell;
@@ -1784,9 +2216,10 @@ struct State : JfgOriginalTimingFast {
   std::array<std::uint32_t, 16U> last_si_dispatch_trace{};
 };
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 State *g_active_child_state = nullptr;
 
+#if defined(_WIN32)
 class LiveRt64Window final {
 public:
   static constexpr UINT kAspectMessage = WM_APP + 22U;
@@ -1932,6 +2365,16 @@ private:
   DWORD thread_id_ = 0;
   std::thread owner_;
 };
+#else
+// Headless: no window. Input comes from replays; the frontend is absent.
+class LiveRt64Window final {
+public:
+  static constexpr UINT kAspectMessage = WM_APP + 22U;
+  LiveRt64Window(State &, bool) noexcept {}
+  [[nodiscard]] HWND get() const noexcept { return nullptr; }
+  [[nodiscard]] DWORD thread_id() const noexcept { return 0U; }
+};
+#endif
 
 bool host_key_down(const State &state, const int virtual_key) noexcept {
   return virtual_key >= 0 && virtual_key < 256 &&
@@ -1965,6 +2408,7 @@ void trace_phase9_event(State &state, const char *event,
                     << static_cast<int>(state.latched_controller_stick_y) << '\n';
 }
 
+#if defined(_WIN32)
 bool read_xinput_device(int device,
                         jfg::StandardControllerSample &sample) noexcept {
   using XInputGetStateFn = DWORD(WINAPI *)(DWORD, XINPUT_STATE *);
@@ -2015,6 +2459,11 @@ bool read_xinput_device(int device,
                  state.Gamepad.bRightTrigger * 32767 / 255};
   return true;
 }
+#else
+bool read_xinput_device(int, jfg::StandardControllerSample &) noexcept {
+  return false;
+}
+#endif
 
 // RGO: gamepads come from SDL's GameController API on its own input thread.
 // XInput remains the fallback if SDL's controller support cannot start.
@@ -2330,6 +2779,58 @@ void sample_live_controller(State &state) noexcept {
     const auto sample=state.controller_ports.samples[0];
     buttons=sample.buttons;stick_x=sample.x;stick_y=sample.y;
   }
+#if defined(JFG_HEADLESS_LIVE)
+  if (state.autopilot) {
+    // KSEG0 RDRAM, plus overlay memory at linked addresses (recompiled
+    // overlays live there), limited to the extents the backing mapped.
+    struct GuestView final : jfg::rgo::AutopilotMemory {
+      const State &state;
+      explicit GuestView(const State &owner) : state(owner) {}
+      const std::uint8_t *word(std::uint32_t address) const {
+        if (address >= kKseg0 && address - kKseg0 <= kRdramSize - 4U)
+          return state.rdram + (address - kKseg0);
+        for (const auto &[begin, end] : state.autopilot_overlays)
+          if (address >= begin && address <= end - 4U)
+            return state.rdram + static_cast<std::uint32_t>(address + kKseg0);
+        return nullptr;
+      }
+      std::optional<std::uint8_t> u8(std::uint32_t address) const override {
+        const auto *bytes = word(address & ~3U);
+        if (bytes == nullptr) return std::nullopt;
+        return bytes[(address & 3U) ^ 3U];
+      }
+      std::optional<std::uint32_t> u32(std::uint32_t address) const override {
+        if ((address & 3U) != 0U) return std::nullopt;
+        const auto *bytes = word(address);
+        if (bytes == nullptr) return std::nullopt;
+        std::uint32_t value = 0U;
+        std::memcpy(&value, bytes, sizeof(value));
+        return value;
+      }
+    } const rdram(state);
+    const auto input = state.autopilot->sample(rdram);
+    connected = true;
+    buttons = input.buttons;
+    stick_x = input.stick_x;
+    stick_y = input.stick_y;
+    const auto mode = rdram.u8(kKseg0 | jfg::rgo::kFrontModeAddress).value_or(0U);
+    if (std::getenv("JFG_RGO_AUTOPILOT_DEBUG") != nullptr && (buttons != 0U || state.controller_samples % 30U == 0U)) {
+      const auto keyboard = jfg::rgo::read_keyboard(rdram);
+      std::fprintf(stderr, "autopilot: VI %llu poll %llu mode %u buttons %04x stick %d keyboard %d/%u/%u/%u game %08x\n",
+                   static_cast<unsigned long long>(state.vi_retraces),
+                   static_cast<unsigned long long>(state.controller_samples), mode, buttons, stick_x,
+                   keyboard ? 1 : 0, keyboard ? keyboard->submode : 0U,
+                   keyboard ? keyboard->key : 0U, keyboard ? keyboard->label_length : 0U,
+                   rdram.u32(0x800FB0C0U).value_or(0U));
+    }
+    if (mode != state.autopilot_front_mode) {
+      state.autopilot_front_mode = mode;
+      std::fprintf(stderr, "autopilot: VI %llu front mode %u level %u\n",
+                   static_cast<unsigned long long>(state.vi_retraces), mode,
+                   rdram.u32(kKseg0 | jfg::rgo::kLevelNumberAddress).value_or(0U));
+    }
+  }
+#endif
 
   const HWND root=state.native_window ? GetAncestor(static_cast<HWND>(state.native_window),GA_ROOT) : nullptr;
   const bool settings_capture=state.play_mode && root && GetPropW(root,L"JfgSettingsOpen")!=nullptr;
@@ -2572,29 +3073,94 @@ void refresh_video_settings(State &state) {
         state.video = *settings;
   }
   state.widescreen = state.video.aspect == jfg::AspectMode::widescreen;
+  // RGO fast clock: unless Original N64 slowdown is on (Original frame rate
+  // only), CPU work costs almost no emulated time and waits skip to the next
+  // device event (docs/rgo/framerate.md). Replays and captures keep the
+  // original cost model so recorded inputs stay deterministic.
+  state.fast_clock = state.video_managed && !state.input_replay_loaded &&
+      jfg::fast_clock(state.video) ? 1U : 0U;
   if (state.rt64_shell != nullptr) {
     if (state.video_managed)
       state.rt64_shell->set_video_settings(state.video);
     state.widescreen_extent = state.rt64_shell->horizontal_extent();
+    // RGO frame interpolation: this game frame took this many VIs (2 for
+    // 30 fps, 3 for 20 fps); RT64 blends extra frames at that logic rate.
+    if (state.last_frame_retrace != 0U)
+      state.rt64_shell->set_game_rate(jfg::game_rate_from_retraces(
+          state.vi_retraces - state.last_frame_retrace));
+    state.last_frame_retrace = state.vi_retraces;
   }
-  // FPS counter: report presented frames per second to the frontend twice a
-  // second; it shows them when the setting is on.
+  // RGO FPS counter (frame_stats.hpp), reported to the frontend twice a
+  // second: game logic updates, real frames rendered and frames displayed
+  // per second, and the displayed frame time range.
   ++state.frame_rate_presents;
+  const std::uint64_t displayed = state.rt64_shell != nullptr
+      ? state.rt64_shell->display_presents() : 0U;
   if (state.frame_rate_start == std::chrono::steady_clock::time_point{}) {
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
+    state.frame_rate_logic_start = state.logic_frames;
+    state.frame_rate_display_start = displayed;
+    if (state.rt64_shell != nullptr)
+      (void)state.rt64_shell->take_display_intervals();
+    state.frame_logic_ticks = 0U;
+    state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
+    state.frame_gaps = {};
+    state.frame_input_start = state.controller_samples;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
-    const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        now - state.frame_rate_start).count();
-    const auto tenths = static_cast<WPARAM>(
-        (state.frame_rate_presents * 10'000'000ULL +
-         static_cast<std::uint64_t>(elapsed_us) / 2U) /
-        static_cast<std::uint64_t>((std::max)(elapsed_us, decltype(elapsed_us){1})));
+    const auto elapsed_us = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            now - state.frame_rate_start).count());
+    const auto per_second_tenths = [elapsed_us](const std::uint64_t count) {
+      return jfg::frame_rate_tenths(count, elapsed_us);
+    };
+    const auto [display_min_us, display_max_us] = state.rt64_shell != nullptr
+        ? state.rt64_shell->take_display_intervals()
+        : std::pair<std::uint64_t, std::uint64_t>{};
+    const jfg::FrameCounter counter{
+        per_second_tenths(state.logic_frames - state.frame_rate_logic_start),
+        per_second_tenths(state.frame_rate_presents),
+        per_second_tenths(displayed - state.frame_rate_display_start),
+        jfg::frame_time_tenth_ms(display_min_us), jfg::frame_time_tenth_ms(display_max_us)};
+    // FPS counter "Detailed": what the game did with those frames.
+    jfg::FrameStats details{};
+    details.logic_tenths = counter.game_tenths;
+    details.ticks_tenths = per_second_tenths(state.frame_logic_ticks);
+    details.drawn_tenths = per_second_tenths(state.frame_drawn);
+    details.new_tenths = per_second_tenths(state.frame_new);
+    details.camera_tenths = per_second_tenths(state.frame_camera);
+    details.repeat_tenths = per_second_tenths(state.frame_repeats);
+    details.input_tenths = per_second_tenths(state.controller_samples - state.frame_input_start);
+    details.frame_min = state.frame_gaps.minimum_tenths();
+    details.frame_max = state.frame_gaps.maximum_tenths();
+    details.display_min = counter.frame_min_tenth_ms;
+    details.display_max = counter.frame_max_tenth_ms;
     const HWND window = static_cast<HWND>(state.native_window);
-    if (window != nullptr && GetParent(window) != nullptr)
-      PostMessageW(GetAncestor(window, GA_ROOT), WM_APP + 24U, tenths, 0);
+    if (window != nullptr && GetParent(window) != nullptr) {
+      const HWND root = GetAncestor(window, GA_ROOT);
+      const auto packed = jfg::pack_frame_counter(counter);
+      PostMessageW(root, WM_APP + jfg::kFrameStatsMessageOffset,
+                   static_cast<WPARAM>(packed.first), static_cast<LPARAM>(packed.second));
+      const auto words = jfg::encode_frame_stats(details);
+      for (unsigned index = 0U; index < jfg::kFrameDetailMessageCount; ++index)
+        PostMessageW(root, WM_APP + jfg::kFrameDetailMessageOffset + index,
+                     static_cast<WPARAM>(words[index * 2U]),
+                     static_cast<LPARAM>(words[index * 2U + 1U]));
+    }
+#if defined(JFG_HEADLESS_LIVE)
+    if (state.counter_log)
+      std::fprintf(stderr, "counter: VI %llu %s\n",
+                   static_cast<unsigned long long>(state.vi_retraces),
+                   jfg::format_frame_counter(counter).c_str());
+#endif
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
+    state.frame_rate_logic_start = state.logic_frames;
+    state.frame_rate_display_start = displayed;
+    state.frame_logic_ticks = 0U;
+    state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
+    state.frame_gaps = {};
+    state.frame_input_start = state.controller_samples;
   }
 }
 
@@ -2675,7 +3241,7 @@ void service_live_window(State &state) {
   state.host_frame_deadline += std::chrono::microseconds(16667);
   const auto deadline_now = std::chrono::steady_clock::now();
   if (state.host_frame_deadline > deadline_now) {
-    std::this_thread::sleep_until(state.host_frame_deadline);
+    jfg::precise_sleep_until(state.host_frame_deadline);
   } else if (deadline_now - state.host_frame_deadline >
              std::chrono::microseconds(66668)) {
     // Do not run an unbounded catch-up burst after shader compilation, window
@@ -2760,7 +3326,7 @@ bool write_private_rt64_snapshot(
   return static_cast<bool>(stream);
 }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 bool write_mod_export(State &state, const std::filesystem::path &path, const std::string &text) {
   const auto copy = std::make_shared<const std::string>(text);
   if (path.filename() == L"mesh.json") {
@@ -3750,7 +4316,7 @@ bool resolve_bzero_host_offset(const State &state, const std::uint32_t address,
     return true;
   }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   // Generated overlay-local references use their normalized synthetic VRAM
   // addresses. GuestBacking reserves and commits those exact windows at the
   // offset used by the generated MEM_* helpers, so HLE memory primitives must
@@ -4205,12 +4771,15 @@ bool execute_live_audio_task(State &state, hle::GuestMemory &memory) {
   return true;
 }
 
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
 bool initialize_live_renderer(State &state, LiveRt64Window &window) {
   if (state.rdram == nullptr || state.rom == nullptr ||
-      state.rom_size < jfg::kRt64RequiredHeaderBytes ||
-      window.get() == nullptr)
+      state.rom_size < jfg::kRt64RequiredHeaderBytes)
     return false;
+#if defined(_WIN32)
+  if (window.get() == nullptr)
+    return false;
+#endif
   state.rt64_rdram.assign(jfg::kRt64RequiredRdramBytes, std::byte{0});
   std::copy_n(reinterpret_cast<const std::byte *>(state.rdram), kRdramSize,
               state.rt64_rdram.begin());
@@ -4227,6 +4796,18 @@ bool initialize_live_renderer(State &state, LiveRt64Window &window) {
   state.rt64_vi.x_scale = 0x00000200U;
   state.rt64_vi.y_scale = 0x00000400U;
   jfg::Rt64ShellError error = jfg::Rt64ShellError::none;
+#if defined(JFG_HEADLESS_LIVE)
+  refresh_video_settings(state);
+  jfg::Rt64ShellConfiguration shell_configuration{window.get(), window.thread_id(),
+       std::span<const std::byte>(
+           reinterpret_cast<const std::byte *>(state.rom),
+           jfg::kRt64RequiredHeaderBytes),
+       state.rt64_rdram, &state.rt64_vi, false,
+       jfg::Rt64MemoryLayout::host_word_swapped, true, true};
+  state.rt64_shell = jfg::Rt64Shell::create(shell_configuration, error);
+  state.last_rt64_error = error;
+  return state.rt64_shell != nullptr && error == jfg::Rt64ShellError::none;
+#else
   const int saved_stdout = _dup(_fileno(stdout));
   HANDLE null_handle = CreateFileW(
       L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
@@ -4264,6 +4845,7 @@ bool initialize_live_renderer(State &state, LiveRt64Window &window) {
   _close(saved_stdout);
   state.last_rt64_error = error;
   return state.rt64_shell != nullptr && error == jfg::Rt64ShellError::none;
+#endif
 }
 
 constexpr bool is_immediate_offscreen_task_candidate(
@@ -4428,7 +5010,8 @@ void ledger(State &state, std::string_view category, std::string_view operation,
   }
 }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
+#if defined(_WIN32)
 LONG WINAPI child_exception_filter(EXCEPTION_POINTERS *exception) {
   jfg::support_crash(exception);
   State *const state = g_active_child_state;
@@ -4470,12 +5053,36 @@ LONG WINAPI child_exception_filter(EXCEPTION_POINTERS *exception) {
   }
   std::_Exit(4);
 }
+#else
+// Headless: report the recent guest calls before a native crash ends the
+// process (the Windows build writes the same ledger from its filter).
+void headless_crash_report(const int signal_number) noexcept {
+  State *const state = g_active_child_state;
+  if (state == nullptr)
+    return;
+  const std::size_t count = (std::min)(state->recent_dispatch_position,
+                                       state->recent_dispatches.size());
+  std::fprintf(stderr, "native crash: signal %d at VI %llu; recent guest calls:",
+               signal_number, static_cast<unsigned long long>(state->vi_retraces));
+  for (std::size_t index = count; index > 0U; --index)
+    std::fprintf(stderr, " %08x",
+                 state->recent_dispatches[(state->recent_dispatch_position - index) %
+                                          state->recent_dispatches.size()]);
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
+  std::array<char, 32U> operation{};
+  (void)std::snprintf(operation.data(), operation.size(), "signal-%d", signal_number);
+  ledger(*state, "native-crash", operation.data(),
+         count == 0U ? 0U : state->recent_dispatches[(state->recent_dispatch_position - 1U) %
+                                                     state->recent_dispatches.size()]);
+}
+#endif
 #endif
 
 [[noreturn]] void fail_closed_dispatch(State &state, std::string_view category,
                                        std::string_view operation,
                                        std::uint32_t guest_target) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.input_record.is_open())
     state.input_record.flush();
   if (state.timing_trace.is_open())
@@ -4637,7 +5244,7 @@ LONG WINAPI child_exception_filter(EXCEPTION_POINTERS *exception) {
     (void)std::snprintf(entry, sizeof(entry), "%08x", dispatch_target);
     si_dispatch_trace += entry;
   }
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (!service_host_audio(state, false))
     fail_closed_dispatch(state, "audio", "host-device-final", 0U);
   if (!persist_controller_pak(state))
@@ -5121,7 +5728,7 @@ LONG WINAPI child_exception_filter(EXCEPTION_POINTERS *exception) {
 }
 #endif
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 [[noreturn]] void play_exit(State &state) {
   jfg::support_event("native=closed");
   if (state.mmio_trace == nullptr ||
@@ -5205,7 +5812,7 @@ LONG WINAPI child_exception_filter(EXCEPTION_POINTERS *exception) {
 #endif
 }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 void complete_guest_sp_status(State &state, const std::uint32_t target) {
   if (!state.guest_leaf_probe) return;
   if (state.mmio_trace == nullptr || !state.mmio_trace->guest_sp_status ||
@@ -5340,6 +5947,8 @@ void complete_pending_live_graphics_tasks(
     if (graphics.color_image_address != 0U) {
       state.graphics_color_image = graphics.color_image_address;
       state.graphics_frame_ready = true;
+      state.frame_content.drawn(graphics.color_image_address & 0x00FFFFFFU,
+                                graphics.scene_hash, graphics.camera_hash);
 
     }
     // Submission and writeback have consumed this snapshot. RT64 owns the
@@ -5412,7 +6021,7 @@ bool write_guest_byte(State &state, const std::uint32_t address,
 // about hardware interrupt latency. Enabled only by focused update capture.
 void trace_si_timing(State &state, const char *event, std::uint32_t queue,
                      std::uint32_t caller, std::int32_t result) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   const auto si = state.events.find(5U);
   if (si == state.events.end() || queue != si->second.first ||
       state.focus_update_start == 0U || !state.timing_trace.is_open() ||
@@ -5473,7 +6082,7 @@ void service_timers(State &state, const std::uint32_t target) {
 
 // Diagnostic only: the dispatch-based Count is not hardware CPU timing.
 void trace_guest_clock(State &state, const char *event, std::uint32_t address) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.focus_update_start == 0U || !state.timing_trace.is_open() ||
       state.completed_game_updates + 1U < state.focus_update_start - 1U ||
       state.completed_game_updates + 1U > state.focus_update_end + 1U) return;
@@ -5541,7 +6150,7 @@ void advance_legacy_vi_clock(State &state, const std::uint32_t target) {
 // Presentation consumes already completed work. It does not complete a
 // graphics task, advance Count, or deliver a guest interrupt.
 void present_completed_video(State &state, const std::uint32_t target) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.play_mode || state.realtime_replay) {
     service_live_window(state);
     if (state.exit_requested)
@@ -5614,6 +6223,15 @@ void present_completed_video(State &state, const std::uint32_t target) {
           state.gameplay_trace_updates, present_us, present_interval_us, selected_vi_framebuffer});
       state.present_time = present_end;
       state.present_time_initialized = true;
+      if (present_interval_us != 0U)
+        state.frame_gaps.add(present_interval_us);
+      const auto content = state.frame_content.presented(selected_vi_framebuffer);
+      if (!content.fresh) ++state.frame_repeats;
+      else {
+        ++state.frame_drawn;
+        if (content.scene_changed) ++state.frame_new;
+        if (content.camera_changed) ++state.frame_camera;
+      }
       if (state.timing_trace) state.timing_trace << "present-qpc\t"
           << state.vi_frames << '\t' << state.vi_retraces << '\t'
           << std::chrono::duration_cast<std::chrono::microseconds>(
@@ -5647,7 +6265,7 @@ void present_completed_video(State &state, const std::uint32_t target) {
 }
 
 void latch_next_vi_framebuffer(State &state, const std::uint32_t target) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.vi_next_framebuffer != 0U) {
     state.vi_current_framebuffer = state.vi_next_framebuffer;
     if (!apply_live_vi_field(state, state.vi_current_framebuffer))
@@ -5701,7 +6319,7 @@ void service_vi_frame(State &state, const std::uint32_t target) {
   state.journal.append(NativeEventKind::kViFrame,
                        static_cast<std::uint32_t>(state.vi_frames));
   present_completed_video(state, target);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   complete_pending_live_graphics_tasks(state, target);
 #endif
   latch_next_vi_framebuffer(state, target);
@@ -5722,7 +6340,7 @@ void note_hints_control_call(State &state, const std::uint32_t target,
   state.phase9_king_bear_callback = target;
 }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 // RGO widescreen HUD anchoring (jfg/mod/widescreen_hud.hpp).
 class HudGroupScope {
 public:
@@ -5802,6 +6420,281 @@ bool hud_aligned_call(State &state, hle::GuestMemory &memory,
   write(anchor);
   original(rdram, context);
   write(jfg::mod::HudAnchor::none);
+  return true;
+}
+
+// RGO frame trace (JFG_RGO_FRAME_TRACE=<path>): one TSV row per game frame,
+// written at viFrameSync entry. Columns: VI count, the ticks (delayDat) the
+// frame was simulated with, gVideoDeltaTime, emulated Count, guest
+// instructions, host microseconds since the trace started, front-end mode and
+// level number. Logic rate = rows per 60 VIs; see scripts/rgo_frame_rate.py.
+void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
+  hle::GuestMemory memory({const_cast<std::uint8_t *>(rdram), kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  std::uint32_t delay = 0U, level = 0U;
+  (void)memory.read_u32(jfg::kDelayDat, delay);
+  (void)memory.read_u32(0x800FB114U, level);
+  const unsigned delta = rdram[0x000FECACU ^ 3U];
+  const unsigned mode = rdram[0x000A51B0U ^ 3U];
+  const auto now = std::chrono::steady_clock::now();
+  if (state.rgo_frame_trace_start == std::chrono::steady_clock::time_point{})
+    state.rgo_frame_trace_start = now;
+  const auto wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
+      now - state.rgo_frame_trace_start).count();
+  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\n",
+               static_cast<unsigned long long>(state.vi_retraces), delay, delta,
+               static_cast<unsigned long long>(state.cpu_count),
+               static_cast<unsigned long long>(state.observed_guest_instructions),
+               static_cast<long long>(wall_us), mode, level);
+}
+
+// RGO fast clock: a guest thread that keeps polling an empty queue in a loop
+// (osRecvMesg NOBLOCK, e.g. amWaitForMidiSync waiting for the music in
+// cutscenes) waits for a device event: an interrupt delivers the message.
+// Once one call site has polled the same empty queue kBusyPolls times in
+// quick succession, advance Count to the earliest pending device deadline,
+// exactly as the idle loop skip does; the event is serviced at the next
+// instruction. Polls a frame apart (mainResetPressed, viFrameSync's check
+// for pending VIs) are not waits and never skip: skipping there would
+// stretch the frame and put cutscenes out of step with their music.
+constexpr std::uint32_t kBusyPolls = 16U;
+constexpr std::uint64_t kBusyPollWindow = 256U;  // Count ticks, ~4096 instructions
+
+void skip_empty_poll(State &state, const std::uint32_t queue, const std::uint32_t caller) {
+  if (state.mmio_trace == nullptr)
+    return;
+  jfg_fast_run_end(&state);
+  auto &sites = state.empty_poll_sites;
+  auto *site = &sites[0];
+  for (auto &candidate : sites) {
+    if (candidate.queue == queue && candidate.caller == caller) {
+      site = &candidate;
+      break;
+    }
+    if (candidate.last_count < site->last_count)
+      site = &candidate;  // least recently polled: reused for a new site
+  }
+  if (site->queue != queue || site->caller != caller) {
+    *site = {queue, caller, state.cpu_count, 0U};
+  }
+  site->streak = state.cpu_count - site->last_count <= kBusyPollWindow ? site->streak + 1U : 1U;
+  site->last_count = state.cpu_count;
+  if (site->streak < kBusyPolls)
+    return;
+  site->streak = 0U;
+  auto &mmio = *state.mmio_trace;
+  auto deadline = mmio.vi_next;
+  const auto admit = [&](const std::optional<std::uint64_t> next) {
+    if (next) deadline = (std::min)(deadline, *next);
+  };
+  admit(mmio.pi_dma.deadline()); admit(mmio.si_dma.deadline());
+  admit(state.guest_timer.deadline()); admit(mmio.sp_deadline);
+  admit(mmio.dp_deadline); admit(mmio.ai_dma.deadline());
+  if (deadline > state.cpu_count) {
+    state.cpu_count = deadline;
+    mmio.guest_count = state.cpu_count;
+    site->last_count = state.cpu_count;
+    ++state.empty_poll_skips;
+  }
+}
+
+// RGO fast clock real-time floor. CPU work costs almost no emulated time, so
+// a host too slow for a frame would otherwise stretch emulated time and play
+// the game in slow motion. Instead, keep Count no further behind the wall
+// clock than kWallSlack (anchored at the last paced VI): the next VI then
+// arrives while the frame is still running, the game counts two VIs for it
+// and simulates two ticks, as on the console and in other N64Recomp ports.
+// Gameplay speed stays right; only the frame rate drops. Checked every few
+// guest calls; a jump is serviced like the idle and poll skips.
+//
+// Following is bounded to kWallMaxLag. A longer stall (a shader compile, a
+// window drag, loading on a slow PC) is not replayed as a burst of VIs: the
+// anchor moves to now and the stalled time is skipped, as the audio clock
+// does after an underrun. A burst would let the game's scheduler see its
+// graphics task outlast ten VIs and stop with its "SP CRASHED" screen.
+constexpr std::uint64_t kWallSlack = 781250U / 4U;   // a quarter VI, ~4 ms
+constexpr std::uint64_t kWallMaxLag = 781250U * 3U;  // three VIs, 50 ms
+
+void apply_wall_floor(State &state) {
+  if (!state.wall_anchor_valid || state.mmio_trace == nullptr)
+    return;
+  jfg_fast_run_sync(&state);
+  const auto now = std::chrono::steady_clock::now();
+  if (now <= state.wall_anchor_time)
+    return;
+  const auto elapsed_ns = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(now - state.wall_anchor_time).count());
+  // Count runs at 46.875 MHz: 3 ticks per 64 ns.
+  const std::uint64_t wall_count = state.wall_anchor_count + elapsed_ns * 3U / 64U;
+  if (wall_count <= state.cpu_count + kWallSlack)
+    return;
+  if (wall_count > state.cpu_count + kWallMaxLag) {
+    state.wall_anchor_count = state.cpu_count;
+    state.wall_anchor_time = now;
+    ++state.wall_floor_resets;
+    return;
+  }
+  jfg_fast_run_end(&state);
+  state.cpu_count = wall_count - kWallSlack;
+  state.mmio_trace->guest_count = state.cpu_count;
+  ++state.wall_floor_jumps;
+}
+
+// RGO: Frame rate went back to Original while playing. The game's own
+// gVideoDeltaTime (0x800FECAC) is still 1 (60 fps) from true 60 and only
+// returns to 2 on a level load, so restore its 30 fps mode now, unless the
+// game itself runs this screen at 60 (runInOneFrame).
+void leave_true60(State &state, std::uint8_t *rdram) {
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  std::uint32_t one_frame = 0U;
+  if (memory.read_u32(jfg::kRunInOneFrame, one_frame) && one_frame == 0U &&
+      rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] == 1U)
+    rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] = 2U;
+  state.scroller_pending_ticks = 0U;
+}
+
+// viFrameSync, once per game frame: counts the VI ticks the logic gets for
+// the FPS counter's Detailed view. With true 60 fps logic (docs/rgo/framerate.md,
+// Part E) it runs with the game's own runInOneFrame flag set, so it waits for
+// one VI per frame and every tick function gets updateRate 1; the game's
+// value is restored afterwards. Returns true when it ran the original.
+bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
+                         recomp_context *context, const bool one_vi) {
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(jfg::kViFrameSync));
+  std::uint32_t saved = 0U;
+  if (original == nullptr || !memory.read_u32(jfg::kRunInOneFrame, saved))
+    return false;
+  if (one_vi)
+    (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+  // RGO fast clock: a frame the host was too slow for (a load, a hitch) takes
+  // an extra VI and its ticks, keeping the game's speed. Without this the game
+  // would also drop to its 20 fps mode, which it leaves only after 31 fast
+  // frames: one hitch would cost at least 1.5 s at 20 fps. The console's own
+  // timing (Original N64 slowdown On) keeps that behaviour.
+  if (state.fast_clock != 0U)
+    rdram[(jfg::kSkipVideoDeltaAdjust - kKseg0) ^ 3U] = 1U;
+  original(rdram, context);
+  if (one_vi) {
+    (void)memory.write_u32(jfg::kRunInOneFrame, saved);
+    state.true60_governor.frame(static_cast<std::uint32_t>(context->r2), state.vi_retraces);
+  }
+  state.frame_logic_ticks += (std::min)(static_cast<std::uint32_t>(context->r2), 6U);
+  return true;
+}
+
+// RGO true 60 fps logic: the scheduler releases each frame's done message
+// without waiting for a second VI, and three places that assume 2 ticks per
+// frame are adjusted (frame_interpolation.hpp): texture scrollers run once
+// per 2 ticks, literal 2-tick particle bursts use the real rate, and a frame
+// without a new controller read reports no presses. Returns true when it ran
+// the original.
+bool true60_dispatch(State &state, const std::uint32_t target,
+                     std::uint8_t *rdram, recomp_context *context) {
+  if (target != jfg::kAnimseqUpdateTextureScrollers &&
+      target != jfg::kPartUpdateTriggers && target != jfg::kJoyRead &&
+      target != jfg::kScTaskComplete)
+    return false;
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+  if (original == nullptr)
+    return false;
+  if (target == jfg::kScTaskComplete) {
+    // Release the frame-done message without waiting for a second VI.
+    const auto frame_count_address =
+        static_cast<std::uint32_t>(context->r4) + jfg::kSchedFrameCountOffset;
+    std::uint32_t frame_count = 0U;
+    if (!memory.read_u32(frame_count_address, frame_count))
+      return false;
+    (void)memory.write_u32(frame_count_address, jfg::true60_frame_count(frame_count));
+    original(rdram, context);
+    return true;
+  }
+  if (target == jfg::kAnimseqUpdateTextureScrollers) {
+    const auto rate = static_cast<std::uint32_t>(context->r4);
+    if (rate > 6U)
+      return false;  // Not the rate argument this hook expects.
+    const std::uint32_t run = jfg::batch_ticks(state.scroller_pending_ticks, rate);
+    if (run == 0U)
+      return true;  // Skipped: these ticks run with the next frame's.
+    context->r4 = run;
+    original(rdram, context);
+    return true;
+  }
+  if (target == jfg::kPartUpdateTriggers) {
+    std::uint32_t frame_rate = 0U;
+    if (!memory.read_u32(jfg::kDelayDat, frame_rate))
+      return false;
+    context->r5 = jfg::trigger_ticks(static_cast<std::uint32_t>(context->r5), frame_rate);
+    original(rdram, context);
+    return true;
+  }
+  // joyRead: compare both controller reads before and after the call.
+  constexpr std::size_t kWords = jfg::kControllerPadBytes * 2U / 4U;
+  std::array<std::uint8_t, 48> before{}, after{};
+  auto snapshot = [&](std::array<std::uint8_t, 48>& bytes) {
+    for (std::size_t index = 0U; index < kWords; ++index) {
+      std::uint32_t word = 0U;
+      if (!memory.read_u32(jfg::kControllerCurrent + static_cast<std::uint32_t>(index * 4U), word))
+        return false;
+      for (std::size_t byte = 0U; byte < 4U; ++byte)
+        bytes[index * 4U + byte] = static_cast<std::uint8_t>(word >> (24U - byte * 8U));
+    }
+    return true;
+  };
+  if (!snapshot(before))
+    return false;
+  original(rdram, context);
+  if (snapshot(after) && !jfg::controller_read_consumed(before, after))
+    for (std::uint32_t offset = 0U; offset < 8U; offset += 4U) {
+      (void)memory.write_u32(jfg::kControllerPressed + offset, 0U);
+      (void)memory.write_u32(jfg::kControllerReleased + offset, 0U);
+    }
+  return true;
+}
+
+// RGO frame interpolation, phase 2 (experimental, interpolate_objects=on):
+// run the game's object matrix writers and tag each matrix they write with an
+// ID from the object pointer and how many matrices it pushed since the last
+// camera. The renderer checks the tag against the matrix words, so tags for
+// reused matrix memory are ignored. Returns true when it ran the original.
+bool interpolation_tag_dispatch(State &state, const std::uint32_t target,
+                                std::uint8_t *rdram, recomp_context *context) {
+  if (target == jfg::kCamSetProjMtx) {
+    // A new camera: objects are drawn again for it (split screen).
+    state.object_matrix_pushes.clear();
+    return false;
+  }
+  if (target != jfg::kCamPushModelMtx && target != jfg::kCamPushFloatModelMtx &&
+      target != jfg::kCamPushMuzzleMtx)
+    return false;
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  std::uint32_t cursor = 0U;
+  if (!memory.read_u32(static_cast<std::uint32_t>(context->r5), cursor))
+    return false;
+  const std::uint32_t key =
+      jfg::object_key(target, static_cast<std::uint32_t>(context->r6));
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+  if (original == nullptr)
+    return false;
+  original(rdram, context);
+  const std::uint32_t matrix = (cursor & 0x1FFFFFFFU) | kKseg0;
+  std::array<std::uint32_t, 16> words{};
+  for (std::size_t index = 0U; index < words.size(); ++index)
+    if (!memory.read_u32(matrix + static_cast<std::uint32_t>(index * 4U), words[index]))
+      return true;
+  if (state.object_matrix_pushes.size() > 4096U)
+    state.object_matrix_pushes.clear();
+  const std::uint32_t push = state.object_matrix_pushes[key]++;
+  state.rt64_shell->tag_matrix(matrix & 0x00FFFFFFU, jfg::matrix_words_hash(words),
+                               jfg::object_group_id(key, push));
   return true;
 }
 
@@ -5957,7 +6850,9 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       state.mmio_trace->unsupported_accesses != 0U)
     fail_closed_dispatch(state, "mmio", "unsupported-register", target);
   ++state.dispatch_calls;
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+  // RGO fast clock: the host code below sees an up-to-date Count.
+  jfg_fast_run_sync(&state);
+#if defined(JFG_LIVE_RUNTIME)
   // RGO widescreen: the track renderer culls level blocks against fixed
   // camera-space side planes sized for the original picture. Open them by
   // the presented horizontal extent while func_800158BC builds the planes,
@@ -5992,6 +6887,44 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       return 1;
     }
   }
+  // RGO frame trace and FPS counter: viFrameSync starts every game frame.
+  // delayDat still holds the ticks the frame that just ended was simulated
+  // with.
+  if (target == jfg::kViFrameSync) {
+    ++state.logic_frames;
+    if (state.rgo_frame_trace != nullptr)
+      write_rgo_frame_trace(state, rdram);
+    // A new level or cutscene: True 60 tries 60 again at once.
+    std::uint32_t level = 0U;
+    std::memcpy(&level, rdram + (jfg::kCurrentLevel - kKseg0), sizeof(level));
+    if (level != state.true60_level) {
+      state.true60_level = level;
+      state.true60_governor.new_scene(state.vi_retraces);
+    }
+  }
+  // RGO true 60 fps logic (Frame rate above Original). Replays and captures
+  // keep the game's own frame pacing.
+  const bool true60 = state.video_managed && !state.input_replay_loaded &&
+      jfg::true_logic_60(state.video) && state.true60_governor.active(state.vi_retraces);
+  if (target == jfg::kViFrameSync) {
+    if (state.true60_active && !true60)
+      leave_true60(state, rdram);
+    state.true60_active = true60;
+  }
+  if (state.fast_clock != 0U && !state.wall_floor_disabled &&
+      (++state.wall_floor_calls & 15U) == 0U)
+    apply_wall_floor(state);
+  // viFrameSync: the Detailed counter's ticks, and at true 60 one VI per frame.
+  if (target == jfg::kViFrameSync && state.video_managed && !state.input_replay_loaded &&
+      frame_sync_dispatch(state, rdram, context, true60))
+    return 1;
+  if (true60 && true60_dispatch(state, target, rdram, context))
+    return 1;
+  // RGO frame interpolation: tag object matrices (experimental).
+  if (state.rt64_shell != nullptr && state.video.interpolate_objects &&
+      jfg::interpolation_requested(state.video) &&
+      interpolation_tag_dispatch(state, target, rdram, context))
+    return 1;
   // RGO widescreen HUD: track the HUD frame and its element groups, and
   // anchor elements drawn by the 2D primitives.
   std::optional<HudGroupScope> hud_group;
@@ -6311,7 +7244,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   state.recent_dispatches[state.recent_dispatch_position %
                           state.recent_dispatches.size()] = target;
   ++state.recent_dispatch_position;
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.vi_retraces >= 5683U && state.dispatch_calls % 1024U == 0U)
     write_private_progress(state, "dispatch");
 #endif
@@ -6462,7 +7395,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
 #endif
       [[maybe_unused]] const std::uint32_t allocation_size =
           static_cast<std::uint32_t>(context->r4);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       if (target == 0x80044FACU)
         trace_phase9_event(state, "update-begin", state.controller_samples);
       const bool focus_window = state.focus_update_start != 0U &&
@@ -6550,7 +7483,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
 #endif
       [[maybe_unused]] const auto mod_actor_argument=static_cast<std::uint32_t>(context->r4);
       const auto sound_event_argument = static_cast<std::uint32_t>(context->r5);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       if (state.navigation_mod.enabled && target == 0x01002708U) {
         jfg::mod::Memory memory({rdram, kRdramSize});
         const auto original = static_cast<std::uint32_t>(context->r6);
@@ -6569,7 +7502,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
                 memory, *context, mod_actor_argument, sound_event_argument))
           ++state.sound_queue_recoveries;
       }
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       if (state.navigation_mod.observing() && target==0x80032A48U) {
         jfg::mod::Memory memory({rdram,kRdramSize});
         (void)state.navigation_mod.observe_player(memory,mod_actor_argument);
@@ -6577,7 +7510,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       }
       if (target==0x80044FACU) update_navigation_mod(state);
 #endif
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       if (state.entry_probe_target == target && focus_window)
         trace_guest_clock(state, "entry-return", target);
       if (watch_active) {
@@ -6933,6 +7866,16 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
           << a1 << '\t' << a2 << std::dec << '\t' << state.cpu_count << '\n';
     generated(rdram, context);
     if (target == 0x80097520U) state.os_initialized = true;
+#if defined(JFG_LIVE_RUNTIME)
+    // RGO fast clock: a thread polling an empty queue (osRecvMesg NOBLOCK,
+    // e.g. amWaitForMidiSync in cutscenes) waits for a device event, so skip
+    // straight to it, as the idle loop does.
+    if (target == original_os_entry("osRecvMesg") && state.fast_clock != 0U) {
+      if (a2 == static_cast<std::uint32_t>(hle::kOsMesgNoBlock) &&
+          static_cast<std::int32_t>(context->r2) == -1)
+        skip_empty_poll(state, a0, static_cast<std::uint32_t>(context->r31));
+    }
+#endif
     if (target == original_os_entry("osContInit"))
       state.controller_initialized = static_cast<std::uint32_t>(context->r2) == 0U;
     // Read-only host observers. The original bodies above own all guest
@@ -6945,7 +7888,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     if (target == original_os_entry("osViSetEvent")) {
       state.vi_queue = a0; state.vi_message = a1; state.vi_retrace_interval = a2;
     }
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     if (target == original_os_entry("osViSetMode")) {
       if (!configure_live_vi_mode(state, memory, a0))
         fail_closed_dispatch(state, "guest-vi", "invalid-mode", target);
@@ -6977,7 +7920,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       if (message == state.vi_message) {
         ++state.vi_retraces;
         jfg::support_breadcrumb(state.vi_frames, state.vi_retraces, state.controller_samples);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
         write_retrace_semantic_hash(state);
         write_private_progress(state);
 #endif
@@ -7166,7 +8109,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
              state.vi_retraces < state.retrace_target &&
              state.vi_retrace_interval != 0U &&
              state.vi_internal_queue != 0U) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
         if (state.focus_update_start != 0U &&
             state.completed_game_updates + 1U >= state.focus_update_start - 1U &&
             state.completed_game_updates + 1U <= state.focus_update_end + 1U &&
@@ -7624,7 +8567,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       state.controller_initialized = static_cast<std::uint32_t>(context->r2) == 0U;
       return 1;
     }
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     sample_controller_ports(state);
     const auto connected_mask=state.input_replay_loaded ? std::uint8_t{1} : state.controller_ports.mask();
 #else
@@ -7655,7 +8598,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       return 1;
     }
     ++state.controller_read_start_calls;
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     trace_phase9_event(state, "start-entry", state.controller_samples);
 #endif
     state.controller_read_thread = state.scheduler == nullptr
@@ -7671,7 +8614,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     }
     ++state.pending_si_completions;
     if (state.si_count_probe) schedule_si_deadline(state, target);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     trace_si_timing(state, "read-start", a0, 0U, 0);
     if (state.play_mode || state.input_replay_loaded) {
       std::size_t pressed_high = 0U, pressed_low = 0U;
@@ -7720,7 +8663,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     state.journal.append(NativeEventKind::kController, 2U, a0,
                          si->second.second);
     set_result(context, hle::kOsSuccess);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     // Stop after the Nth controller-read HLE is complete, before the guest
     // consumes its result. This is an input-poll boundary, not a VI boundary.
     if (state.poll_target != 0U &&
@@ -7731,7 +8674,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   }
   if (std::strcmp(name, "osContGetReadData") == 0) {
     ++state.controller_get_data_calls;
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     trace_phase9_event(state, "get-entry", state.controller_samples == 0U
                                              ? 0U : state.controller_samples - 1U);
 #endif
@@ -7741,7 +8684,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     for (std::uint32_t controller = 0U; controller < 4U; ++controller) {
       for (std::uint32_t byte = 0U; byte < 6U; ++byte) {
         std::uint8_t value = byte == 4U && controller != 0U ? 8U : 0U;
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
         if (state.play_mode || state.input_replay_loaded) {
           const auto& port=state.controller_ports.samples[controller];
           if (!port.connected) {
@@ -7779,7 +8722,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       }
     }
     state.journal.append(NativeEventKind::kController, 3U, a0);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     trace_phase9_event(state, "get-exit", state.controller_samples == 0U
                                             ? 0U : state.controller_samples - 1U);
     if (state.controller_return_trace.is_open()) {
@@ -8203,7 +9146,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   const bool clock_queue = a0 == 0x800FE4B8U || a0 == 0x800FE8A8U ||
                            a0 == 0x800FEB80U;
   if (clock_queue) trace_guest_clock(state, recv ? "recv" : "queue-call", a0);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (state.focus_update_start != 0U &&
       state.completed_game_updates + 1U >= state.focus_update_start - 1U &&
       state.completed_game_updates + 1U <= state.focus_update_end + 1U &&
@@ -8283,7 +9226,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
            memory.read_u32(a1, message) && message == state.vi_message;
   };
   const auto trace_vi_queue_receive = [&]() {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
     const bool focused_receive = state.focus_update_start != 0U &&
         state.completed_game_updates + 1U >= state.focus_update_start - 1U &&
         state.completed_game_updates + 1U <= state.focus_update_end + 1U;
@@ -8373,12 +9316,12 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
         state.vi_messages_delivered > state.vi_retraces) {
       ++state.vi_retraces;
       jfg::support_breadcrumb(state.vi_frames, state.vi_retraces, state.controller_samples);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       trace_phase9_event(state, "vi-consumed", state.controller_samples);
 #endif
       state.journal.append(NativeEventKind::kViMessageConsumed, a0, a1,
                            static_cast<std::uint32_t>(state.vi_retraces));
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       write_retrace_semantic_hash(state);
       write_private_progress(state);
 #endif
@@ -8428,12 +9371,12 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
         state.vi_messages_delivered > state.vi_retraces) {
       ++state.vi_retraces;
       jfg::support_breadcrumb(state.vi_frames, state.vi_retraces, state.controller_samples);
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       trace_phase9_event(state, "vi-consumed", state.controller_samples);
 #endif
       state.journal.append(NativeEventKind::kViMessageConsumed, a0, a1,
                            static_cast<std::uint32_t>(state.vi_retraces));
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
       write_retrace_semantic_hash(state);
       write_private_progress(state);
 #endif
@@ -8454,6 +9397,9 @@ int native_cpu_operation(void* opaque, void* guest_context, std::uint32_t operat
                          std::uint32_t selector, std::uint64_t* value) {
   auto& state = *static_cast<State*>(opaque);
   if (!state.guest_leaf_probe || guest_context == nullptr || value == nullptr) return 0;
+  // RGO fast clock: COP0 reads Count and writes can change timers or
+  // interrupts, so account and end any skip run first.
+  jfg_fast_run_end(&state);
   auto* context = static_cast<recomp_context*>(guest_context);
   // This bridge has only a 32-bit virtual-address model. Do not pretend
   // that enabling extended addressing supplies a compatible EntryHi state.
@@ -8662,7 +9608,7 @@ std::array<std::uint8_t, 20U> sha1(std::span<const std::uint8_t> input) {
 // An ordinary generated root contains no call sites and is unaffected.
 extern "C" void jfg_phase9_instruction_probe(uint32_t pc, uint8_t *rdram,
                                                recomp_context *context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   State *const state = g_active_child_state;
   if (state == nullptr || !state->instruction_probe_trace.is_open() ||
       rdram != state->rdram || context == nullptr ||
@@ -8698,7 +9644,7 @@ extern "C" void jfg_phase9_instruction_probe(uint32_t pc, uint8_t *rdram,
 #endif
 }
 
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
 // Host-only diagnostic data. Instruction-entry/successor samples do not by
 // themselves prove retirement, a completed receive or caller equivalence.
 static void emit_device_event(State& state, const recomp_context& cpu,
@@ -8778,7 +9724,7 @@ static void emit_instruction_effect(State& state, const recomp_context& cpu,
 // exception processing must finish before this instruction becomes pending.
 extern "C" void jfg_phase9_instruction_effect_entry(unsigned section, unsigned pc,
     unsigned word, unsigned qualification, void* context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (g_active_child_state != nullptr && context != nullptr) {
     auto& state = *g_active_child_state;
     if (!state.instruction_effect_stream.is_open()) return;
@@ -8794,7 +9740,7 @@ extern "C" void jfg_phase9_instruction_effect_entry(unsigned section, unsigned p
 
 extern "C" void jfg_phase9_instruction_effect(unsigned section, unsigned pc,
     unsigned word, void* context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (g_active_child_state != nullptr && context != nullptr)
     emit_instruction_effect(*g_active_child_state, *static_cast<recomp_context*>(context),
                             1U, section, pc, word);
@@ -8814,9 +9760,10 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(
 // path's large stack frame. The same predicate, cost and state updates run.
 extern "C" void jfg_phase9_execution_probe(unsigned section, unsigned pc,
                                           unsigned word, void* context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (g_active_child_state != nullptr && context != nullptr) {
     auto& state = *g_active_child_state;
+    jfg_fast_run_end(&state);
     // Private optimization: ordinary instructions before the next event need
     // only the same cost and pipeline bookkeeping. Hardware writes, interrupt
     // eligibility, exception return and observers fall back to the full path.
@@ -8838,10 +9785,8 @@ extern "C" void jfg_phase9_execution_probe(unsigned section, unsigned pc,
         ++state.observed_guest_instructions;
         ++state.execution_fast_hits;
         const bool delay = state.guest_previous_branch && pc == state.guest_last_pc + 4U;
-        const auto cycles = jfg_full_cache_cost(pc,word,&cpu,state.rdram)
-            + state.diagnostic_cpu_half_tick;
-        state.cpu_count += cycles / 2U;
-        state.diagnostic_cpu_half_tick = cycles % 2U;
+        jfg_clock_charge(&state, state.fast_clock != 0U ? 0U :
+            jfg_full_cache_cost(pc,word,&cpu,state.rdram));
         state.mmio_trace->guest_count = state.cpu_count;
         state.guest_last_pc = pc;
         state.guest_last_word = word;
@@ -8858,12 +9803,32 @@ extern "C" void jfg_phase9_execution_probe(unsigned section, unsigned pc,
   jfg_phase9_execution_probe_slow(section,pc,word,context);
 }
 
+// RGO fast clock: let the generated hooks skip the following ordinary
+// instructions (jfg_fast_run_sync in original_timing_fast.h). Only when no
+// interrupt is pending, even a masked one, so a status write inside the run
+// cannot make one deliverable; FPU instructions only while the FPU is
+// usable (jfg_fast_fpu); and only up to a few ticks before the next device
+// deadline, so every event is still taken by this handler at a boundary.
+void grant_fast_run(State &state, const recomp_context &cpu) {
+  if (state.fast_run_disabled || state.execution_fast_pending != 0U ||
+      state.guest_eret_boundary ||
+      state.execution_fast_deadline <= state.cpu_count + 8U)
+    return;
+  const std::uint64_t ticks = state.execution_fast_deadline - state.cpu_count - 4U;
+  const std::uint64_t run = (std::min)(ticks << JFG_FAST_CLOCK_SHIFT, std::uint64_t{1U} << 20U);
+  jfg_fast_fpu = (cpu.status_reg & 0x20000000U) != 0U ? 1U : 0U;
+  jfg_fast_budget = static_cast<std::uint32_t>(run);
+  state.fast_run_length = jfg_fast_budget;
+}
+
 extern "C" void jfg_phase9_execution_probe_predecoded(unsigned metadata, unsigned pc,
                                           unsigned word, void* context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   const unsigned section=metadata&255U;
   if (g_active_child_state != nullptr && context != nullptr) {
     auto& state = *g_active_child_state;
+    // RGO fast clock: account the skip run that just ended.
+    jfg_fast_run_end(&state);
     // Private optimization: ordinary instructions before the next event need
     // only the same cost and pipeline bookkeeping. Hardware writes, interrupt
     // eligibility, exception return and observers fall back to the full path.
@@ -8881,15 +9846,16 @@ extern "C" void jfg_phase9_execution_probe_predecoded(unsigned metadata, unsigne
         ++state.observed_guest_instructions;
         ++state.execution_fast_hits;
         const bool delay = state.guest_previous_branch && pc == state.guest_last_pc + 4U;
-        const auto cycles = jfg_full_cache_cost_predecoded(pc,word,&cpu,state.rdram,metadata)
-            + state.diagnostic_cpu_half_tick;
-        state.cpu_count += cycles / 2U;
-        state.diagnostic_cpu_half_tick = cycles % 2U;
+        // RGO fast clock: a flat charge, without the cache model.
+        jfg_clock_charge(&state, state.fast_clock != 0U ? 0U :
+            jfg_full_cache_cost_predecoded(pc,word,&cpu,state.rdram,metadata));
         state.mmio_trace->guest_count = state.cpu_count;
         state.guest_last_pc = pc;
         state.guest_last_word = word;
         state.guest_previous_delay = delay;
         state.guest_previous_branch=(metadata&0x400U)!=0U;
+        if (state.fast_clock != 0U)
+          grant_fast_run(state, cpu);
         return;
       }
     }
@@ -8900,9 +9866,10 @@ extern "C" void jfg_phase9_execution_probe_predecoded(unsigned metadata, unsigne
 
 extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned section, unsigned pc,
                                           unsigned word, void *context) {
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   if (g_active_child_state != nullptr && context != nullptr) {
     auto& state = *g_active_child_state;
+    jfg_fast_run_end(&state);
     if (state.eret_transfer_stream.is_open() &&
         !state.eret_transfer_probe.advance(static_cast<std::uint32_t>(state.completed_game_updates + 1U)))
       fail_closed_dispatch(state, "eret-transfer-probe", "output-or-order", pc);
@@ -8936,7 +9903,8 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
         admit(mmio.dp_deadline); admit(mmio.ai_dma.deadline());
         if (deadline > state.cpu_count) {
           const auto ticks=deadline-state.cpu_count;
-          if (jfg_full_cache_idle_skip(pc,ticks,state.rdram)) {
+          // The fast clock keeps no cache model to warm.
+          if (state.fast_clock != 0U || jfg_full_cache_idle_skip(pc,ticks,state.rdram)) {
             state.cpu_count=deadline;
             state.observed_guest_instructions+=ticks*2U;
             mmio.guest_count=state.cpu_count;
@@ -9026,7 +9994,8 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
         add(ReferenceEvent::sp, mmio.sp_deadline);
         add(ReferenceEvent::dp, mmio.dp_deadline);
         add(ReferenceEvent::ai, mmio.ai_dma.deadline());
-        const auto selected = select_reference_event(std::span(candidates).first(event_count), state.cpu_count);
+        const auto selected = select_reference_event(std::span(candidates).first(event_count),
+            state.cpu_count, state.fast_clock != 0U);
         if (!selected.qualified) fail_closed_dispatch(state, "guest-device", "unqualified-event-tie", pc);
         std::optional<std::uint64_t> observed_deadline;
         unsigned observed_source = JFG_EVENT_NONE;
@@ -9064,8 +10033,12 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
             const auto target_time = state.original_os_host_clock.deadline(
                 mmio.vi_next, std::chrono::steady_clock::now(),
                 state.host_audio.underruns());
-            if (std::chrono::steady_clock::now() < target_time)
-              std::this_thread::sleep_until(target_time);
+            if (!state.unpaced && std::chrono::steady_clock::now() < target_time)
+              jfg::precise_sleep_until(target_time);
+            // RGO fast clock: this VI's Count is due at this wall time.
+            state.wall_anchor_count = mmio.vi_next;
+            state.wall_anchor_time = target_time;
+            state.wall_anchor_valid = true;
             const auto now = std::chrono::steady_clock::now();
             if (state.timing_trace) state.timing_trace << "os-host-vi\t"
                 << state.vi_frames << '\t' << mmio.vi_next << '\t'
@@ -9204,10 +10177,8 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
       }
       // Mupen's annulled ordinary likely slots still advance Count. Other
       // likely families require their own profile coverage before use.
-      const auto cycles = jfg_full_cache_cost(pc,word,&cpu,state.rdram)
-          + state.diagnostic_cpu_half_tick;
-      state.cpu_count += cycles / 2U;
-      state.diagnostic_cpu_half_tick = cycles % 2U;
+      jfg_clock_charge(&state, state.fast_clock != 0U ? 0U :
+          jfg_full_cache_cost(pc,word,&cpu,state.rdram));
       mmio.guest_count = state.cpu_count;
       state.guest_last_pc = pc;
       state.guest_last_word = word;
@@ -9330,7 +10301,7 @@ int run_child(const char *path, const unsigned retrace_target,
   }
   jfg::GeneratedOverlayRuntime runtime(std::as_writable_bytes(rdram));
   State state{};
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   char mod_flag[2]{};
   if (GetEnvironmentVariableA("JFG_NAVIGATION_MOD",mod_flag,2U)==1U && mod_flag[0]=='1') {
     wchar_t output[32768]{};
@@ -9396,6 +10367,37 @@ int run_child(const char *path, const unsigned retrace_target,
   sample_controller_ports(state);
   // One opt-in runtime mode owns CPU, OS, device clocks and host pacing.
   // Diagnostic traces and the travel fixture are independent and optional.
+#if defined(JFG_HEADLESS_LIVE)
+  // RGO frame trace (headless measurement, docs/rgo/framerate.md).
+  if (const char *trace = std::getenv("JFG_RGO_FRAME_TRACE");
+      trace != nullptr && *trace != '\0') {
+    state.rgo_frame_trace = std::fopen(trace, "w");
+    if (state.rgo_frame_trace != nullptr)
+      std::setvbuf(state.rgo_frame_trace, nullptr, _IOLBF, 1U << 16U);
+    if (state.rgo_frame_trace == nullptr) {
+      std::fputs("native boot setup failed: frame trace path\n", stderr);
+      return 3;
+    }
+    std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\n",
+               state.rgo_frame_trace);
+  }
+  state.counter_log = std::getenv("JFG_RGO_COUNTER_LOG") != nullptr;
+  state.wall_floor_disabled = std::getenv("JFG_RGO_DETERMINISTIC_CLOCK") != nullptr;
+  state.fast_run_disabled = std::getenv("JFG_RGO_NO_FAST_RUNS") != nullptr;
+  state.unpaced = state.wall_floor_disabled && std::getenv("JFG_RGO_UNPACED") != nullptr;
+  if (const char *pilot = std::getenv("JFG_RGO_AUTOPILOT");
+      pilot != nullptr && std::strcmp(pilot, "newgame") == 0) {
+    state.autopilot.emplace();
+    // The game must find a controller in port 1 when it boots.
+    state.controller_ports.samples[0].connected = true;
+    for (std::uint32_t section = 0U; section < jfg_generated_section_count(); ++section) {
+      JfgGeneratedSectionMetadata metadata{};
+      if (jfg_generated_section_metadata(section, &metadata) != 0 && metadata.is_overlay == 1U)
+        state.autopilot_overlays.emplace_back(metadata.linked_vram,
+            metadata.linked_vram + metadata.text_size + metadata.data_size + metadata.bss_size);
+    }
+  }
+#endif
   char timing_fixture_flag[2]{};
   state.timing_fixture = GetEnvironmentVariableA("JFG_TIMING_TEST_FIXTURE",timing_fixture_flag,2U)==1U &&
       timing_fixture_flag[0]=='1';
@@ -9427,12 +10429,22 @@ int run_child(const char *path, const unsigned retrace_target,
   }
   if (state.guest_leaf_probe)
     state.tlb_registers = jfg::boot::TlbRegisters32::observed_mupen_boot();
+#if defined(_WIN32)
   (void)SetUnhandledExceptionFilter(child_exception_filter);
+#else
+  g_crash_report = headless_crash_report;
+#endif
 #endif
   state.retrace_target =
       play_mode || poll_target != 0U
           ? (std::numeric_limits<std::uint32_t>::max)()
           : retrace_target;
+#if defined(JFG_HEADLESS_LIVE)
+  // Headless measurement: end a --play run after this many VIs.
+  if (const char *limit = std::getenv("JFG_RGO_EXIT_AFTER_VI");
+      play_mode && limit != nullptr && *limit != '\0')
+    state.retrace_target = static_cast<std::uint32_t>(std::strtoul(limit, nullptr, 10));
+#endif
   state.poll_target = poll_target;
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
   state.play_mode = play_mode;
@@ -10066,7 +11078,12 @@ int run_child(const char *path, const unsigned retrace_target,
   if (trace_device_events) {
     const auto device_event_path = std::filesystem::path(state.retrace_hash_path).parent_path() / "device-events.tsv";
     FILE* device_event_output = nullptr;
+#if defined(_WIN32)
     if (_wfopen_s(&device_event_output, device_event_path.c_str(), L"wb") != 0 || device_event_output == nullptr) return 3;
+#else
+    device_event_output = std::fopen(device_event_path.c_str(), "wb");
+    if (device_event_output == nullptr) return 3;
+#endif
     state.device_event_stream.reset(device_event_output);
     const auto event_first = static_cast<std::uint32_t>((std::max)(std::uint64_t{1}, state.focus_update_start - 1U));
     const auto event_last = static_cast<std::uint32_t>(state.focus_update_end + 1U);
@@ -10350,7 +11367,7 @@ int run_child(const char *path, const unsigned retrace_target,
           target_metadata.linked_vram + descriptors[index].target_offset);
     }
   }
-#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+#if defined(JFG_LIVE_RUNTIME)
   char hidden_validation[2]{};
   const bool diagnostic_hidden_window =
       GetEnvironmentVariableA("JFG_DIAGNOSTIC_HIDDEN_WINDOW",hidden_validation,2U)==1U &&
@@ -11011,6 +12028,13 @@ int run(const char *executable_path, const char *rom_path, unsigned timeout_ms,
 #if defined(_WIN32)
   return run_parent(executable_path, rom_path, timeout_ms, retrace_target,
                     poll_target, play_mode);
+#elif defined(JFG_HEADLESS_LIVE)
+  // Headless measurement runs in-process; a crash ends the process.
+  (void)executable_path;
+  (void)timeout_ms;
+  (void)child_token;
+  (void)marker_handle;
+  return run_child(rom_path, retrace_target, poll_target, play_mode);
 #else
   (void)executable_path;
   (void)timeout_ms;

@@ -17,6 +17,7 @@
 // This is the execution substrate; binding it to osCreateThread/osStartThread
 // and the message-queue HLE is a later brick.
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -78,7 +79,9 @@ private:
 
     std::mutex mutex_;
     std::condition_variable cv_;
-    int holder_ = kSchedulerParticipant;
+    // Written under mutex_; atomic so a waiter can spin on it briefly before
+    // sleeping (wait_until_holder).
+    std::atomic<int> holder_{kSchedulerParticipant};
     bool shutting_down_ = false;
     std::vector<Participant> participants_;
 };

@@ -1,6 +1,7 @@
 #include "jfg/runtime/snapshot_copy.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/frame_interpolation.hpp"
 #include "jfg/renderer/widescreen.hpp"
 
 #include "rt64_f3ddkr.hpp"
@@ -75,6 +76,13 @@ struct CaptureContext {
     std::unique_ptr<RenderBuffer> readback;
     // Written by the game thread, read by RT64's present thread.
     std::atomic<float> horizontal_extent = 1.0F;
+    // RGO: frames presented to the swap chain (interpolated ones included).
+    std::atomic<std::uint64_t> presents = 0U;
+    // RGO frame diagnostics: swap-chain present gaps (microseconds) since the
+    // game last read them. Written by RT64's present thread.
+    std::atomic<std::int64_t> last_present_us = 0;
+    std::atomic<std::uint64_t> present_gap_min = 0U;
+    std::atomic<std::uint64_t> present_gap_max = 0U;
     std::vector<std::byte> pixels;
     std::size_t width = 0U;
     std::size_t height = 0U;
@@ -110,6 +118,18 @@ void capture_draw(RenderCommandList* list, RenderFramebuffer* framebuffer) {
     }
     if (context->previous_draw != nullptr) {
         context->previous_draw(list, framebuffer);
+    }
+    context->presents.fetch_add(1U, std::memory_order_relaxed);
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const std::int64_t last = context->last_present_us.exchange(now, std::memory_order_relaxed);
+    if (last != 0 && now > last) {
+        const auto gap = static_cast<std::uint64_t>(now - last);
+        const std::uint64_t minimum = context->present_gap_min.load(std::memory_order_relaxed);
+        if (minimum == 0U || gap < minimum)
+            context->present_gap_min.store(gap, std::memory_order_relaxed);
+        if (gap > context->present_gap_max.load(std::memory_order_relaxed))
+            context->present_gap_max.store(gap, std::memory_order_relaxed);
     }
     context->draw(list, framebuffer);
 }
@@ -342,6 +362,9 @@ struct Rt64Shell::Impl {
     VideoSettings video{AspectMode::original};
     float horizontal_extent = 1.0F;
     double render_multiplier = 0.0;
+    // RGO frame interpolation: the game's own rate and object matrix tags.
+    std::uint16_t game_rate = 30U;
+    Rt64MatrixTags matrix_tags;
 
     // RGO display settings: choose RT64's aspect target and render
     // resolution for the current window and VI mode, and its VSync.
@@ -406,6 +429,19 @@ struct Rt64Shell::Impl {
             }
             render_multiplier = multiplier;
         }
+        // Frame rate: RT64 blends extra frames up to this target.
+        const Rt64RefreshPlan refresh = refresh_plan(video);
+        const auto refresh_mode = refresh.mode == Rt64RefreshMode::display
+            ? RT64::UserConfiguration::RefreshRate::Display
+            : refresh.mode == Rt64RefreshMode::manual
+                ? RT64::UserConfiguration::RefreshRate::Manual
+                : RT64::UserConfiguration::RefreshRate::Original;
+        if (config.refreshRate != refresh_mode ||
+            config.refreshRateTarget != refresh.target) {
+            config.refreshRate = refresh_mode;
+            config.refreshRateTarget = refresh.target;
+            changed = true;
+        }
         if (changed)
             app.updateUserConfig(false);
         if (app.swapChain != nullptr &&
@@ -426,286 +462,6 @@ struct Rt64Shell::Impl {
         }
     }
 };
-
-Rt64ShellError validate_rt64_shell_configuration(
-    const Rt64ShellConfiguration& configuration) noexcept {
-    if (configuration.native_window == nullptr) {
-        return Rt64ShellError::invalid_window;
-    }
-    if (configuration.rom_header.size() < kRt64RequiredHeaderBytes ||
-        configuration.rdram.size() != kRt64RequiredRdramBytes ||
-        configuration.vi == nullptr) {
-        return Rt64ShellError::invalid_memory;
-    }
-    return Rt64ShellError::none;
-}
-
-Rt64ShellError copy_rt64_rdram_snapshot(
-    const std::span<const std::byte> source,
-    const std::span<std::byte> destination,
-    const Rt64MemoryLayout layout) noexcept {
-    if (source.size() != kRt64RequiredRdramBytes ||
-        destination.size() != kRt64RequiredRdramBytes) {
-        return Rt64ShellError::invalid_memory;
-    }
-    if (layout == Rt64MemoryLayout::host_word_swapped) {
-        copy_changed_snapshot_bytes(source, destination);
-        return Rt64ShellError::none;
-    }
-    for (std::size_t index = 0U; index < source.size(); index += 4U) {
-        destination[index] = source[index + 3U];
-        destination[index + 1U] = source[index + 2U];
-        destination[index + 2U] = source[index + 1U];
-        destination[index + 3U] = source[index];
-    }
-    return Rt64ShellError::none;
-}
-
-Rt64ShellError merge_rt64_rdram_snapshot(
-    const std::span<const std::byte> source,
-    const std::span<std::byte> destination,
-    const std::span<std::byte> previous_source,
-    const Rt64MemoryLayout layout) noexcept {
-    if (source.size() != kRt64RequiredRdramBytes ||
-        destination.size() != kRt64RequiredRdramBytes ||
-        previous_source.size() != kRt64RequiredRdramBytes) {
-        return Rt64ShellError::invalid_memory;
-    }
-    if (layout == Rt64MemoryLayout::host_word_swapped) {
-        constexpr std::size_t kComparisonBlockBytes = 4096U;
-        for (std::size_t base = 0U; base < source.size();
-             base += kComparisonBlockBytes) {
-            if (std::memcmp(source.data() + base,
-                            previous_source.data() + base,
-                            kComparisonBlockBytes) == 0) {
-                continue;
-            }
-#if defined(_M_X64) || defined(__SSE2__)
-            // Equal CPU bytes preserve private GPU results. Select each byte
-            // independently, including mixed CPU/GPU ownership in one vector.
-            for (std::size_t index = base;
-                 index < base + kComparisonBlockBytes; index += 16U) {
-                const auto incoming = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(source.data() + index));
-                const auto previous = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(previous_source.data() + index));
-                const auto current = _mm_loadu_si128(
-                    reinterpret_cast<const __m128i*>(destination.data() + index));
-                const auto unchanged = _mm_cmpeq_epi8(incoming, previous);
-                const auto merged = _mm_or_si128(
-                    _mm_and_si128(unchanged, current),
-                    _mm_andnot_si128(unchanged, incoming));
-                _mm_storeu_si128(
-                    reinterpret_cast<__m128i*>(destination.data() + index), merged);
-                _mm_storeu_si128(
-                    reinterpret_cast<__m128i*>(previous_source.data() + index), incoming);
-            }
-#else
-            for (std::size_t index = base;
-                 index < base + kComparisonBlockBytes; ++index) {
-                const std::byte incoming = source[index];
-                if (incoming != previous_source[index]) {
-                    destination[index] = incoming;
-                    previous_source[index] = incoming;
-                }
-            }
-#endif
-        }
-        return Rt64ShellError::none;
-    }
-    for (std::size_t index = 0U; index < source.size(); ++index) {
-        const std::byte incoming = source[index ^ 3U];
-        if (incoming != previous_source[index]) {
-            destination[index] = incoming;
-            previous_source[index] = incoming;
-        }
-    }
-    return Rt64ShellError::none;
-}
-
-Rt64ShellError refresh_rt64_cpu_memory(
-    const std::span<const std::byte> source,
-    const std::span<std::byte> destination,
-    const std::span<const Rt64RdramRange> gpu_ranges,
-    const Rt64MemoryLayout layout) noexcept {
-    if (source.size() != kRt64RequiredRdramBytes || destination.size() != source.size())
-        return Rt64ShellError::invalid_memory;
-    std::size_t previous_begin = 0U;
-    for (const auto range : gpu_ranges) {
-        if (range.begin >= range.end || range.end > source.size() || range.begin < previous_begin)
-            return Rt64ShellError::invalid_memory;
-        previous_begin = range.begin;
-    }
-    const auto copy_gap = [&](std::size_t begin, const std::size_t end) {
-        if (layout == Rt64MemoryLayout::big_endian) {
-            for (; begin < end; ++begin)
-                destination[begin ^ 3U] = source[begin];
-            return;
-        }
-        // Physical ranges use N64 byte addresses, including unaligned edges.
-        for (; begin < end && (begin & 3U) != 0U; ++begin)
-            destination[begin ^ 3U] = source[begin ^ 3U];
-        const std::size_t aligned_end = end & ~std::size_t{3U};
-        if (aligned_end > begin) {
-            // Compare against actual renderer RAM, never a previous CPU-only
-            // snapshot: framebuffer reuse can leave changed GPU bytes here.
-            constexpr std::size_t block = 4096U;
-            while (aligned_end - begin >= block) {
-                if (std::memcmp(destination.data() + begin, source.data() + begin, block) != 0)
-                    std::memcpy(destination.data() + begin, source.data() + begin, block);
-                begin += block;
-            }
-            if (aligned_end > begin &&
-                std::memcmp(destination.data() + begin, source.data() + begin,
-                            aligned_end - begin) != 0)
-                std::memcpy(destination.data() + begin, source.data() + begin, aligned_end - begin);
-            begin = aligned_end;
-        }
-        for (; begin < end; ++begin)
-            destination[begin ^ 3U] = source[begin ^ 3U];
-    };
-    std::size_t cursor = 0U;
-    for (const auto range : gpu_ranges) {
-        if (range.begin > cursor) copy_gap(cursor, range.begin);
-        cursor = (std::max)(cursor, range.end);
-    }
-    if (cursor < source.size()) copy_gap(cursor, source.size());
-    return Rt64ShellError::none;
-}
-
-Rt64ShellError commit_rt64_rdram_ranges(
-    const std::span<const std::byte> submitted,
-    const std::span<const std::byte> rendered,
-    const std::span<std::byte> live,
-    const std::span<const Rt64RdramRange> ranges,
-    const std::span<std::byte> previous_source) noexcept {
-    if (submitted.size() != kRt64RequiredRdramBytes ||
-        rendered.size() != submitted.size() || live.empty() ||
-        live.size() > submitted.size() || live.size() % 4U != 0U ||
-        (!previous_source.empty() && previous_source.size() != submitted.size()))
-        return Rt64ShellError::invalid_memory;
-    const auto equal_range = [&](const Rt64RdramRange range) {
-        auto address=range.begin;
-        for (; address<range.end && (address&3U); ++address)
-            if(live[address^3U]!=submitted[address^3U]) return false;
-        const auto aligned_end=range.end & ~std::size_t{3U};
-        if(address<aligned_end) {
-            if(std::memcmp(live.data()+address,submitted.data()+address,aligned_end-address)!=0) return false;
-            address=aligned_end;
-        }
-        for(;address<range.end;++address)
-            if(live[address^3U]!=submitted[address^3U]) return false;
-        return true;
-    };
-    for (const auto range : ranges) {
-        if (range.begin >= range.end || range.end > live.size())
-            return Rt64ShellError::invalid_memory;
-        if(!equal_range(range)) return Rt64ShellError::conflicting_cpu_write;
-    }
-    for (const auto range : ranges) {
-        auto address=range.begin;
-        const auto copy_byte=[&](const std::size_t i) {
-            live[i^3U]=rendered[i^3U];
-            if(!previous_source.empty())previous_source[i^3U]=rendered[i^3U];
-        };
-        for(;address<range.end && (address&3U);++address)copy_byte(address);
-        const auto aligned_end=range.end & ~std::size_t{3U};
-        if(address<aligned_end) {
-            if (live.data() != rendered.data())
-                std::memcpy(live.data()+address,rendered.data()+address,aligned_end-address);
-            if (!previous_source.empty() && previous_source.data() != rendered.data())
-                std::memcpy(previous_source.data()+address,rendered.data()+address,aligned_end-address);
-            address=aligned_end;
-        }
-        for(;address<range.end;++address)copy_byte(address);
-    }
-    return Rt64ShellError::none;
-}
-
-Rt64ShellError inspect_rt64_framebuffer(
-    const Rt64ViRegisters& vi,
-    const std::size_t rdram_size,
-    Rt64FramebufferInfo& framebuffer) noexcept {
-    framebuffer = {};
-    const std::uint32_t pixel_type = vi.status & 0x3U;
-    const std::size_t bytes_per_pixel = pixel_type == 2U
-        ? 2U
-        : pixel_type == 3U ? 4U : 0U;
-    const std::size_t vi_width = vi.width & 0xFFFU;
-    const std::uint32_t horizontal_start =
-        (vi.horizontal_start >> 16U) & 0x3FFU;
-    const std::uint32_t horizontal_end = vi.horizontal_start & 0x3FFU;
-    const std::uint32_t vertical_start =
-        (vi.vertical_start >> 16U) & 0x3FFU;
-    const std::uint32_t vertical_end = vi.vertical_start & 0x3FFU;
-    const std::uint32_t x_scale = vi.x_scale & 0xFFFU;
-    const std::uint32_t y_scale = vi.y_scale & 0xFFFU;
-    if (bytes_per_pixel == 0U || vi_width == 0U ||
-        horizontal_start == 0U || horizontal_end <= horizontal_start ||
-        vertical_end <= vertical_start || x_scale == 0U || y_scale == 0U) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-
-    std::size_t framebuffer_width = vi_width;
-    const bool serrate = (vi.status & (1U << 6U)) != 0U;
-    const double estimated_width =
-        static_cast<double>(horizontal_end - horizontal_start) *
-        static_cast<double>(x_scale) / 1024.0;
-    if (serrate && estimated_width <
-            static_cast<double>(vi_width) / 1.875) {
-        framebuffer_width = vi_width / 2U;
-    }
-    if (framebuffer_width == 0U) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-
-    const double estimated_height =
-        static_cast<double>(vertical_end - vertical_start) *
-        static_cast<double>(y_scale) * static_cast<double>(vi_width) /
-        (2048.0 * static_cast<double>(framebuffer_width));
-    if (!std::isfinite(estimated_height) || estimated_height <= 0.0 ||
-        estimated_height > static_cast<double>(SIZE_MAX - 2U)) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-    const double expanded_height = std::round(estimated_height) + 2.0;
-    const double aligned_height = std::round(expanded_height / 4.0) * 4.0;
-    if (!std::isfinite(aligned_height) || aligned_height <= 0.0 ||
-        aligned_height > static_cast<double>(SIZE_MAX)) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-    const std::size_t framebuffer_height =
-        static_cast<std::size_t>(aligned_height);
-
-    if (vi_width > SIZE_MAX / bytes_per_pixel) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-    const std::size_t row_bytes = vi_width * bytes_per_pixel;
-    const std::size_t row_count = serrate && (vi.current_line & 1U) != 0U
-        ? 2U
-        : 1U;
-    if (row_bytes > SIZE_MAX / row_count) {
-        return Rt64ShellError::invalid_framebuffer;
-    }
-    const std::size_t row_offset = row_bytes * row_count;
-    std::size_t address = vi.origin & 0x00FF'FFFFU;
-    if (address >= row_offset) {
-        address -= row_offset;
-    }
-
-    framebuffer = {
-        static_cast<std::uint32_t>(address),
-        framebuffer_width,
-        framebuffer_height,
-        bytes_per_pixel,
-    };
-    const std::size_t byte_count = framebuffer.byte_count();
-    if (byte_count == 0U || address > rdram_size ||
-        byte_count > rdram_size - address) {
-        framebuffer = {};
-        return Rt64ShellError::invalid_framebuffer;
-    }
-    return Rt64ShellError::none;
-}
 
 Rt64Shell::Rt64Shell(std::unique_ptr<Impl> impl) noexcept
     : impl_(std::move(impl)) {}
@@ -942,6 +698,14 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
             impl_->application->emulatorConfig.framebuffer.copyWithGPU = false;
         impl_->f3ddkr->begin(impl_->task_rdram);
         impl_->f3ddkr->install();
+        // RGO frame interpolation: tell RT64 the game's own rate for this
+        // task (RT64 would otherwise infer 60 from this port's presents) and
+        // give the shell the camera and object matrix tags.
+        const bool interpolating = interpolation_requested(impl_->video);
+        impl_->f3ddkr->set_interpolation(interpolating,
+            impl_->video.interpolate_objects, &impl_->matrix_tags);
+        if (interpolating)
+            application.state->setRefreshRate(impl_->game_rate);
         const auto rdram_check_start = std::chrono::steady_clock::now();
         // Refresh CPU-owned intensity buffers when they are next drawn. Texture
         // loads already use RAM; invalidate render contents for the next draw
@@ -1114,6 +878,41 @@ double Rt64Shell::render_multiplier() const noexcept {
     return impl_ != nullptr ? impl_->render_multiplier : 0.0;
 }
 
+void Rt64Shell::set_game_rate(const std::uint16_t rate) noexcept {
+    if (impl_ != nullptr)
+        impl_->game_rate = static_cast<std::uint16_t>(
+            std::clamp<unsigned>(rate, 10U, 60U));
+}
+
+void Rt64Shell::tag_matrix(const std::uint32_t physical_address,
+                           const std::uint32_t words_hash,
+                           const std::uint32_t id) noexcept {
+    if (impl_ == nullptr)
+        return;
+    try {
+        // Tags are checked against the matrix words, so old entries are
+        // harmless; bound the table instead of tracking frame boundaries.
+        if (impl_->matrix_tags.size() >= 65536U)
+            impl_->matrix_tags.clear();
+        impl_->matrix_tags[physical_address & 0x00FFFFFFU] = {words_hash, id};
+    }
+    catch (...) {
+    }
+}
+
+std::uint64_t Rt64Shell::display_presents() const noexcept {
+    return impl_ != nullptr && impl_->capture != nullptr
+        ? impl_->capture->presents.load(std::memory_order_relaxed)
+        : 0U;
+}
+
+std::pair<std::uint64_t, std::uint64_t> Rt64Shell::take_display_intervals() noexcept {
+    if (impl_ == nullptr || impl_->capture == nullptr)
+        return {};
+    return {impl_->capture->present_gap_min.exchange(0U, std::memory_order_relaxed),
+            impl_->capture->present_gap_max.exchange(0U, std::memory_order_relaxed)};
+}
+
 float Rt64Shell::horizontal_extent() const noexcept {
     return impl_ != nullptr ? impl_->horizontal_extent : 1.0F;
 }
@@ -1157,6 +956,8 @@ Rt64GraphicsDiagnostics Rt64Shell::last_graphics_diagnostics()
     diagnostics.loaded_vertices_high = stats.loaded_vertices_high;
     diagnostics.full_sync_microseconds = stats.full_sync_microseconds;
     diagnostics.rdram_check_microseconds = impl_->last_rdram_check_microseconds;
+    diagnostics.scene_hash = stats.scene_hash;
+    diagnostics.camera_hash = stats.camera_hash;
     diagnostics.display_list_branches = stats.display_list_branches;
     diagnostics.last_display_list_address = stats.last_display_list_address;
     diagnostics.last_display_list_target = stats.last_display_list_target;
@@ -1178,44 +979,6 @@ Rt64FrameView Rt64Shell::last_presented_frame() const noexcept {
         capture.row_pitch,
         capture.pixels,
     };
-}
-
-const char* rt64_shell_error_message(const Rt64ShellError error) noexcept {
-    switch (error) {
-    case Rt64ShellError::none:
-        return "no error";
-    case Rt64ShellError::invalid_window:
-        return "RT64 requires a native window";
-    case Rt64ShellError::invalid_memory:
-        return "RT64 memory or VI registers are invalid";
-    case Rt64ShellError::setup_dynamic_libraries_missing:
-        return "RT64 dynamic libraries are missing";
-    case Rt64ShellError::setup_invalid_graphics_api:
-        return "RT64 graphics API is invalid";
-    case Rt64ShellError::setup_graphics_api_not_found:
-        return "RT64 graphics API is unavailable";
-    case Rt64ShellError::setup_graphics_device_not_found:
-        return "RT64 graphics device is unavailable";
-    case Rt64ShellError::render_hook_unavailable:
-        return "RT64 render hook is already owned by another shell";
-    case Rt64ShellError::invalid_framebuffer:
-        return "RT64 VI framebuffer address or dimensions are invalid";
-    case Rt64ShellError::frame_capture_failed:
-        return "RT64 presented-frame readback failed";
-    case Rt64ShellError::invalid_task_address:
-        return "RT64 task contains an out-of-range address";
-    case Rt64ShellError::unsupported_microcode:
-        return "RT64 does not recognize the submitted microcode";
-    case Rt64ShellError::unsupported_commands:
-        return "RT64 rejected an unsupported F3DDKR command";
-    case Rt64ShellError::not_initialized:
-        return "RT64 shell is not initialized";
-    case Rt64ShellError::renderer_exception:
-        return "RT64 raised an exception";
-    case Rt64ShellError::conflicting_cpu_write:
-        return "RT64 completion conflicts with CPU memory ownership";
-    }
-    return "unknown RT64 shell error";
 }
 
 }  // namespace jfg

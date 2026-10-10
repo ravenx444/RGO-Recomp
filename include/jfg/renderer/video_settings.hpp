@@ -42,6 +42,16 @@ enum class RenderMode : std::uint8_t {
     custom,
 };
 
+// RGO frame rate. Above Original the game itself runs its logic and draws
+// at 60 per second (its own 1-VI mode); RT64 can blend extra frames on top
+// up to the display's rate or uncapped (docs/rgo/framerate.md).
+enum class FrameRate : std::uint8_t {
+    original,  // the game's own 30 fps (20 in its slow mode)
+    sixty,     // true 60: game logic and drawing at 60 per second
+    display,   // true 60, blended up to the display's refresh rate
+    unlocked,  // true 60, blended as fast as RT64 can render
+};
+
 struct PixelSize {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
@@ -88,6 +98,21 @@ struct VideoSettings {
     std::uint8_t msaa = 1U;  // sample count: 1, 2, 4 or 8
     bool vsync = true;
     bool fps_counter = false;
+    // FPS counter "Detailed": logic, drawn, new and shown frames per second
+    // and frame times (jfg/renderer/frame_stats.hpp).
+    bool fps_details = false;
+    FrameRate framerate = FrameRate::original;
+    // Blend extra frames above the game's rate (Display / Unlocked).
+    bool interpolate_frames = true;
+    // Also blend moving objects' matrices. Without it the camera blends but
+    // objects (the player the camera follows) step at the game's rate, which
+    // shakes them against the scene on displays above 60 Hz.
+    bool interpolate_objects = true;
+    // Reproduce the N64's slowdown at the Original frame rate: heavy scenes
+    // drop to 20 fps because the emulated CPU needs more than two VIs for a
+    // frame. Off (the default) uses the fast clock, so the game keeps its
+    // full frame rate. True 60 always uses the fast clock.
+    bool n64_slowdown = false;
     friend bool operator==(const VideoSettings&, const VideoSettings&) = default;
 };
 
@@ -197,7 +222,18 @@ parse_pair(std::string_view text, const char separator) noexcept {
     text += settings.msaa <= 1U ? std::string("off")
                                 : std::to_string(settings.msaa) + "x";
     text += settings.vsync ? "\nvsync=on" : "\nvsync=off";
-    text += settings.fps_counter ? "\nfps_counter=on\n" : "\nfps_counter=off\n";
+    text += settings.fps_counter ? "\nfps_counter=on" : "\nfps_counter=off";
+    text += settings.fps_details ? "\nfps_details=on" : "\nfps_details=off";
+    text += "\nframerate=";
+    text += settings.framerate == FrameRate::sixty      ? "60"
+            : settings.framerate == FrameRate::display  ? "display"
+            : settings.framerate == FrameRate::unlocked ? "unlocked"
+                                                        : "original";
+    text += settings.interpolate_frames ? "\ninterpolate_frames=on"
+                                        : "\ninterpolate_frames=off";
+    text += settings.interpolate_objects ? "\ninterpolate_objects=on"
+                                         : "\ninterpolate_objects=off";
+    text += settings.n64_slowdown ? "\nn64_slowdown=on\n" : "\nn64_slowdown=off\n";
     return text;
 }
 
@@ -233,9 +269,11 @@ parse_pair(std::string_view text, const char separator) noexcept {
             return std::nullopt;
         const std::string_view key = line.substr(0U, equals);
         const std::string_view value = line.substr(equals + 1U);
-        constexpr std::array<std::string_view, 10U> keys{
+        constexpr std::array<std::string_view, 15U> keys{
             "aspect", "max_aspect", "fullscreen", "output", "render",
-            "render_scale", "render_size", "msaa", "vsync", "fps_counter"};
+            "render_scale", "render_size", "msaa", "vsync", "fps_counter",
+            "framerate", "interpolate_objects", "n64_slowdown",
+            "interpolate_frames", "fps_details"};
         const auto found = std::find(keys.begin(), keys.end(), key);
         if (found == keys.end()) {
             for (const char ch : key)
@@ -297,8 +335,22 @@ parse_pair(std::string_view text, const char separator) noexcept {
             else ok = false;
         } else if (key == "vsync") {
             ok = on_off(settings.vsync);
-        } else {
+        } else if (key == "fps_counter") {
             ok = on_off(settings.fps_counter);
+        } else if (key == "framerate") {
+            if (value == "original") settings.framerate = FrameRate::original;
+            else if (value == "60") settings.framerate = FrameRate::sixty;
+            else if (value == "display") settings.framerate = FrameRate::display;
+            else if (value == "unlocked") settings.framerate = FrameRate::unlocked;
+            else ok = false;
+        } else if (key == "interpolate_objects") {
+            ok = on_off(settings.interpolate_objects);
+        } else if (key == "interpolate_frames") {
+            ok = on_off(settings.interpolate_frames);
+        } else if (key == "fps_details") {
+            ok = on_off(settings.fps_details);
+        } else {
+            ok = on_off(settings.n64_slowdown);
         }
         if (!ok)
             return std::nullopt;
@@ -306,6 +358,20 @@ parse_pair(std::string_view text, const char separator) noexcept {
     if (first)
         return std::nullopt;  // Empty file.
     return settings;
+}
+
+[[nodiscard]] constexpr bool true_logic_60(const VideoSettings& settings) noexcept {
+    return settings.framerate != FrameRate::original;
+}
+
+// The emulated CPU's clock (docs/rgo/framerate.md). The fast clock charges
+// almost no emulated time for CPU work and skips waits to the next device
+// event, so a game frame never needs more than its minimum VIs: 2 at
+// Original (a steady 30 fps), 1 at true 60. The original VR4300 cost model
+// (the N64's own slowdown to 20 fps) is kept only for Original N64 slowdown
+// at the Original frame rate.
+[[nodiscard]] constexpr bool fast_clock(const VideoSettings& settings) noexcept {
+    return true_logic_60(settings) || !settings.n64_slowdown;
 }
 
 // ---------------------------------------------------------------------------

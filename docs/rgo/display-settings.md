@@ -14,7 +14,11 @@ every 250 ms, so most changes apply while playing.
 | Max aspect ratio | Unlimited / 32:9 / 21:9 / 16:9 / 16:10 | immediately |
 | Anti-aliasing | Off / 2x / 4x / 8x MSAA | next game start |
 | VSync | On / Off | immediately |
-| FPS counter | Off / On | immediately |
+| FPS counter | Off / On / Detailed | immediately ([what it shows](framerate.md#fps-counter)) |
+| Frame rate | Original / True 60 / Display / Unlocked | immediately ([frame rate](framerate.md)) |
+| Interpolate extra frames | On / Off | immediately (Display and Unlocked only) |
+| Blend moving objects | On / Off | immediately (with interpolation) |
+| Original N64 slowdown | Off / On | immediately, Original frame rate only ([details](framerate.md#the-fast-clock)) |
 
 ## How each setting works
 
@@ -75,15 +79,21 @@ child window), so it handles the mode.
 **VSync.**
 - The RT64 swap chain's `setVsyncEnabled` (plume).
 - With VSync off, presents may tear and use the display's tearing support.
-- It does not change the game's speed. Game logic stays on its original
-  timer, and the frame rate is unchanged until frame interpolation lands.
+- It does not change the game's speed: game logic follows the emulated VI
+  clock, not the display.
 
 **FPS counter.**
-- The game reports frames presented per second to the frontend twice a second
-  (`WM_APP + 24`, tenths of FPS).
-- The frontend shows the number in the top-right corner while playing.
-- JFG renders 30 or 20 frames per second (two or three VIs per frame), so
-  that is what the counter shows today.
+- The game reports its rates to the frontend twice a second (`WM_APP + 24`,
+  `jfg/renderer/frame_stats.hpp`).
+- The frontend shows them in the top-right corner while playing, for example
+  `Game 60 | Render 60 | Display 144 | 6.9-7.0 ms`.
+- *Game* is game logic updates per second, the rate the game plays at;
+  *Render* is real frames drawn; *Display* is frames shown, blended ones
+  included; the range is the shortest and longest gap between two shown
+  frames. See [frame rate](framerate.md#fps-counter).
+- *Detailed* adds game logic updates and their VI ticks, newly drawn frames,
+  camera updates, repeated frames, controller samples and frame times
+  ([details](framerate.md#diagnostics-fps-counter-detailed)).
 
 ## File format
 
@@ -99,7 +109,15 @@ render_size=1920x1080
 msaa=off
 vsync=on
 fps_counter=off
+fps_details=off
+framerate=original
+interpolate_frames=on
+interpolate_objects=on
+n64_slowdown=off
 ```
+
+`framerate`, `interpolate_frames`, `interpolate_objects` and `n64_slowdown`
+are described in [frame rate](framerate.md).
 
 `jfg::parse_video_settings` (`include/jfg/renderer/video_settings.hpp`) reads
 this format and the original `version=1` file. It rejects the whole file on:

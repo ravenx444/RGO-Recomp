@@ -13,6 +13,7 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
 #ifdef JFG_RML_UI
 #include "native_ui.hpp"
@@ -20,8 +21,11 @@
 namespace fs = std::filesystem;
 namespace {
 constexpr UINT kReady = WM_APP + 20, kHotkey = WM_APP + 21;
-// RGO: the game reports its frame rate (tenths of FPS in wparam).
-constexpr UINT kFrameStats = WM_APP + 24;
+// RGO: the game reports its FPS counter (jfg/renderer/frame_stats.hpp)
+// packed into wparam and lparam, and for "Detailed" jfg::FrameStats in five
+// more messages.
+constexpr UINT kFrameStats = WM_APP + jfg::kFrameStatsMessageOffset;
+constexpr UINT kFrameDetails = WM_APP + jfg::kFrameDetailMessageOffset;
 #ifdef JFG_RML_UI
 constexpr int kMuteShortcut = 0x4a46;
 #endif
@@ -78,7 +82,8 @@ struct App {
   jfg::VideoSettings video{};
   std::wstring exclusiveDevice;
   bool exclusiveSuspended = false;
-  int fpsTenths = -1;
+  jfg::FrameCounter frameCounter{};
+  jfg::FrameStats frameStats{};
   ULONGLONG fpsAt = 0;
   bool stopRequested = false, initializing = true;
   ULONGLONG startedAt = 0;
@@ -833,8 +838,18 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       popup();
     return 0;
   case kFrameStats:
-    app.fpsTenths = static_cast<int>(std::min<WPARAM>(wparam, 100000));
+    app.frameCounter = jfg::unpack_frame_counter({static_cast<std::uint64_t>(wparam),
+                                                  static_cast<std::uint64_t>(lparam)});
     app.fpsAt = GetTickCount64();
+    return 0;
+  case kFrameDetails:
+  case kFrameDetails + 1:
+  case kFrameDetails + 2:
+  case kFrameDetails + 3:
+  case kFrameDetails + 4:
+    jfg::decode_frame_stats(app.frameStats, message - kFrameDetails,
+                            static_cast<std::uint32_t>(wparam),
+                            static_cast<std::uint32_t>(lparam));
     return 0;
   case WM_ACTIVATEAPP:
     // Exclusive fullscreen gives the desktop mode back while another app has
@@ -882,7 +897,9 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
         ui.viewHeight = area.bottom - area.top;
       }
       // A report older than two seconds (paused, loading) shows nothing.
-      ui.fpsTenths = GetTickCount64() - app.fpsAt < 2000 ? app.fpsTenths : -1;
+      ui.frameStatsValid = app.fpsAt != 0 && GetTickCount64() - app.fpsAt < 2000;
+      ui.frameCounter = app.frameCounter;
+      ui.frameStats = app.frameStats;
       FrontendUiFrame(ui);
       return 0;
     }

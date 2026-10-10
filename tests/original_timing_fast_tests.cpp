@@ -6,7 +6,7 @@
 namespace ordinary {
 #include "jfg/boot/original_timing_cache.h"
 }
-extern "C" { JfgOriginalTimingFast* jfg_original_timing_state = nullptr; }
+extern "C" { JfgOriginalTimingFast* jfg_original_timing_state = nullptr; uint32_t jfg_fast_budget = 0; uint32_t jfg_fast_fpu = 0; }
 static unsigned fallbacks=0;
 extern "C" void jfg_phase9_execution_probe_predecoded(unsigned,unsigned,unsigned,void*) { ++fallbacks; }
 static void check(bool okay,const char* reason) { if(!okay){std::cerr<<reason<<'\n';std::exit(1);} }
@@ -63,5 +63,34 @@ int main() {
  fast.execution_fast_deadline=fast.cpu_count;boundary(0);fast.execution_fast_deadline=UINT64_MAX;
  cpu.status_reg=0;boundary(1U<<8);
  cpu.status_reg=0x401;fast.execution_fast_pending=0x400;boundary(0);
+ cpu.status_reg=0x20000000;fast.execution_fast_pending=0;
+ // RGO fast clock: the inline step hands every instruction to the native
+ // handler, which owns the flat charge and the skip runs.
+ {
+  fast.fast_clock=1;
+  const auto before=fast;const auto counters=stats;const auto old=fallbacks;
+  jfg_original_timing_step(0,0x80001000U,0x20,&cpu);
+  check(fallbacks==old+1 && fast.cpu_count==before.cpu_count && stats==counters,
+        "fast clock bypassed the native handler");
+  // A run of 1000 skipped instructions, 400 of them left when it is synced.
+  fast.diagnostic_cpu_half_tick=3;fast.fast_run_length=1000;jfg_fast_budget=400;
+  const uint64_t start=fast.cpu_count,instructions=fast.observed_guest_instructions;
+  jfg_fast_run_sync(&fast);
+  check(fast.cpu_count==start+(3U+600U)/16U && fast.diagnostic_cpu_half_tick==(3U+600U)%16U &&
+        fast.observed_guest_instructions==instructions+600U && guest_count==fast.cpu_count &&
+        fast.fast_run_length==400U && jfg_fast_budget==400U,"run sync differs");
+  fast.guest_previous_branch=true;fast.guest_previous_delay=true;jfg_fast_budget=0;
+  jfg_fast_run_end(&fast);
+  check(fast.cpu_count==start+(3U+1000U)/16U && fast.fast_run_length==0U && jfg_fast_budget==0U &&
+        !fast.guest_previous_branch && !fast.guest_previous_delay,"run end differs");
+  jfg_fast_run_end(&fast);
+  check(fast.cpu_count==start+(3U+1000U)/16U,"ending no run changes nothing");
+  // A run that skipped nothing keeps the branch bookkeeping.
+  fast.fast_run_length=50;jfg_fast_budget=50;fast.guest_previous_branch=true;fast.guest_previous_delay=true;
+  jfg_fast_run_end(&fast);
+  check(fast.guest_previous_branch && fast.guest_previous_delay && fast.fast_run_length==0U &&
+        jfg_fast_budget==0U,"an empty run cleared the bookkeeping");
+  fast.fast_clock=0;fast.diagnostic_cpu_half_tick=0;
+ }
  std::cout<<"250000 instruction/cache transitions and event boundaries matched\n";
 }

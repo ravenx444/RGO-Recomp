@@ -70,8 +70,22 @@ int main() {
                 "version=2\naspect=widescreen\nmax_aspect=unlimited\n"
                 "fullscreen=borderless\noutput=auto\nrender=match\n"
                 "render_scale=100\nrender_size=1920x1080\nmsaa=off\n"
-                "vsync=on\nfps_counter=off\n",
+                "vsync=on\nfps_counter=off\nfps_details=off\nframerate=original\n"
+                "interpolate_frames=on\ninterpolate_objects=on\nn64_slowdown=off\n",
         "default encoding");
+    require(!defaults.n64_slowdown && fast_clock(defaults),
+        "no N64 slowdown by default: the fast clock");
+    {
+        VideoSettings slow;
+        slow.n64_slowdown = true;
+        require(!fast_clock(slow), "slowdown on: the original cost model");
+        require(parse_video_settings(encode_video_settings(slow))->n64_slowdown,
+            "n64_slowdown round trip");
+        require(parse_video_settings("version=2\nvsync=on\n")->n64_slowdown == false,
+            "files without the key keep the default");
+    }
+    require(defaults.framerate == FrameRate::original && defaults.interpolate_objects,
+        "original frame rate by default; blending includes objects");
 
     VideoSettings custom;
     custom.aspect = AspectMode::original;
@@ -84,6 +98,11 @@ int main() {
     custom.msaa = 8U;
     custom.vsync = false;
     custom.fps_counter = true;
+    custom.fps_details = true;
+    custom.framerate = FrameRate::display;
+    custom.interpolate_objects = false;
+    custom.n64_slowdown = true;
+    custom.interpolate_frames = false;
     require(parse_video_settings(encode_video_settings(custom)) == custom,
         "full round trip");
     for (const auto scale : {25U, 100U, 155U, 200U}) {
@@ -92,6 +111,13 @@ int main() {
         s.render_scale = scale;
         require(parse_video_settings(encode_video_settings(s)) == s,
             "render scale round trip");
+    }
+    for (const auto rate : {FrameRate::original, FrameRate::sixty,
+                            FrameRate::display, FrameRate::unlocked}) {
+        VideoSettings s;
+        s.framerate = rate;
+        require(parse_video_settings(encode_video_settings(s))->framerate == rate,
+            "frame rate round trip");
     }
     for (const std::uint8_t samples : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{4}, std::uint8_t{8}}) {
         VideoSettings s;
@@ -110,9 +136,12 @@ int main() {
     // Missing keys keep defaults; unknown keys (newer builds) are ignored.
     require(parse_video_settings("version=2\nvsync=off\n")->vsync == false,
         "partial file");
-    require(parse_video_settings("version=2\nframerate=unlocked\nvsync=off\n")
+    require(parse_video_settings("version=2\nfuture_option=7\nvsync=off\n")
                 ->vsync == false,
         "unknown keys ignored");
+    require(parse_video_settings("version=2\nframerate=60\n")->framerate ==
+                FrameRate::sixty,
+        "framerate=60");
     for (const char* bad : {
              "", "version=1\naspect=original",  // no final line break
              "version=3\n", "aspect=original\nversion=2\n",
@@ -123,9 +152,11 @@ int main() {
              "version=2\nrender=fast\n", "version=2\nrender_scale=10\n",
              "version=2\nrender_scale=201\n", "version=2\nrender_scale=-5\n",
              "version=2\nrender_size=100x100\n", "version=2\nmsaa=16x\n",
-             "version=2\nvsync=yes\n", "version=2\nfps_counter=\n",
+             "version=2\nvsync=yes\n", "version=2\nfps_counter=\n", "version=2\nfps_details=yes\n",
              "version=2\n=on\n", "version=2\nnoequals\n",
-             "version=2\nBad-Key=1\n"})
+             "version=2\nBad-Key=1\n", "version=2\nframerate=144\n",
+             "version=2\ninterpolate_objects=yes\n", "version=2\nn64_slowdown=1\n",
+             "version=2\ninterpolate_frames=maybe\n"})
         require(!parse_video_settings(bad), "invalid settings rejected");
     require(!parse_video_settings(std::string(2000U, 'x')), "oversized file");
 

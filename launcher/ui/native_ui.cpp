@@ -751,17 +751,33 @@ struct Ui : Rml::EventListener {
     html += "<div class=\"row\"><div class=\"grow\">Anti-aliasing<div class=\"muted\">MSAA. Applies the next time the game starts.</div></div>"
             "<div class=\"segments\">" + button("msaa-1", "Off") + button("msaa-2", "2x") + button("msaa-4", "4x") +
             button("msaa-8", "8x") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Frame rate<div class=\"muted\">Above Original the game itself runs at 60. "
+            "Game speed stays the same.</div></div><div class=\"segments\">" + button("framerate-original", "Original") +
+            button("framerate-60", "True 60") + button("framerate-display", "Display") + button("framerate-unlocked", "Unlocked") +
+            "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Interpolate extra frames<div class=\"muted\">Display and Unlocked: blend frames "
+            "between the game's 60 to reach your display's rate.</div></div><div class=\"segments\">" +
+            button("interpolate-on", "On") + button("interpolate-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Blend moving objects<div class=\"muted\">With interpolation: characters "
+            "and objects move smoothly too. Off: only the camera blends.</div></div><div class=\"segments\">" +
+            button("objects-on", "On") + button("objects-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">Original frame rate only. On: heavy "
+            "scenes drop to 20 fps as on the console. Off keeps a steady 30.</div></div><div class=\"segments\">" +
+            button("slowdown-off", "Off") + button("slowdown-on", "On") + "</div></div>";
     html += "<div class=\"row\"><span class=\"grow\">VSync</span><div class=\"segments\">" + button("vsync-on", "On") +
             button("vsync-off", "Off") + "</div></div>";
-    html += "<div class=\"row\"><span class=\"grow\">FPS counter</span><div class=\"segments\">" + button("fps-off", "Off") +
-            button("fps-on", "On") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">FPS counter<div class=\"muted\">Game: logic updates per second. Render: frames "
+            "drawn. Display: frames shown, blended ones included. Detailed adds new frames, camera updates, input "
+            "and frame times.</div></div><div class=\"segments\">" + button("fps-off", "Off") +
+            button("fps-on", "On") + button("fps-detailed", "Detailed") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
             button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
     html += "</div><div class=\"about\"><div class=\"label\">ABOUT</div><div class=\"name\">Display</div>"
             "<p>Widescreen keeps the original height of view and shows more to the sides, at any window shape, "
             "without stretching. Narrow and portrait windows show the original 4:3 picture with bars.</p>"
             "<p>Match output renders exactly as many pixels as the picture covers. Lower the render scale for "
-            "speed, or raise it for sharper edges.</p><p class=\"muted\">F11 switches between windowed and the "
+            "speed, or raise it for sharper edges.</p><p>True 60 runs the game's own logic and drawing at 60 "
+            "per second. Display and Unlocked add blended frames on top (experimental).</p><p class=\"muted\">F11 switches between windowed and the "
             "chosen fullscreen. Leave the game's own Widescreen option off.</p></div></div>";
     return html;
   }
@@ -782,8 +798,22 @@ struct Ui : Rml::EventListener {
       v.msaa = static_cast<std::uint8_t>(std::clamp(std::atoi(a.c_str() + 5), 1, 8));
     else if (a == "vsync-on" || a == "vsync-off")
       v.vsync = a == "vsync-on";
-    else if (a == "fps-on" || a == "fps-off")
-      v.fps_counter = a == "fps-on";
+    else if (a == "fps-on" || a == "fps-off" || a == "fps-detailed") {
+      v.fps_counter = a != "fps-off";
+      v.fps_details = a == "fps-detailed";
+    }
+    else if (a == "slowdown-on" || a == "slowdown-off")
+      v.n64_slowdown = a == "slowdown-on";
+    else if (a == "interpolate-on" || a == "interpolate-off")
+      v.interpolate_frames = a == "interpolate-on";
+    else if (a == "objects-on" || a == "objects-off")
+      v.interpolate_objects = a == "objects-on";
+    else if (a == "framerate-original" || a == "framerate-60" || a == "framerate-display" ||
+             a == "framerate-unlocked")
+      v.framerate = a == "framerate-60"        ? jfg::FrameRate::sixty
+                    : a == "framerate-display"  ? jfg::FrameRate::display
+                    : a == "framerate-unlocked" ? jfg::FrameRate::unlocked
+                                                : jfg::FrameRate::original;
     else if (a == "output-apply" || a == "render-apply") {
       const bool output = a == "output-apply";
       const auto size = jfg::parse_typed_size(output ? outputWidth : renderWidth, output ? outputHeight : renderHeight,
@@ -1126,7 +1156,14 @@ struct Ui : Rml::EventListener {
           v.aspect == jfg::AspectMode::widescreen ? "action-aspect-widescreen" : "action-aspect-original",
           v.msaa >= 8U ? "action-msaa-8" : v.msaa >= 4U ? "action-msaa-4" : v.msaa >= 2U ? "action-msaa-2" : "action-msaa-1",
           v.vsync ? "action-vsync-on" : "action-vsync-off",
-          v.fps_counter ? "action-fps-on" : "action-fps-off"};
+          !v.fps_counter ? "action-fps-off" : v.fps_details ? "action-fps-detailed" : "action-fps-on",
+          v.n64_slowdown ? "action-slowdown-on" : "action-slowdown-off",
+          v.interpolate_frames ? "action-interpolate-on" : "action-interpolate-off",
+          v.interpolate_objects ? "action-objects-on" : "action-objects-off",
+          v.framerate == jfg::FrameRate::sixty      ? "action-framerate-60"
+          : v.framerate == jfg::FrameRate::display  ? "action-framerate-display"
+          : v.framerate == jfg::FrameRate::unlocked ? "action-framerate-unlocked"
+                                                    : "action-framerate-original"};
       for (const char *id : selected)
         if (auto *e = el(id))
           e->SetClass("selected", true);
@@ -1729,12 +1766,28 @@ void FrontendUiFrame(const FrontendUiState &state) {
   ui.doc->SetClass("paused", paused);
   // RGO FPS counter, reported by the game twice a second.
   if (auto *fps = ui.el("fps-counter")) {
-    const bool show = state.playing && state.video.fps_counter && state.fpsTenths >= 0;
+    const bool show = state.playing && state.video.fps_counter && state.frameStatsValid;
     fps->SetClass("visible", show);
-    if (show && state.fpsTenths != ui.state.fpsTenths) {
-      char text[32];
-      std::snprintf(text, sizeof(text), "%d.%d FPS", state.fpsTenths / 10, state.fpsTenths % 10);
-      fps->SetInnerRML(text);
+    // Game: logic updates per second, the rate the game plays at. Render:
+    // real frames drawn. Display: frames shown, blended ones included.
+    if (show && (!ui.state.frameStatsValid || state.frameCounter != ui.state.frameCounter ||
+                 state.frameStats != ui.state.frameStats ||
+                 state.video.fps_details != ui.state.video.fps_details)) {
+      std::string rml = escape(jfg::format_frame_counter(state.frameCounter));
+      if (state.video.fps_details) {
+        // Per second unless marked ms (frame times: shortest-longest gap).
+        const auto &d = state.frameStats;
+        auto t = [](std::uint32_t tenths) {
+          return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
+        };
+        rml += "<br/>logic " + t(d.logic_tenths) + " | ticks " + t(d.ticks_tenths) +
+               "<br/>drawn " + t(d.drawn_tenths) + " | new " + t(d.new_tenths) +
+               " | camera " + t(d.camera_tenths) + " | repeats " + t(d.repeat_tenths) +
+               "<br/>input " + t(d.input_tenths) +
+               "<br/>game frame " + t(d.frame_min) + "-" + t(d.frame_max) + " ms" +
+               "<br/>display frame " + t(d.display_min) + "-" + t(d.display_max) + " ms";
+      }
+      fps->SetInnerRML(rml);
     }
   }
   const bool viewChanged = state.viewWidth != ui.state.viewWidth || state.viewHeight != ui.state.viewHeight;
