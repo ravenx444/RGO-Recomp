@@ -16,6 +16,7 @@
 #include "jfg/boot/ipl_handoff.hpp"
 #include "jfg/boot/gameplay_trace.hpp"
 #include "jfg/mod/navigation_mod.hpp"
+#include "jfg/mod/widescreen_hud.hpp"
 #include "jfg/runtime/async_bounded_trace.hpp"
 #include "jfg/runtime/async_snapshots.hpp"
 #include "jfg/runtime/async_diagnostic_file.hpp"
@@ -1662,6 +1663,9 @@ struct State : JfgOriginalTimingFast {
   bool video_settings_checked = false;
   bool widescreen = false;
   float widescreen_extent = 1.0F;
+  // HUD anchoring is active for the current frontUpdate frame.
+  bool hud_anchoring = false;
+  jfg::mod::WidescreenHud hud;
   std::chrono::steady_clock::time_point video_settings_next_read{};
 #if defined(_WIN32)
   std::unique_ptr<jfg::AsyncVolumeFile> video_settings_file;
@@ -5487,6 +5491,165 @@ void note_hints_control_call(State &state, const std::uint32_t target,
   state.phase9_king_bear_callback = target;
 }
 
+#if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+// RGO widescreen HUD anchoring (jfg/mod/widescreen_hud.hpp).
+class HudGroupScope {
+public:
+  HudGroupScope(jfg::mod::WidescreenHud &hud, const std::uint32_t function)
+      : hud_(hud) { hud_.enter(function); }
+  ~HudGroupScope() { hud_.exit(); }
+  HudGroupScope(const HudGroupScope &) = delete;
+  HudGroupScope &operator=(const HudGroupScope &) = delete;
+private:
+  jfg::mod::WidescreenHud &hud_;
+};
+
+bool hud_qualified(const hle::GuestMemory &memory,
+                   const jfg::mod::HudFunction &function) {
+  std::uint32_t first = 0U, second = 0U;
+  return memory.read_u32(function.address, first) &&
+         memory.read_u32(function.address + 4U, second) &&
+         first == function.prologue[0] && second == function.prologue[1];
+}
+
+std::uint32_t hud_framebuffer_width(const State &state) {
+  const std::uint32_t width = state.rt64_vi.width & 0xFFFU;
+  return width >= 64U && width <= 1024U ? width : 320U;
+}
+
+// Follow the HUD display list up to `cursor` and report whether the current
+// scissor spans the whole framebuffer width.
+bool hud_full_width_scissor(State &state, const hle::GuestMemory &memory,
+                            const std::uint32_t cursor) {
+  std::uint32_t position = state.hud.scan_cursor();
+  bool full = state.hud.scissor_full();
+  if (position != 0U && cursor >= position && cursor - position <= 0x40000U) {
+    const std::uint32_t width = hud_framebuffer_width(state);
+    for (; cursor - position >= 8U; position += 8U) {
+      std::uint32_t word0 = 0U, word1 = 0U;
+      if (!memory.read_u32(position, word0) ||
+          !memory.read_u32(position + 4U, word1))
+        return false;
+      if ((word0 >> 24U) == 0xEDU)
+        full = jfg::mod::hud_scissor_full_width(word0, word1, width);
+    }
+    state.hud.set_scissor_full(full);
+  } else {
+    full = false;  // Lost track of the list: leave this element alone.
+  }
+  state.hud.set_scan_cursor(cursor);
+  return full;
+}
+
+// Wrap one text or rectangle primitive in RT64 rectangle alignment written
+// into its own display list, then reset the alignment after it.
+bool hud_aligned_call(State &state, hle::GuestMemory &memory,
+                      const std::uint32_t list, const std::uint32_t target,
+                      std::uint8_t *rdram, recomp_context *context) {
+  const jfg::mod::HudAnchor anchor = state.hud.anchor();
+  std::uint32_t cursor = 0U;
+  if (anchor == jfg::mod::HudAnchor::none || !memory.read_u32(list, cursor) ||
+      !hud_full_width_scissor(state, memory, cursor))
+    return false;
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+  if (original == nullptr)
+    return false;
+  const auto write = [&](const jfg::mod::HudAnchor value) {
+    std::uint32_t at = 0U;
+    if (!memory.read_u32(list, at))
+      return;
+    (void)hud_full_width_scissor(state, memory, at);  // Follow the primitive's own commands.
+    const auto command = jfg::mod::hud_rect_align_command(
+        value, hud_framebuffer_width(state));
+    for (std::size_t index = 0U; index < command.size(); ++index)
+      (void)memory.write_u32(at + static_cast<std::uint32_t>(index * 4U),
+                             command[index]);
+    (void)memory.write_u32(list, at + 16U);
+    state.hud.set_scan_cursor(at + 16U);
+  };
+  write(anchor);
+  original(rdram, context);
+  write(jfg::mod::HudAnchor::none);
+  return true;
+}
+
+// Returns true when it ran the original function itself.
+bool widescreen_hud_dispatch(State &state, const std::uint32_t target,
+                             std::uint8_t *rdram, recomp_context *context) {
+  using namespace jfg::mod;
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  if (target == kHudFrontUpdate.address) {
+    std::uint32_t start = 0U;
+    state.hud_anchoring = state.widescreen_extent > 1.0F &&
+        hud_qualified(memory, kHudFrontUpdate) &&
+        memory.read_u32(static_cast<std::uint32_t>(context->r4), start);
+    state.hud.begin_frame(state.hud_anchoring,
+                          static_cast<float>(hud_framebuffer_width(state)),
+                          state.hud_anchoring ? start : 0U);
+    return false;
+  }
+  if (!state.hud_anchoring || !state.hud.in_group())
+    return false;
+  const float width = static_cast<float>(hud_framebuffer_width(state));
+  if (target == kHudFontPrintXY.address && hud_qualified(memory, kHudFontPrintXY)) {
+    const auto x = static_cast<std::int32_t>(context->r5);
+    const float position = x == kHudPositionCentred ? width * 0.5F
+                                                    : static_cast<float>(x);
+    state.hud.add(position, position);
+    return hud_aligned_call(state, memory, static_cast<std::uint32_t>(context->r4),
+                            target, rdram, context);
+  }
+  if (target == kHudDrawRectangles.address &&
+      hud_qualified(memory, kHudDrawRectangles)) {
+    const auto count = static_cast<std::int32_t>(context->r5);
+    const auto rectangles = static_cast<std::uint32_t>(context->r6);
+    for (std::int32_t index = 0; index >= 0 && index < count && index < 64; ++index) {
+      const std::uint32_t entry = rectangles +
+          static_cast<std::uint32_t>(index) * kHudRectangleStride;
+      std::uint32_t horizontal = 0U, vertical = 0U;
+      if (!memory.read_u32(entry, horizontal) ||
+          !memory.read_u32(entry + 4U, vertical))
+        break;
+      const auto left = static_cast<std::int16_t>(horizontal >> 16U);
+      const auto right = static_cast<std::int16_t>(vertical >> 16U);
+      if (right >= 0 && static_cast<std::int16_t>(vertical) >= 0)
+        state.hud.add(static_cast<float>(left), static_cast<float>(right));
+    }
+    return hud_aligned_call(state, memory, static_cast<std::uint32_t>(context->r4),
+                            target, rdram, context);
+  }
+  if (target == kHudDrawObj.address && hud_qualified(memory, kHudDrawObj)) {
+    const auto index = static_cast<std::uint32_t>(context->r4);
+    const std::uint32_t field = kHudCurrentObjects +
+        index * kHudCurrentObjectStride + kHudCurrentObjectX;
+    std::uint32_t bits = 0U, cursor = 0U;
+    if (index >= kHudCurrentObjectCount || !memory.read_u32(field, bits))
+      return false;
+    const float x = std::bit_cast<float>(bits);
+    if (!std::isfinite(x))
+      return false;
+    state.hud.add(width * 0.5F + x, width * 0.5F + x);
+    const HudAnchor anchor = state.hud.anchor();
+    if (anchor == HudAnchor::none || !memory.read_u32(kHudFrontGfx, cursor) ||
+        !hud_full_width_scissor(state, memory, cursor))
+      return false;
+    recomp_func_t *const original =
+        jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+    if (original == nullptr)
+      return false;
+    const float shifted = x + hud_object_shift(
+        anchor, hud_extent(state.widescreen_extent), width);
+    (void)memory.write_u32(field, std::bit_cast<std::uint32_t>(shifted));
+    original(rdram, context);
+    (void)memory.write_u32(field, bits);
+    return true;
+  }
+  return false;
+}
+#endif
+
 int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
              recomp_context *context) {
   auto &state = *static_cast<State *>(opaque);
@@ -5598,6 +5761,14 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       return 1;
     }
   }
+  // RGO widescreen HUD: track the HUD frame and its element groups, and
+  // anchor elements drawn by the 2D primitives.
+  std::optional<HudGroupScope> hud_group;
+  if (state.hud_anchoring && jfg::mod::is_hud_group(target))
+    hud_group.emplace(state.hud, target);
+  if ((state.hud_anchoring || target == jfg::mod::kHudFrontUpdate.address) &&
+      widescreen_hud_dispatch(state, target, rdram, context))
+    return 1;
   // The normal camera has computed its desired point, but has not yet run
   // scenery constraints. Feed the orbit into that existing solver, never over
   // its final position. Qualify both the owning routine and this call site.

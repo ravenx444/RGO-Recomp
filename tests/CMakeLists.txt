@@ -551,6 +551,12 @@ target_compile_features(jfg_widescreen_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_widescreen_tests)
 add_test(NAME jfg.widescreen COMMAND jfg_widescreen_tests)
 
+add_executable(jfg_widescreen_hud_tests widescreen_hud_tests.cpp)
+target_include_directories(jfg_widescreen_hud_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(jfg_widescreen_hud_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_widescreen_hud_tests)
+add_test(NAME jfg.widescreen_hud COMMAND jfg_widescreen_hud_tests)
+
 add_executable(jfg_navigation_mod_tests navigation_mod_tests.cpp)
 target_include_directories(jfg_navigation_mod_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(jfg_navigation_mod_tests PRIVATE cxx_std_20)

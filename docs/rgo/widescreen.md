@@ -140,17 +140,28 @@ in the private Windows game build.
      longer snaps back to 4:3.
    - Original 4:3 changes nothing: RT64 stays on Original, the extent is 1 and
      the hook does not run.
-2. **HUD anchoring (PR 2)**
-   - The shell enables RT64's extended GBI for each task.
-   - Hook the HUD entry points (overlay 14/6 drawing functions and the
-     `frontDrawObj`, `fontPrintXY` and `frontDrawRectangles` primitives they
-     use). Around each element, write extended-GBI alignment commands into
-     `frontgfx`; after the element is drawn, decide LEFT/CENTER/RIGHT from the
-     element's on-screen bounds, so the hook does not need to know every
-     element's position in advance.
-   - Use rectangle alignment for text and bars and viewport alignment for the
-     ortho 3D quads; clamp the HUD to 16:9 on ultrawide, as Zelda does.
-   - The crosshair, centred messages and menus stay centred.
+2. **HUD anchoring (PR 2, `rgo/widescreen-hud`)**
+   - While the picture is widened, the shell enables RT64's extended GBI
+     (opcode 0x64, unused by F3DDKR) for each task and sets
+     `extAspectRatio` to Manual at 16:9, so anchored HUD elements stop at a
+     16:9 area on ultrawide screens.
+   - A hook on `frontUpdate` starts each HUD frame. Hooks on the overlay
+     functions that draw the single-player HUD (overlay 14's
+     `frontSingleInstruments` and the functions it calls, overlay 6's
+     `instDrawHealth`, overlay 13's crosshair) mark element **groups**.
+   - Hooks on the three primitives record where each group draws and move it:
+     - `fontPrintXY` and `frontDrawRectangles`: the hook writes
+       `G_EX_SETRECTALIGN_V1` (LEFT or RIGHT) into the primitive's own display
+       list before the call and a reset after it.
+     - `frontDrawObj`: the hook offsets the object's orthographic X by
+       `width / 2 * (extent - 1)` for the call and restores it afterwards.
+   - A group is anchored left when last frame's bounds stay left of the middle
+     and centre in the left third, right likewise, and centred otherwise. All
+     parts of an element (icon, number, bar) therefore move together, and
+     anything that spans the middle (crosshair, messages) stays put. Elements
+     are only moved under a full-width scissor; RT64 keeps a narrower one in
+     the centred 4:3 area, where a moved element would be cut off.
+   - The logic is in `include/jfg/mod/widescreen_hud.hpp` with ROM-free tests.
 3. **Follow-ups (later, after PC testing)**
    - Full-screen effects that are not full-width rectangles (CPU-drawn scope
      lines and digits, CPU rain/refraction, transitions).
@@ -164,6 +175,11 @@ in the private Windows game build.
 
 - **Untested in game.** Everything above is reasoned from the code; the owner
   must check it on the PC.
+- **HUD coverage.** Only HUD parts drawn through the three hooked primitives
+  move. Parts an overlay draws with its own matrices or texture rectangles,
+  and the CPU-drawn digits and lines, stay in the centred 4:3 area; if one of
+  them belongs to an anchored element, that element will look split. The HUD
+  hooks add 32 bytes per anchored primitive to the HUD display list.
 - **CPU framebuffer drawing.** JFG writes some HUD pixels and effects directly
   into the 320x240 framebuffer in RAM. How RT64 composites those changes into
   a widened framebuffer has not been verified; they may appear stretched or

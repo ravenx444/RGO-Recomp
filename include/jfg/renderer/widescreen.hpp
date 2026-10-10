@@ -66,6 +66,13 @@ inline constexpr std::size_t kVideoSettingsMaximumBytes = 128U;
     return std::nullopt;
 }
 
+// RT64 extended-GBI opcode the renderer shell enables while widescreen is
+// active. F3DDKR has no command 0x64, so game display lists never use it.
+inline constexpr std::uint8_t kWidescreenExtendedOpcode = 0x64U;
+
+// HUD anchors stop at the edges of a 16:9 area on wider screens.
+inline constexpr double kWidescreenHudAspect = 16.0 / 9.0;
+
 // Widest picture the widescreen mode renders (32:9 super-ultrawide).
 inline constexpr double kMaximumWidescreenAspect = 32.0 / 9.0;
 
