@@ -70,7 +70,7 @@ int main() {
                 "version=2\naspect=widescreen\nmax_aspect=unlimited\n"
                 "fullscreen=borderless\noutput=auto\nrender=match\n"
                 "render_scale=100\nrender_size=1920x1080\nmsaa=off\n"
-                "vsync=on\nfps_counter=off\nframerate=original\n"
+                "vsync=on\nfps_counter=off\nfps_details=off\nframerate=original\n"
                 "interpolate_frames=on\ninterpolate_objects=on\nn64_slowdown=off\n",
         "default encoding");
     require(!defaults.n64_slowdown && fast_clock(defaults),
@@ -98,6 +98,7 @@ int main() {
     custom.msaa = 8U;
     custom.vsync = false;
     custom.fps_counter = true;
+    custom.fps_details = true;
     custom.framerate = FrameRate::display;
     custom.interpolate_objects = false;
     custom.n64_slowdown = true;
@@ -151,7 +152,7 @@ int main() {
              "version=2\nrender=fast\n", "version=2\nrender_scale=10\n",
              "version=2\nrender_scale=201\n", "version=2\nrender_scale=-5\n",
              "version=2\nrender_size=100x100\n", "version=2\nmsaa=16x\n",
-             "version=2\nvsync=yes\n", "version=2\nfps_counter=\n",
+             "version=2\nvsync=yes\n", "version=2\nfps_counter=\n", "version=2\nfps_details=yes\n",
              "version=2\n=on\n", "version=2\nnoequals\n",
              "version=2\nBad-Key=1\n", "version=2\nframerate=144\n",
              "version=2\ninterpolate_objects=yes\n", "version=2\nn64_slowdown=1\n",

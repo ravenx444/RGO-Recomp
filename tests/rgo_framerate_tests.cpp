@@ -49,13 +49,13 @@ void frame_stats() {
     require(frame_time_tenth_ms(16'667U) == 167U && frame_time_tenth_ms(0U) == 0U,
             "frame times in tenths of a millisecond");
     require(frame_time_tenth_ms(10'000'000U) == 0xFFFFU, "frame times saturate");
-    const FrameStats stats{600U, 599U, 1440U, 69U, 71U};
-    require(unpack_frame_stats(pack_frame_stats(stats)) == stats, "the message round-trips");
-    const FrameStats large{0xFFFFFFU, 0xFFFFFFU, 0xFFFFFFU, 0xFFFFU, 0xFFFFU};
-    require(unpack_frame_stats(pack_frame_stats(large)) == large, "maximum values round-trip");
-    require((pack_frame_stats(large).second >> 56U) == 0U,
+    const FrameCounter stats{600U, 599U, 1440U, 69U, 71U};
+    require(unpack_frame_counter(pack_frame_counter(stats)) == stats, "the message round-trips");
+    const FrameCounter large{0xFFFFFFU, 0xFFFFFFU, 0xFFFFFFU, 0xFFFFU, 0xFFFFU};
+    require(unpack_frame_counter(pack_frame_counter(large)) == large, "maximum values round-trip");
+    require((pack_frame_counter(large).second >> 56U) == 0U,
             "the second word stays clear of an LPARAM's sign bit");
-    require(format_frame_stats(stats) == "Game 60 | Render 60 | Display 144 | 6.9-7.1 ms",
+    require(format_frame_counter(stats) == "Game 60 | Render 60 | Display 144 | 6.9-7.1 ms",
             "counter text");
 }
 

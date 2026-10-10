@@ -14,7 +14,7 @@ every 250 ms, so most changes apply while playing.
 | Max aspect ratio | Unlimited / 32:9 / 21:9 / 16:9 / 16:10 | immediately |
 | Anti-aliasing | Off / 2x / 4x / 8x MSAA | next game start |
 | VSync | On / Off | immediately |
-| FPS counter | Off / On | immediately ([what it shows](framerate.md#fps-counter)) |
+| FPS counter | Off / On / Detailed | immediately ([what it shows](framerate.md#fps-counter)) |
 | Frame rate | Original / True 60 / Display / Unlocked | immediately ([frame rate](framerate.md)) |
 | Interpolate extra frames | On / Off | immediately (Display and Unlocked only) |
 | Blend moving objects | On / Off | immediately (with interpolation) |
@@ -91,6 +91,9 @@ child window), so it handles the mode.
   *Render* is real frames drawn; *Display* is frames shown, blended ones
   included; the range is the shortest and longest gap between two shown
   frames. See [frame rate](framerate.md#fps-counter).
+- *Detailed* adds game logic updates and their VI ticks, newly drawn frames,
+  camera updates, repeated frames, controller samples and frame times
+  ([details](framerate.md#diagnostics-fps-counter-detailed)).
 
 ## File format
 
@@ -106,6 +109,7 @@ render_size=1920x1080
 msaa=off
 vsync=on
 fps_counter=off
+fps_details=off
 framerate=original
 interpolate_frames=on
 interpolate_objects=on

@@ -136,6 +136,52 @@ and the settings page says so.
 - **min-max ms**: the shortest and longest gap between two presented frames
   in the last half second. A wide spread is judder.
 
+#### Diagnostics: FPS counter "Detailed"
+
+The owner's first True 60 test showed `60.0 FPS`, but the game "felt like
+interpolated 30". The plain counter can't tell why, so Video settings →
+FPS counter → **Detailed** adds five lines under the counter (all per
+second, except the frame times):
+
+```
+Game 60 | Render 60 | Display 60 | 16.5-16.9 ms
+logic 60.0 | ticks 60.0
+drawn 60.0 | new 60.0 | camera 60.0 | repeats 0.0
+input 60.0
+game frame 16.6-16.8 ms
+display frame 16.5-16.9 ms
+```
+
+- **logic**: `viFrameSync` calls, one per game frame. **ticks**: the VIs
+  those frames handed to the game logic (`delayDat`). Ticks are 60 at full
+  speed in every mode. Logic is 30 at Original and 60 at True 60; a 30 here
+  at True 60 means the one-VI mode isn't engaged.
+- **drawn**: game presents that show a newly drawn picture. **repeats**:
+  presents that show a picture already shown.
+- **new**: drawn frames whose matrices differ from the previous drawn
+  frame's. The renderer shell hashes every matrix a frame loads
+  (`Rt64F3ddkrStats::scene_hash`). **camera**: the same for the camera
+  (slot 0) matrices alone. Both only mean something while the camera or
+  objects are moving: walk and turn while reading them.
+  - At True 60, while turning, `new` and `camera` should be about 60. A
+    value near 30 means the game logic updates the scene (or the camera)
+    only every other frame, even though it draws 60 pictures.
+- **input**: controller samples per second. `joyRead` only starts the next
+  controller read after the previous one completed, so this can be lower
+  than the logic rate. Mouse look (PC controls) is applied once per sample:
+  input at 30 while logic runs at 60 makes mouse turning step at 30.
+- **game frame**: the shortest and longest gap between game presents in the
+  last half second. **display frame**: the same between swap-chain
+  presents (RT64's present hook). Steady 60 is about 16.7 ms for both; gaps
+  alternating near 0 and 33 ms are frames presented in pairs, which looks
+  like 30.
+
+The numbers come from `include/jfg/renderer/frame_stats.hpp` (tested in
+`jfg.frame_interpolation`). The game posts them as `WM_APP + 25` to
+`WM_APP + 29`; `fps_details=on` in `video.ini` shows them. **logic** is the
+same count as **Game**, and **display frame** the same range as the plain
+counter's.
+
 ### Frame pacing
 
 - VIs are paced to the audio-anchored wall clock with a precise wait (sleep
@@ -469,6 +515,17 @@ the per-instruction cost model, which caused the problems in
 The fast clock replaces the overclock; True 60 keeps the one-VI mode and the
 fixes for code that assumes two ticks per frame, and adds the scheduler
 release and the governor.
+
+The hand-off notes left on `rgo/true-60fps` (commit 79cf1dd) listed the
+owner's results and open questions. Measured headlessly since:
+- *Host throughput* (the leading hypothesis there) was part of it: the
+  per-instruction cost model made waits expensive, and device register
+  traps took 35-42 % of host time ([Host speed](#host-speed)). The other
+  part was the scheduler holding every frame to two VIs, which no host speed
+  fixes ([cause 1](#why-the-first-attempt-did-not-work)).
+- *The opening-cutscene crash* was the fail-closed `unqualified-event-tie`
+  (equal device deadlines), reproduced at VI 7983 at True 60 and VI 424 at
+  Original with slowdown Off, and gone with ordered ties.
 
 ## Risks and what to look for
 

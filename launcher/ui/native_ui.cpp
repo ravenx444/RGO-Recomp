@@ -680,8 +680,9 @@ struct Ui : Rml::EventListener {
     html += "<div class=\"row\"><span class=\"grow\">VSync</span><div class=\"segments\">" + button("vsync-on", "On") +
             button("vsync-off", "Off") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">FPS counter<div class=\"muted\">Game: logic updates per second. Render: frames "
-            "drawn. Display: frames shown, blended ones included.</div></div><div class=\"segments\">" + button("fps-off", "Off") +
-            button("fps-on", "On") + "</div></div>";
+            "drawn. Display: frames shown, blended ones included. Detailed adds new frames, camera updates, input "
+            "and frame times.</div></div><div class=\"segments\">" + button("fps-off", "Off") +
+            button("fps-on", "On") + button("fps-detailed", "Detailed") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
             button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
     html += "</div><div class=\"about\"><div class=\"label\">ABOUT</div><div class=\"name\">Display</div>"
@@ -710,8 +711,10 @@ struct Ui : Rml::EventListener {
       v.msaa = static_cast<std::uint8_t>(std::clamp(std::atoi(a.c_str() + 5), 1, 8));
     else if (a == "vsync-on" || a == "vsync-off")
       v.vsync = a == "vsync-on";
-    else if (a == "fps-on" || a == "fps-off")
-      v.fps_counter = a == "fps-on";
+    else if (a == "fps-on" || a == "fps-off" || a == "fps-detailed") {
+      v.fps_counter = a != "fps-off";
+      v.fps_details = a == "fps-detailed";
+    }
     else if (a == "slowdown-on" || a == "slowdown-off")
       v.n64_slowdown = a == "slowdown-on";
     else if (a == "interpolate-on" || a == "interpolate-off")
@@ -1066,7 +1069,7 @@ struct Ui : Rml::EventListener {
           v.aspect == jfg::AspectMode::widescreen ? "action-aspect-widescreen" : "action-aspect-original",
           v.msaa >= 8U ? "action-msaa-8" : v.msaa >= 4U ? "action-msaa-4" : v.msaa >= 2U ? "action-msaa-2" : "action-msaa-1",
           v.vsync ? "action-vsync-on" : "action-vsync-off",
-          v.fps_counter ? "action-fps-on" : "action-fps-off",
+          !v.fps_counter ? "action-fps-off" : v.fps_details ? "action-fps-detailed" : "action-fps-on",
           v.n64_slowdown ? "action-slowdown-on" : "action-slowdown-off",
           v.interpolate_frames ? "action-interpolate-on" : "action-interpolate-off",
           v.interpolate_objects ? "action-objects-on" : "action-objects-off",
@@ -1649,8 +1652,25 @@ void FrontendUiFrame(const FrontendUiState &state) {
     fps->SetClass("visible", show);
     // Game: logic updates per second, the rate the game plays at. Render:
     // real frames drawn. Display: frames shown, blended ones included.
-    if (show && (!ui.state.frameStatsValid || state.frameStats != ui.state.frameStats))
-      fps->SetInnerRML(escape(jfg::format_frame_stats(state.frameStats)));
+    if (show && (!ui.state.frameStatsValid || state.frameCounter != ui.state.frameCounter ||
+                 state.frameStats != ui.state.frameStats ||
+                 state.video.fps_details != ui.state.video.fps_details)) {
+      std::string rml = escape(jfg::format_frame_counter(state.frameCounter));
+      if (state.video.fps_details) {
+        // Per second unless marked ms (frame times: shortest-longest gap).
+        const auto &d = state.frameStats;
+        auto t = [](std::uint32_t tenths) {
+          return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
+        };
+        rml += "<br/>logic " + t(d.logic_tenths) + " | ticks " + t(d.ticks_tenths) +
+               "<br/>drawn " + t(d.drawn_tenths) + " | new " + t(d.new_tenths) +
+               " | camera " + t(d.camera_tenths) + " | repeats " + t(d.repeat_tenths) +
+               "<br/>input " + t(d.input_tenths) +
+               "<br/>game frame " + t(d.frame_min) + "-" + t(d.frame_max) + " ms" +
+               "<br/>display frame " + t(d.display_min) + "-" + t(d.display_max) + " ms";
+      }
+      fps->SetInnerRML(rml);
+    }
   }
   const bool viewChanged = state.viewWidth != ui.state.viewWidth || state.viewHeight != ui.state.viewHeight;
   ui.state = state;

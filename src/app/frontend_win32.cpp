@@ -22,8 +22,10 @@ namespace fs = std::filesystem;
 namespace {
 constexpr UINT kReady = WM_APP + 20, kHotkey = WM_APP + 21;
 // RGO: the game reports its FPS counter (jfg/renderer/frame_stats.hpp)
-// packed into wparam and lparam.
-constexpr UINT kFrameStats = WM_APP + 24;
+// packed into wparam and lparam, and for "Detailed" jfg::FrameStats in five
+// more messages.
+constexpr UINT kFrameStats = WM_APP + jfg::kFrameStatsMessageOffset;
+constexpr UINT kFrameDetails = WM_APP + jfg::kFrameDetailMessageOffset;
 #ifdef JFG_RML_UI
 constexpr int kMuteShortcut = 0x4a46;
 #endif
@@ -80,6 +82,7 @@ struct App {
   jfg::VideoSettings video{};
   std::wstring exclusiveDevice;
   bool exclusiveSuspended = false;
+  jfg::FrameCounter frameCounter{};
   jfg::FrameStats frameStats{};
   ULONGLONG fpsAt = 0;
   bool stopRequested = false, initializing = true;
@@ -835,9 +838,18 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       popup();
     return 0;
   case kFrameStats:
-    app.frameStats = jfg::unpack_frame_stats({static_cast<std::uint64_t>(wparam),
-                                              static_cast<std::uint64_t>(lparam)});
+    app.frameCounter = jfg::unpack_frame_counter({static_cast<std::uint64_t>(wparam),
+                                                  static_cast<std::uint64_t>(lparam)});
     app.fpsAt = GetTickCount64();
+    return 0;
+  case kFrameDetails:
+  case kFrameDetails + 1:
+  case kFrameDetails + 2:
+  case kFrameDetails + 3:
+  case kFrameDetails + 4:
+    jfg::decode_frame_stats(app.frameStats, message - kFrameDetails,
+                            static_cast<std::uint32_t>(wparam),
+                            static_cast<std::uint32_t>(lparam));
     return 0;
   case WM_ACTIVATEAPP:
     // Exclusive fullscreen gives the desktop mode back while another app has
@@ -886,6 +898,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       }
       // A report older than two seconds (paused, loading) shows nothing.
       ui.frameStatsValid = app.fpsAt != 0 && GetTickCount64() - app.fpsAt < 2000;
+      ui.frameCounter = app.frameCounter;
       ui.frameStats = app.frameStats;
       FrontendUiFrame(ui);
       return 0;

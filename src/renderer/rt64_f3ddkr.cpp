@@ -1,6 +1,7 @@
 #include "rt64_f3ddkr.hpp"
 #include "jfg/renderer/rt64_f3ddkr_address.hpp"
 #include "jfg/renderer/frame_interpolation.hpp"
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
 
 #include "common/rt64_math.h"
@@ -381,6 +382,14 @@ void dma_matrix(RT64::State* state, RT64::DisplayList** dl) {
             ? context->simulation_rdram.data() + address
             : state->fromRDRAM(address));
     hlslpp::float4x4 decoded = fixed->toMatrix4x4();
+    {
+        // RGO frame diagnostics: what this frame shows, by matrix content.
+        std::array<std::uint32_t, 16> words{};
+        std::memcpy(words.data(), fixed, sizeof(words));
+        context->stats.scene_hash = mix_content_hash(context->stats.scene_hash, words);
+        if (index == 0U && !multiply)
+            context->stats.camera_hash = mix_content_hash(context->stats.camera_hash, words);
+    }
     if (multiply) {
         if (!context->loaded_matrices.test(0U)) {
             reject(state, dl);

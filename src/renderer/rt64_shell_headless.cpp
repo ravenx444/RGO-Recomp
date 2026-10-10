@@ -80,13 +80,13 @@ Rt64ShellError Rt64Shell::present(bool) noexcept {
     return Rt64ShellError::none;
 }
 
-Rt64Shell::DisplayFrameTimes Rt64Shell::take_display_frame_times() noexcept {
-    const DisplayFrameTimes times{
+std::pair<std::uint64_t, std::uint64_t> Rt64Shell::take_display_intervals() noexcept {
+    const std::pair<std::uint64_t, std::uint64_t> intervals{
         impl_->present_min_us == UINT64_MAX ? 0U : impl_->present_min_us,
         impl_->present_max_us};
     impl_->present_min_us = UINT64_MAX;
     impl_->present_max_us = 0U;
-    return times;
+    return intervals;
 }
 
 void Rt64Shell::set_video_settings(const VideoSettings&) noexcept {}

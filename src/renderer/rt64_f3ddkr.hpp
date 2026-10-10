@@ -37,6 +37,10 @@ struct Rt64F3ddkrStats {
     std::uint32_t last_display_list_address = 0U;
     std::uint32_t last_display_list_target = 0U;
     std::size_t nested_data_words = 0U;
+    // RGO frame diagnostics: hashes of every matrix this task loaded, and of
+    // its camera (slot 0) matrices alone (jfg/renderer/frame_stats.hpp).
+    std::uint64_t scene_hash = 0xCBF29CE484222325ULL;
+    std::uint64_t camera_hash = 0xCBF29CE484222325ULL;
 };
 
 // Rejection reason codes recorded in Rt64F3ddkrStats::rejection_reason.

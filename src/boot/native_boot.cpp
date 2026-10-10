@@ -2043,6 +2043,17 @@ struct State : JfgOriginalTimingFast {
   std::uint64_t frame_rate_presents = 0U;
   std::uint64_t frame_rate_display_start = 0U;
   std::chrono::steady_clock::time_point frame_rate_start{};
+  // FPS counter, Detailed (jfg/renderer/frame_stats.hpp): game logic
+  // updates and their VI ticks, drawn/new/camera/repeated presents and the
+  // gaps between game presents, all since the last report.
+  std::uint64_t frame_logic_ticks = 0U;
+  std::uint64_t frame_drawn = 0U;
+  std::uint64_t frame_new = 0U;
+  std::uint64_t frame_camera = 0U;
+  std::uint64_t frame_repeats = 0U;
+  std::uint64_t frame_input_start = 0U;
+  jfg::IntervalRange frame_gaps{};
+  jfg::FrameContentTracker frame_content{};
   // RGO frame interpolation: the VI count at the previous game frame, and
   // how many object matrices each object pushed since the last camera.
   std::uint64_t last_frame_retrace = 0U;
@@ -2895,34 +2906,65 @@ void refresh_video_settings(State &state) {
     state.frame_rate_logic_start = state.logic_frames;
     state.frame_rate_display_start = displayed;
     if (state.rt64_shell != nullptr)
-      (void)state.rt64_shell->take_display_frame_times();
+      (void)state.rt64_shell->take_display_intervals();
+    state.frame_logic_ticks = 0U;
+    state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
+    state.frame_gaps = {};
+    state.frame_input_start = state.controller_samples;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
     const auto elapsed_us = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(
             now - state.frame_rate_start).count());
-    const auto times = state.rt64_shell != nullptr
-        ? state.rt64_shell->take_display_frame_times()
-        : jfg::Rt64Shell::DisplayFrameTimes{};
-    const jfg::FrameStats stats{
-        jfg::frame_rate_tenths(state.logic_frames - state.frame_rate_logic_start, elapsed_us),
-        jfg::frame_rate_tenths(state.frame_rate_presents, elapsed_us),
-        jfg::frame_rate_tenths(displayed - state.frame_rate_display_start, elapsed_us),
-        jfg::frame_time_tenth_ms(times.min_us), jfg::frame_time_tenth_ms(times.max_us)};
-    const auto packed = jfg::pack_frame_stats(stats);
+    const auto per_second_tenths = [elapsed_us](const std::uint64_t count) {
+      return jfg::frame_rate_tenths(count, elapsed_us);
+    };
+    const auto [display_min_us, display_max_us] = state.rt64_shell != nullptr
+        ? state.rt64_shell->take_display_intervals()
+        : std::pair<std::uint64_t, std::uint64_t>{};
+    const jfg::FrameCounter counter{
+        per_second_tenths(state.logic_frames - state.frame_rate_logic_start),
+        per_second_tenths(state.frame_rate_presents),
+        per_second_tenths(displayed - state.frame_rate_display_start),
+        jfg::frame_time_tenth_ms(display_min_us), jfg::frame_time_tenth_ms(display_max_us)};
+    // FPS counter "Detailed": what the game did with those frames.
+    jfg::FrameStats details{};
+    details.logic_tenths = counter.game_tenths;
+    details.ticks_tenths = per_second_tenths(state.frame_logic_ticks);
+    details.drawn_tenths = per_second_tenths(state.frame_drawn);
+    details.new_tenths = per_second_tenths(state.frame_new);
+    details.camera_tenths = per_second_tenths(state.frame_camera);
+    details.repeat_tenths = per_second_tenths(state.frame_repeats);
+    details.input_tenths = per_second_tenths(state.controller_samples - state.frame_input_start);
+    details.frame_min = state.frame_gaps.minimum_tenths();
+    details.frame_max = state.frame_gaps.maximum_tenths();
+    details.display_min = counter.frame_min_tenth_ms;
+    details.display_max = counter.frame_max_tenth_ms;
     const HWND window = static_cast<HWND>(state.native_window);
-    if (window != nullptr && GetParent(window) != nullptr)
-      PostMessageW(GetAncestor(window, GA_ROOT), WM_APP + 24U,
+    if (window != nullptr && GetParent(window) != nullptr) {
+      const HWND root = GetAncestor(window, GA_ROOT);
+      const auto packed = jfg::pack_frame_counter(counter);
+      PostMessageW(root, WM_APP + jfg::kFrameStatsMessageOffset,
                    static_cast<WPARAM>(packed.first), static_cast<LPARAM>(packed.second));
+      const auto words = jfg::encode_frame_stats(details);
+      for (unsigned index = 0U; index < jfg::kFrameDetailMessageCount; ++index)
+        PostMessageW(root, WM_APP + jfg::kFrameDetailMessageOffset + index,
+                     static_cast<WPARAM>(words[index * 2U]),
+                     static_cast<LPARAM>(words[index * 2U + 1U]));
+    }
 #if defined(JFG_HEADLESS_LIVE)
     if (state.counter_log)
       std::fprintf(stderr, "counter: VI %llu %s\n",
                    static_cast<unsigned long long>(state.vi_retraces),
-                   jfg::format_frame_stats(stats).c_str());
+                   jfg::format_frame_counter(counter).c_str());
 #endif
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
     state.frame_rate_logic_start = state.logic_frames;
     state.frame_rate_display_start = displayed;
+    state.frame_logic_ticks = 0U;
+    state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
+    state.frame_gaps = {};
+    state.frame_input_start = state.controller_samples;
   }
 }
 
@@ -5708,6 +5750,8 @@ void complete_pending_live_graphics_tasks(
     if (graphics.color_image_address != 0U) {
       state.graphics_color_image = graphics.color_image_address;
       state.graphics_frame_ready = true;
+      state.frame_content.drawn(graphics.color_image_address & 0x00FFFFFFU,
+                                graphics.scene_hash, graphics.camera_hash);
 
     }
     // Submission and writeback have consumed this snapshot. RT64 owns the
@@ -5982,6 +6026,15 @@ void present_completed_video(State &state, const std::uint32_t target) {
           state.gameplay_trace_updates, present_us, present_interval_us, selected_vi_framebuffer});
       state.present_time = present_end;
       state.present_time_initialized = true;
+      if (present_interval_us != 0U)
+        state.frame_gaps.add(present_interval_us);
+      const auto content = state.frame_content.presented(selected_vi_framebuffer);
+      if (!content.fresh) ++state.frame_repeats;
+      else {
+        ++state.frame_drawn;
+        if (content.scene_changed) ++state.frame_new;
+        if (content.camera_changed) ++state.frame_camera;
+      }
       if (state.timing_trace) state.timing_trace << "present-qpc\t"
           << state.vi_frames << '\t' << state.vi_retraces << '\t'
           << std::chrono::duration_cast<std::chrono::microseconds>(
@@ -6304,16 +6357,40 @@ void leave_true60(State &state, std::uint8_t *rdram) {
   state.scroller_pending_ticks = 0U;
 }
 
-// RGO true 60 fps logic (docs/rgo/framerate.md, Part E). viFrameSync runs
-// with the game's own runInOneFrame flag set, so it waits for one VI per
-// frame and every tick function gets updateRate 1; the game's value is
-// restored afterwards. Three places that assume 2 ticks per frame are
-// adjusted (frame_interpolation.hpp): texture scrollers run once per 2 ticks,
-// literal 2-tick particle bursts use the real rate, and a frame without a new
-// controller read reports no presses. Returns true when it ran the original.
+// viFrameSync, once per game frame: counts the VI ticks the logic gets for
+// the FPS counter's Detailed view. With true 60 fps logic (docs/rgo/framerate.md,
+// Part E) it runs with the game's own runInOneFrame flag set, so it waits for
+// one VI per frame and every tick function gets updateRate 1; the game's
+// value is restored afterwards. Returns true when it ran the original.
+bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
+                         recomp_context *context, const bool one_vi) {
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(jfg::kViFrameSync));
+  std::uint32_t saved = 0U;
+  if (original == nullptr || !memory.read_u32(jfg::kRunInOneFrame, saved))
+    return false;
+  if (one_vi)
+    (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+  original(rdram, context);
+  if (one_vi) {
+    (void)memory.write_u32(jfg::kRunInOneFrame, saved);
+    state.true60_governor.frame(static_cast<std::uint32_t>(context->r2), state.vi_retraces);
+  }
+  state.frame_logic_ticks += (std::min)(static_cast<std::uint32_t>(context->r2), 6U);
+  return true;
+}
+
+// RGO true 60 fps logic: the scheduler releases each frame's done message
+// without waiting for a second VI, and three places that assume 2 ticks per
+// frame are adjusted (frame_interpolation.hpp): texture scrollers run once
+// per 2 ticks, literal 2-tick particle bursts use the real rate, and a frame
+// without a new controller read reports no presses. Returns true when it ran
+// the original.
 bool true60_dispatch(State &state, const std::uint32_t target,
                      std::uint8_t *rdram, recomp_context *context) {
-  if (target != jfg::kViFrameSync && target != jfg::kAnimseqUpdateTextureScrollers &&
+  if (target != jfg::kAnimseqUpdateTextureScrollers &&
       target != jfg::kPartUpdateTriggers && target != jfg::kJoyRead &&
       target != jfg::kScTaskComplete)
     return false;
@@ -6323,16 +6400,6 @@ bool true60_dispatch(State &state, const std::uint32_t target,
       jfg_generated_lookup_function(static_cast<std::int32_t>(target));
   if (original == nullptr)
     return false;
-  if (target == jfg::kViFrameSync) {
-    std::uint32_t saved = 0U;
-    if (!memory.read_u32(jfg::kRunInOneFrame, saved))
-      return false;
-    (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
-    original(rdram, context);
-    (void)memory.write_u32(jfg::kRunInOneFrame, saved);
-    state.true60_governor.frame(static_cast<std::uint32_t>(context->r2), state.vi_retraces);
-    return true;
-  }
   if (target == jfg::kScTaskComplete) {
     // Release the frame-done message without waiting for a second VI.
     const auto frame_count_address =
@@ -6643,6 +6710,10 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   if (state.fast_clock != 0U && !state.wall_floor_disabled &&
       (++state.wall_floor_calls & 15U) == 0U)
     apply_wall_floor(state);
+  // viFrameSync: the Detailed counter's ticks, and at true 60 one VI per frame.
+  if (target == jfg::kViFrameSync && state.video_managed && !state.input_replay_loaded &&
+      frame_sync_dispatch(state, rdram, context, true60))
+    return 1;
   if (true60 && true60_dispatch(state, target, rdram, context))
     return 1;
   // RGO frame interpolation: tag object matrices (experimental).
