@@ -105,4 +105,52 @@ public:
 private:
   std::array<int, 4> assigned_{-1, -1, -1, -1};
 };
+// RGO dual input: Player 1's second device. While Player 1 plays on a
+// controller it is the mouse and keyboard; while Player 1 plays on the
+// keyboard it is the first connected controller. Only devices that no player
+// has are used. -2 when there is none.
+inline int companion_device(const std::array<int, 4> &devices,
+                            const std::array<bool, 4> &connected) {
+  const auto taken = [&](int device) {
+    for (const int d : devices)
+      if (d == device) return true;
+    return false;
+  };
+  if (devices[0] >= 0) return taken(-3) ? -2 : -3;
+  if (devices[0] == -3)
+    for (int c = 0; c < 4; ++c)
+      if (connected[static_cast<std::size_t>(c)] && !taken(c)) return c;
+  return -2;
+}
+// Deliberate input on a port: a button or a clear stick push. Motion sensor
+// noise and stick drift never count.
+inline bool port_activity(const ControllerPortSample &sample) {
+  return sample.buttons != 0 || sample.x > 24 || sample.x < -24 || sample.y > 24 || sample.y < -24;
+}
+// Both devices at once: buttons combine and the larger stick push wins.
+inline ControllerPortSample merge_ports(const ControllerPortSample &a, const ControllerPortSample &b) {
+  ControllerPortSample out;
+  out.connected = a.connected || b.connected;
+  out.buttons = static_cast<std::uint16_t>(a.buttons | b.buttons);
+  const int ma = a.x * a.x + a.y * a.y, mb = b.x * b.x + b.y * b.y;
+  const auto &stick = mb > ma ? b : a;
+  out.x = stick.x;
+  out.y = stick.y;
+  return out;
+}
+// Without dual input, the device used last wins. A tie keeps the current one.
+class LastUsedDevice {
+public:
+  // Returns true while the companion device is the active one.
+  bool update(bool primary_activity, bool companion_activity) {
+    if (companion_activity && !primary_activity) companion_ = true;
+    else if (primary_activity && !companion_activity) companion_ = false;
+    return companion_;
+  }
+  void reset() { companion_ = false; }
+  [[nodiscard]] bool companion() const { return companion_; }
+
+private:
+  bool companion_ = false;
+};
 } // namespace jfg

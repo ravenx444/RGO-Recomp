@@ -181,9 +181,33 @@ gyro), with the Experimental switch on:
 - Gyro is not written to input recordings, and is off while recording, so
   recordings replay exactly.
 
+## Dual input (PR 4)
+
+Player 1 gets a second device whenever one is free (`companion_device`):
+the mouse and keyboard while Player 1 plays on a controller, or the first
+free connected controller while Player 1 plays on the keyboard. Other
+players' devices are never shared, so multiplayer assignments are unchanged.
+
+- **Dual input on:** both devices at once, with no mode switching. Buttons
+  combine, the larger movement-stick push wins, and the look sources add up:
+  the second stick stays the look channel (mode 4) while mouse, aim keys and
+  gyro add direct angle deltas. Built for Steam Input setups (gyro-as-mouse,
+  trackpads, back buttons mapped to keys).
+- **Dual input off (default):** the device used last controls Player 1. A
+  button press or a clear stick push switches; gyro, stick drift and a
+  toggled aim never do. Switching away from the keyboard releases a toggled
+  aim and the mouse capture. Moving the mouse alone does not switch back to
+  the keyboard (the mouse is only read while captured); press a key or a
+  mouse button.
+- Rumble, the lightbar and gyro follow Player 1's controller whichever
+  device is primary.
+- Setting: Controllers > Player 1 > Dual input (`dual_input` in
+  `pc-input.ini`). Player 1's gyro and stick settings are on the gamepad
+  page; switch the device to the controller to edit them.
+
 ## Status
 
 - PR 1 (DualShock 4 / DualSense, rumble): in review.
 - PR 2 (direct mouse/keyboard aim): in review.
 - PR 3 (gyro): in review.
-- PR 4 (dual input): planned.
+- PR 4 (dual input): in review.

@@ -1577,6 +1577,12 @@ struct State : JfgOriginalTimingFast {
   std::array<jfg::PcLookDelta,4> pc_direct{};
   std::array<bool,4> pc_direct_used{};
   std::array<jfg::PcGyroAim,4> pc_gyro_aim{};
+  // RGO dual input: Player 1's second device (companion_device), which input
+  // paths are live per port this poll, and the controller slot per port.
+  int pc_companion = -2;
+  std::array<bool,4> pc_keyboard_active{}, pc_pad_active{};
+  std::array<int,4> pc_pad_slot{-2,-2,-2,-2};
+  jfg::LastUsedDevice pc_last_used;
   int pc_wheel_key = 0;
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
@@ -2078,7 +2084,7 @@ void rumble_request(State &state, const std::uint32_t target, const recomp_conte
   for (int channel = 0; channel < 4; ++channel) {
     if (request.call != jfg::GameRumbleCall::kill && channel != request.channel)
       continue;
-    const int slot = state.pc_devices[static_cast<std::size_t>(channel)];
+    const int slot = state.pc_pad_slot[static_cast<std::size_t>(channel)];
     if (slot < 0)
       continue;
     const auto out = state.rumble.output(channel, now, state.pc_input[static_cast<std::size_t>(channel)].rumble);
@@ -2139,7 +2145,7 @@ void reload_controller_ports(State &state) {
 bool pc_key_down(const State &state,int key) {
   return key>=256?state.pc_wheel_key==key:host_key_down(state,key);
 }
-jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port) {
+jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port,std::uint16_t *raw_buttons=nullptr) {
   const auto down=[&](int key){return pc_key_down(state,key);};
   const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[port]);
   auto sample=jfg::map_pc_keyboard(config,down);
@@ -2152,6 +2158,7 @@ jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port) {
   const bool active=state.pc_experimental && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
     jfg::mod::gameplay_active(memory,state.phase9_player_actor) &&
     !jfg::mod::scripted_camera_active(memory,state.phase9_player_actor);
+  if(raw_buttons)*raw_buttons=sample.buttons;
   const bool aim=state.pc_aim_latch[port].apply((sample.buttons&0x10U)!=0U,config.aim_toggle!=0,active);
   sample.buttons=static_cast<std::uint16_t>((sample.buttons&~0x10U)|(aim?0x10U:0U));
   return sample;
@@ -2173,28 +2180,23 @@ void sample_controller_ports(State &state) {
       available[p] = read_xinput_device(static_cast<int>(p), hardware[p]);
   const auto devices = state.controller_ports.devices(available);
   state.pc_devices=devices;
+  state.pc_companion=jfg::companion_device(devices,available);
+  for (std::size_t p = 0; p < 4; ++p)
+    state.pc_pad_slot[p] = devices[p] >= 0 ? devices[p] : p == 0 && state.pc_companion >= 0 ? state.pc_companion : -2;
   if (state.gamepads)
     for (std::size_t p = 0; p < 4; ++p)
-      if (devices[p] >= 0)
-        state.gamepads->light(devices[p], jfg::player_light(static_cast<int>(p)));
+      if (state.pc_pad_slot[p] >= 0)
+        state.gamepads->light(state.pc_pad_slot[p], jfg::player_light(static_cast<int>(p)));
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
   const bool look_active=state.pc_experimental &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
-  for (std::size_t p = 0; p < 4; ++p) {
-    auto &sample = state.controller_ports.samples[p];
-    sample = {};
-    const int device = devices[p];
-    if (device == -3) {
-      sample = sample_keyboard_port(state,p);
-      continue;
-    }
+  // One controller's sample for player p, with its look stick and gyro.
+  const auto pad_sample=[&](std::size_t p,int device)->jfg::ControllerPortSample {
     if (device < 0 || !available[static_cast<std::size_t>(device)])
-      continue;
+      return {};
     const auto mapped=jfg::map_pc_controller(state.controller_ports.mappings[p],
         hardware[static_cast<std::size_t>(device)],state.pc_input[p],look_active);
-    sample = {mapped.buttons, static_cast<std::int8_t>(mapped.stick.x),
-              static_cast<std::int8_t>(mapped.stick.y), true};
     if(state.pc_experimental && state.pc_input[p].dual_stick)
       state.pc_aim[p]=jfg::pc_aim_stick(state.pc_input[p],hardware[static_cast<std::size_t>(device)],
         state.controller_ports.mappings[p].stick,!state.pc_input[p].modern || (mapped.buttons&0x10)!=0);
@@ -2212,6 +2214,46 @@ void sample_controller_ports(State &state) {
       else
         state.pc_gyro_aim[p].clear();
     }
+    return {mapped.buttons, static_cast<std::int8_t>(mapped.stick.x),
+            static_cast<std::int8_t>(mapped.stick.y), true};
+  };
+  for (std::size_t p = 0; p < 4; ++p) {
+    auto &sample = state.controller_ports.samples[p];
+    sample = {};
+    const int device = devices[p];
+    const bool keyboard = device == -3 || (p == 0 && state.pc_companion == -3);
+    const int pad = state.pc_pad_slot[p];
+    std::uint16_t raw_keys = 0;
+    const auto keys = keyboard ? sample_keyboard_port(state,p,&raw_keys) : jfg::ControllerPortSample{};
+    const auto pads = pad >= 0 ? pad_sample(p,pad) : jfg::ControllerPortSample{};
+    state.pc_keyboard_active[p] = keyboard;
+    state.pc_pad_active[p] = pad >= 0 && available[static_cast<std::size_t>(pad)];
+    if (!keyboard || !state.pc_pad_active[p]) {
+      sample = keyboard ? keys : pads;
+      if (p == 0) state.pc_last_used.reset();
+      continue;
+    }
+    // RGO dual input (Player 1 with a second device): both at once, or the
+    // device used last. Gyro and toggled aim never count as use.
+    if (state.pc_input[p].dual_input) {
+      sample = jfg::merge_ports(keys, pads);
+      continue;
+    }
+    const bool key_use = jfg::port_activity({raw_keys, keys.x, keys.y, true});
+    const bool pad_use = jfg::port_activity(pads) || state.pc_aim[p].x || state.pc_aim[p].y;
+    const bool primary_keyboard = device == -3;
+    const bool companion = state.pc_last_used.update(primary_keyboard ? key_use : pad_use,
+                                                     primary_keyboard ? pad_use : key_use);
+    const bool use_keyboard = primary_keyboard != companion;
+    sample = use_keyboard ? keys : pads;
+    state.pc_keyboard_active[p] = use_keyboard;
+    state.pc_pad_active[p] = !use_keyboard;
+    if (use_keyboard) {
+      state.pc_aim[p] = {};
+      state.pc_direct[p] = {};
+      state.pc_gyro_aim[p].clear();
+    } else
+      (void)state.pc_aim_latch[p].apply(false,false,false); // release a toggled aim
   }
   state.controller_mapping = state.controller_ports.mappings[0];
   state.controller_mapping.device = devices[0];
@@ -2303,7 +2345,7 @@ void sample_live_controller(State &state) noexcept {
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
   bool want_mouse=false;
   for(std::size_t p=0;p<4;++p)
-    want_mouse|=state.pc_devices[p]==-3 && state.pc_input[p].mouse_aim && state.controller_ports.samples[p].connected &&
+    want_mouse|=state.pc_keyboard_active[p] && state.pc_input[p].mouse_aim && state.controller_ports.samples[p].connected &&
       (state.pc_input[p].modern || (state.controller_ports.samples[p].buttons&0x10)!=0);
   want_mouse=want_mouse && state.pc_experimental && state.pc_raw_available && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
@@ -2332,15 +2374,20 @@ void sample_live_controller(State &state) noexcept {
       // by angle deltas, never as a fake stick: nothing springs back when
       // input stops. Without the modern camera they only work while aiming.
       const auto key_down=[&](int key){return pc_key_down(state,key);};
-      const bool mouse=state.pc_devices[p]==-3 && config.mouse_aim && state.pc_mouse_captured;
-      const bool keys=state.pc_devices[p]==-3 && (config.modern || aiming) && jfg::PcKeyAim::held(config,key_down);
+      const bool mouse=state.pc_keyboard_active[p] && config.mouse_aim && state.pc_mouse_captured;
+      const bool keys=state.pc_keyboard_active[p] && (config.modern || aiming) && jfg::PcKeyAim::held(config,key_down);
+      jfg::PcLookDelta motion{};
       if(mouse || keys) {
-        frame.pc_mode=config.modern?3:5;
-        auto motion=state.pc_key_aim.take(config,key_down,key_aim_seconds);
+        motion=state.pc_key_aim.take(config,key_down,key_aim_seconds);
         if(mouse)motion=jfg::pc_add_look(state.pc_mouse.take_angles(config,aiming),motion);
-        frame.look_x=static_cast<std::int16_t>(motion.x);frame.look_y=static_cast<std::int16_t>(motion.y);
-      } else if(state.pc_devices[p]>=0 && config.dual_stick) {
+      }
+      if(state.pc_pad_active[p] && config.dual_stick) {
         frame.pc_mode=config.modern?4:2;frame.look_x=state.pc_aim[p].x;frame.look_y=state.pc_aim[p].y;
+        // RGO dual input: mouse/key angles join the stick as direct deltas.
+        if(mouse || keys)state.pc_direct[p]=jfg::pc_add_look(state.pc_direct[p],motion);
+      } else if(mouse || keys) {
+        frame.pc_mode=config.modern?3:5;
+        frame.look_x=static_cast<std::int16_t>(motion.x);frame.look_y=static_cast<std::int16_t>(motion.y);
       }
     }
   }

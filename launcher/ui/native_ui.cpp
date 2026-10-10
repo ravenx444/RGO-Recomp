@@ -346,6 +346,17 @@ struct Ui : Rml::EventListener {
       "</div>"+(model.empty()?std::string{}:"<div class=\"muted\">"+escape(model)+"</div>")+"<div id=\"assignment\" class=\"muted\"></div></div><span class=\"connection-state "+std::string(online?"online":"offline")+"\">"+(online?"Connected":"Disconnected")+"</span>"+
       button("device-open",configured==-2?"+ Add device":"Change device")+
       button("device-remove","Remove",configured==-2)+"</div>";
+    if(player==0 && configured!=-2) {
+      // RGO dual input: Player 1 also uses the free keyboard/mouse or controller.
+      const int companion=jfg::companion_device(devices,connected);
+      const bool on=pcInput[0].dual_input!=0;
+      const std::string second=companion==-3?"mouse and keyboard":companion>=0?padLabel(companion):"";
+      html+="<div class=\"device-row\"><div class=\"grow\">Dual input<div class=\"muted\">"+
+        escape(second.empty()?"Player 1 also uses a free controller or the mouse and keyboard when one is available.":
+          "Also using "+second+". ")+
+        escape(on?"On: both at the same time.":"Off: the device you used last controls Player 1.")+"</div></div>"+
+        button("dual-input",on?"On":"Off")+"</div>";
+    }
     if(d>=0) {
       const int strength=pcInput[static_cast<std::size_t>(player)].rumble;
       const bool canRumble=online && pads.info[static_cast<std::size_t>(d)].rumble;
@@ -1250,6 +1261,10 @@ struct Ui : Rml::EventListener {
     if(a=="device-apply"){if(devicePicker && (pickerType!=0 || pickerDevice>=0))assignDevice(pickerDevice);return;}
     if(a=="device-remove"){assignDevice(-2);return;}
     if(a=="controller-settings"){controllerSettings=!controllerSettings;modal("controllers");return;}
+    if(a=="dual-input" && player==0) {
+      pcInput[0].dual_input=!pcInput[0].dual_input;
+      savePcInput();modal("controllers");return;
+    }
     if(a=="rumble-test") {
       const int d=devices[player];
       const float amplitude=std::min(1.0F,0.8F*static_cast<float>(pcInput[static_cast<std::size_t>(player)].rumble)/100.0F);
