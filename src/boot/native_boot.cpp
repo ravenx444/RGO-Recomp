@@ -6373,6 +6373,13 @@ bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
     return false;
   if (one_vi)
     (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+  // RGO fast clock: a frame the host was too slow for (a load, a hitch) takes
+  // an extra VI and its ticks, keeping the game's speed. Without this the game
+  // would also drop to its 20 fps mode, which it leaves only after 31 fast
+  // frames: one hitch would cost at least 1.5 s at 20 fps. The console's own
+  // timing (Original N64 slowdown On) keeps that behaviour.
+  if (state.fast_clock != 0U)
+    rdram[(jfg::kSkipVideoDeltaAdjust - kKseg0) ^ 3U] = 1U;
   original(rdram, context);
   if (one_vi) {
     (void)memory.write_u32(jfg::kRunInOneFrame, saved);

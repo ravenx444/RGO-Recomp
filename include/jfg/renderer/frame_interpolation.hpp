@@ -47,6 +47,10 @@ inline constexpr std::uint32_t kViFrameSync = 0x80054FBCU;
 inline constexpr std::uint32_t kRunInOneFrame = 0x800FECCCU;
 // gVideoDeltaTime (u8): the VIs viFrameSync waits for, 1 / 2 / 3.
 inline constexpr std::uint32_t kVideoDeltaTime = 0x800FECACU;
+// gSkipVideoDeltaAdjust (u8): while set, a frame that took three or more
+// VIs does not switch the game to its 20 fps mode (viFrameSync clears it).
+// The game sets it around loads (viFrameRateReset).
+inline constexpr std::uint32_t kSkipVideoDeltaAdjust = 0x800FECADU;
 
 // runInOneFrame alone is not enough: the game's scheduler holds the frame's
 // "graphics done" message until two VIs have passed since the last one

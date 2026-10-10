@@ -9,7 +9,12 @@ emulated second in menus, every opening cutscene and gameplay, at the
 original game speed, measured headlessly (see [Measurements](#measurements)).
 **Original** with *Original N64 slowdown* off holds a steady 30.
 A PC that cannot keep up keeps the game's speed and gets fewer frames
-instead of slow motion. Owner test steps are at the end.
+instead of slow motion. The runtime now needs about half the host time it
+did ([Host speed](#host-speed)). On this slow cloud VM, in real time,
+True 60 runs at 57-60 in menus, light cutscene shots and the start of the
+first level, 48-59 in the rest of the gameplay measured (it varies from run
+to run), and falls back to 30 in the heaviest cutscene shots. Owner test
+steps are near the end.
 
 ## Why the first attempt did not work
 
@@ -96,6 +101,14 @@ cost model unchanged (the faithful console timing, with its 20 fps drops).
   replayed; a burst of VIs made the game's scheduler declare its graphics
   task crashed. `JFG_RGO_DETERMINISTIC_CLOCK=1` turns the floor off for
   measurements.
+- **No 20 fps hysteresis.** After any frame that took three or more VIs,
+  `viFrameSync` switches the game to its 20 fps mode and only returns to 30
+  after 31 faster frames (`gVideoDeltaTime`, `gameVi.c`). On the console
+  that is the slowdown; with the real-time floor a single host hitch (a
+  load, a shader compile) cost at least 1.5 s at 20 fps. Under the fast
+  clock each `viFrameSync` runs with the game's own `gSkipVideoDeltaAdjust`
+  (US 0x800FECAD, set by the game around loads) set, so a slow frame gets
+  its extra VI and ticks once and the next frame is back at the normal rate.
 
 ### True 60
 
@@ -230,7 +243,30 @@ the game's code twice as fast as at 30. Profiling the headless build
 Unpaced throughput (emulated seconds per wall second, `--unpaced`; above 1.0
 is headroom for real time) on this cloud VM, True 60:
 
-THROUGHPUT_PLACEHOLDER
+| Segment (first VI) | One-trap MMIO | Single-step (before) |
+|---|---|---|
+| Title and file select (VI 43) | 2.18 | 1.15 |
+| Name keyboard (VI 1085) | 2.95 | 1.28 |
+| Opening cutscene, level 322 (VI 1288) | 1.64 | 0.74 |
+| level 324 (VI 2261) | 1.19 | 0.57 |
+| level 323 (VI 2937) | 1.07 | 0.62 |
+| level 325 (VI 5281) | 0.59 | 0.34 |
+| level 323 (VI 6213) | 0.96 | 0.52 |
+| level 326 (VI 6539) | 1.63 | 0.81 |
+| level 323 (VI 7179) | 0.71 | 0.39 |
+| level 327 (VI 8697) | 1.19 | 0.66 |
+| level 323 (VI 9819) | 1.13 | 0.54 |
+| Level intro, level 127 (VI 10510) | 1.83 | 0.92 |
+| Gameplay, level 365 (VI 10653) | 1.57 | 0.82 |
+| Gameplay, level 93 (VI 10983) | 1.62 | 0.81 |
+| Gameplay, level 92 (VI 12622) | 1.33 | 0.65 |
+| Whole run | 1.16 | 0.60 |
+
+Both runs give the same frame trace (VIs, ticks, Count, instructions) as
+the paced deterministic run. Gameplay frames take 10-12 ms median here
+(levels 365, 93, 92); about 1 % take longer than the ~21 ms after which a
+frame misses its VI in real time. Levels 325 and the second long level 323 shot are the heaviest
+cutscene stretches (about 8 graphics tasks a frame).
 
 ## Headless measurement
 
@@ -274,7 +310,93 @@ repository.
 
 ## Measurements
 
-MEASUREMENTS_PLACEHOLDER
+Headless build on the 4-vCPU cloud VM. Each run starts a new game: title,
+name keyboard, every opening cutscene, then the first gameplay levels, for
+15,000 VIs (250 s of emulated time). **Game frames per emulated second** is
+`viFrameSync` calls per 60 VIs of emulated time, from the frame trace. The
+runs use `--deterministic` (no real-time floor), so the host's speed does
+not enter and the numbers are the game's own rate. The autopilot takes the
+same path at every setting.
+
+| Segment (front-end mode, level, first VI) | PR #8, True 60 | True 60 | Original, slowdown Off | Original, slowdown On |
+|---|---|---|---|---|
+| Title and file select (mode 2, VI 43) | 30.0 | 60.0 | 30.0 | 30.0 |
+| Name keyboard (mode 24, VI 1085) | 30.0 | 60.0 | 30.0 | 30.0 |
+| Opening cutscene, level 322 (VI 1288) | 30.0 | 60.0 | 30.0 | 30.0 |
+| Opening cutscene, level 324 (VI 2261) | 30.0 | 60.0 | 30.0 | 25.7 |
+| Opening cutscene, level 323 (VI 2937) | 30.0 | 60.0 | 30.0 | 25.2 |
+| Opening cutscene, level 325 (VI 5281) | 30.0 | 60.0 | 30.0 | 18.0 |
+| Opening cutscene, level 323 (VI 6213) | 30.0 | 60.0 | 30.0 | (short) |
+| Opening cutscene, level 326 (VI 6539) | 30.0 | 60.0 | 30.0 | 30.0 |
+| Opening cutscene, level 323 (VI 7179) | 30.0, **trap at VI 7983** | 60.0 | 30.0 | 18.8 |
+| Opening cutscene, level 327 (VI 8697) | - | 60.0 | 30.0 | 28.9 |
+| Opening cutscene, level 323 (VI 9819) | - | 60.0 | 30.0 | 26.6 |
+| Level intro, level 127 (mode 5, VI 10510) | - | 60.0 | (short) | 30.1 |
+| Gameplay, level 365 (mode 16, VI 10653) | - | 60.0 | 30.0 | 30.1 |
+| Gameplay, level 93 (VI 10983) | - | 60.0 | 30.0 | 30.0 |
+| Gameplay, level 92 (VI 12622) | - | 60.0 | 30.0 | 28.1 |
+
+- **True 60:** 14,147 game frames in 14,985 VIs. 14,130 frames took one
+  VI; the other 17 are the first frame after each level load (two VIs, one
+  six). Game time (sum of ticks) over emulated time: 1.00 in every segment,
+  so the game runs at its original speed. No trap; the run reaches the VI
+  target. Display and Unlocked give the identical trace.
+- **Original, slowdown Off:** 7,079 frames in 14,984 VIs, every one two VIs
+  (except one load frame): a steady 30, including the cutscenes where the
+  console drops to 18. No trap.
+- **Original, slowdown On** keeps the console's timing: its trace matches
+  the run before this change frame for frame (same VIs, same ticks), so the
+  fast clock leaves it alone.
+- The host speed work (one-trap MMIO, baton spin) and the merge with the
+  Detailed counter changed nothing the game sees: True 60, Unlocked,
+  Original and slowdown On give the same frame trace (VI, ticks, Count,
+  guest instructions, mode, level) before and after, frame for frame.
+- **PR #8** ran True 60 at 30.0 (every frame two VIs) and stopped at VI 7983
+  in the opening cutscene (`unqualified-event-tie`); with Original and
+  slowdown Off it stopped at VI 424.
+
+**Live switching.** One run starts at True 60 and rewrites `video.ini`
+during play: at VI 4000 to Original (slowdown Off), at VI 7000 back to
+True 60, at VI 12000 to Original with slowdown On. Each change took effect
+within 4-27 VIs (the script polls the trace every half second): the game ran
+at 60, then 30 (levels 325 and 323), then 60 again from the next shot on,
+then at the console's own rate in level 92 (28.1, frames of two and three
+VIs). No trap.
+
+**Real time.** Without `--deterministic` the real-time floor and the True 60
+governor work as on a PC. This VM is slow: True 60's gameplay frames take 10-12 ms
+median (see [Host speed](#host-speed)), a desktop CPU should do better.
+Game frames per wall second, 15,000 VIs each:
+
+| Segment (first VI) | True 60 | Original, slowdown Off |
+|---|---|---|
+| Title and file select | 59.3 | 29.8 |
+| Name keyboard | 58.8 | 30.0 |
+| Opening cutscene, level 322 | 58.8 | 29.9 |
+| level 324 | 41.4 | 29.8 |
+| level 323 | 35.2 | 29.7 |
+| level 325 (heaviest) | 25.9 | 28.6 |
+| level 323 | 35.6 | 29.9 |
+| level 326 | 59.8 | 29.9 |
+| level 323 (second heaviest) | 29.3 | 27.1 |
+| level 327 | 42.2 | 29.7 |
+| level 323 | 33.8 | 29.9 |
+| Level intro, level 127 | 57.2 | 30.0 |
+| Gameplay, level 365 | 57.8 | 30.0 |
+| Gameplay, level 93 | 49.9 | 29.8 |
+| Gameplay, level 92 | 47.8 | 29.8 |
+
+- Game time over emulated time is 1.00 in every segment of both runs, and
+  emulated time over wall time 0.99-1.00: the game keeps its speed. Where
+  this VM is too slow, the frame rate drops, not the speed.
+- True 60 below 60 means the governor ran those stretches at the game's own
+  30 (frames of two VIs) after more than 6 of 60 frames were late; heavy
+  cutscene shots on this VM. Two earlier runs of the same code measured
+  54-59 in gameplay: this VM's speed varies from run to run.
+- Original with slowdown Off holds 30 except in the two heaviest shots,
+  where this VM occasionally needs three VIs for a frame. With the 20 fps
+  hysteresis still active (before the `gSkipVideoDeltaAdjust` change) the
+  same run measured 21-28 in cutscenes and 26 overall.
 
 ## Frame interpolation above 60
 
@@ -526,6 +648,40 @@ owner's results and open questions. Measured headlessly since:
 - *The opening-cutscene crash* was the fail-closed `unqualified-event-tie`
   (equal device deadlines), reproduced at VI 7983 at True 60 and VI 424 at
   Original with slowdown Off, and gone with ordered ties.
+
+## Owner test steps
+
+Build from the PR branch (`rgo-setup.ps1`), start a **new game** and turn on
+Video settings → FPS counter (On, or Detailed for the extra lines). The
+counter reads `Game | Render | Display | shortest-longest frame gap`. The
+opening cutscenes start right after the name entry and run about 2 min 40 s
+before the first level; the old crash came about 1 min 50 s in.
+
+1. **True 60, VSync On, 60 Hz display.**
+   - Menus, name entry, first cutscene shots and the first level:
+     `Game 60 | Render 60 | Display 60 | 16.x-16.x ms` (a range within about
+     a millisecond of 16.7 means smooth). Detailed: `logic 60.0 | ticks
+     60.0`, and while turning `new` and `camera` near 60.
+   - The game must play at normal speed (walking, music and cutscene
+     dialogue in step).
+   - Heavy cutscene shots, if the PC cannot hold 60 there: `Game 30 | Render
+     30 | Display 30 | 33.x ms` for about 4 s, then it tries 60 again. A new
+     shot or level starts at 60. Detailed `ticks` stays at 60 either way.
+   - The opening cutscene plays through to the first level without a crash.
+2. **Original, Original N64 slowdown Off:** `Game 30 | Render 30 | Display
+   30 | 33.x ms` everywhere, including the cutscenes. A hitch (a load) may
+   show one long frame; it must not stay at 20.
+3. **Original, slowdown On** (the console's timing): `Game 30` in menus and
+   the first level; heavy cutscene shots drop to `Game 18`-`26`, as on the
+   console.
+4. **Display, 144 Hz display:** `Game 60 | Render 60 | Display 144 |
+   6.9-7.0 ms` (Display follows the refresh rate). Watch your character while
+   turning: it should move as smoothly as the scenery (Blend moving objects On).
+5. **Live switching:** change Frame rate and N64 slowdown while playing; the
+   counter changes within a second, no restart.
+
+If something is off, the support ZIP and `crash.log`, plus a photo of the
+Detailed counter at that moment, show which part is wrong.
 
 ## Risks and what to look for
 
