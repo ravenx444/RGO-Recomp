@@ -5,6 +5,8 @@
 #include <memory>
 #include <span>
 
+#include "jfg/renderer/video_settings.hpp"
+
 namespace jfg {
 
 inline constexpr char kPinnedRt64Revision[] =
@@ -68,6 +70,8 @@ struct Rt64ShellConfiguration {
     bool cpu_writeback = false;
     // Return intensity masks to the guest for its CPU postprocessing.
     bool cpu_mask_writeback = false;
+    // RGO: MSAA sample count (1, 2, 4 or 8), fixed for the shell's lifetime.
+    std::uint8_t msaa_samples = 1U;
 };
 
 struct Rt64RdramRange {
@@ -205,9 +209,11 @@ public:
     // resident framebuffer registry, independently of host snapshot lifetimes.
     [[nodiscard]] bool has_color_framebuffer(std::uint32_t address) const noexcept;
     [[nodiscard]] Rt64ShellError present(bool capture_frame = true) noexcept;
-    // RGO widescreen: widen the 3D view to the window's shape instead of
-    // pillarboxing it. Applies from the next submitted task.
-    void set_widescreen(bool enabled) noexcept;
+    // RGO display settings (aspect, max aspect, render resolution, VSync).
+    // Apply from the next submitted task; MSAA is fixed at creation.
+    void set_video_settings(const VideoSettings& settings) noexcept;
+    // RT64's resolution multiplier for the last submitted frame (0 before).
+    [[nodiscard]] double render_multiplier() const noexcept;
     // How much wider than the game's own projection the last submitted frame
     // is presented (1.0 when widescreen is off or the window is 4:3).
     [[nodiscard]] float horizontal_extent() const noexcept;

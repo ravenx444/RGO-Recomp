@@ -20,6 +20,8 @@
 namespace fs = std::filesystem;
 namespace {
 constexpr UINT kReady = WM_APP + 20, kHotkey = WM_APP + 21;
+// RGO: the game reports its frame rate (tenths of FPS in wparam).
+constexpr UINT kFrameStats = WM_APP + 24;
 #ifdef JFG_RML_UI
 constexpr int kMuteShortcut = 0x4a46;
 #endif
@@ -71,8 +73,13 @@ struct App {
   std::vector<std::unique_ptr<Process>> tools;
   std::vector<HWND> liveModals;
   bool playing = false, setting = false, fullscreen = false, closing = false,
-       mods = false, pauseInactive = false, manualPause = false,
-       widescreen = true;
+       mods = false, pauseInactive = false, manualPause = false;
+  // RGO display settings (video.ini) and exclusive fullscreen state.
+  jfg::VideoSettings video{};
+  std::wstring exclusiveDevice;
+  bool exclusiveSuspended = false;
+  int fpsTenths = -1;
+  ULONGLONG fpsAt = 0;
   bool stopRequested = false, initializing = true;
   ULONGLONG startedAt = 0;
   UINT dpi = 96;
@@ -124,13 +131,11 @@ bool write(const wchar_t *name, const std::wstring &value) {
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) !=
          FALSE;
 }
-// RGO widescreen: the game follows the same profile file while it runs.
-bool readWidescreen() {
+// RGO display settings: the game follows the same profile file while it runs.
+jfg::VideoSettings readVideo() {
   // read() drops the final line break that the settings format requires.
-  const auto settings =
-      jfg::parse_video_settings(utf8(read(L"video.ini")) + "\n");
-  return settings.value_or(jfg::VideoSettings{}).aspect ==
-         jfg::AspectMode::widescreen;
+  return jfg::parse_video_settings(utf8(read(L"video.ini")) + "\n")
+      .value_or(jfg::VideoSettings{});
 }
 std::wstring text(HWND control) {
   int n = GetWindowTextLengthW(control);
@@ -307,6 +312,57 @@ void showHome(bool show) {
   DrawMenuBar(app.window);
   layout();
 }
+// RGO exclusive fullscreen: switch the monitor to the chosen output mode while
+// the frontend covers it, and back to the desktop mode when leaving, losing
+// focus or closing. Windows also restores the mode if the process ends.
+void restoreDisplayMode() {
+  if (app.exclusiveDevice.empty())
+    return;
+  ChangeDisplaySettingsExW(app.exclusiveDevice.c_str(), nullptr, nullptr, 0, nullptr);
+  app.exclusiveDevice.clear();
+}
+bool applyDisplayMode() {
+  MONITORINFOEXW monitor{};
+  monitor.cbSize = sizeof(monitor);
+  if (!GetMonitorInfoW(MonitorFromWindow(app.window, MONITOR_DEFAULTTONEAREST), &monitor))
+    return false;
+  if (!app.video.output.valid()) {
+    restoreDisplayMode();  // Desktop resolution: nothing to switch.
+    return true;
+  }
+  DEVMODEW mode{}, best{};
+  mode.dmSize = best.dmSize = sizeof(DEVMODEW);
+  for (DWORD i = 0; EnumDisplaySettingsW(monitor.szDevice, i, &mode); ++i)
+    if (mode.dmPelsWidth == app.video.output.width &&
+        mode.dmPelsHeight == app.video.output.height &&
+        mode.dmBitsPerPel >= 24 && mode.dmDisplayFrequency >= best.dmDisplayFrequency)
+      best = mode;
+  if (best.dmPelsWidth == 0) {
+    status(L"Exclusive fullscreen: this monitor has no " +
+           std::to_wstring(app.video.output.width) + L" x " +
+           std::to_wstring(app.video.output.height) + L" mode. Using the desktop resolution.");
+    restoreDisplayMode();
+    return false;
+  }
+  best.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL;
+  if (ChangeDisplaySettingsExW(monitor.szDevice, &best, nullptr, CDS_FULLSCREEN, nullptr) !=
+      DISP_CHANGE_SUCCESSFUL) {
+    status(L"Exclusive fullscreen: the display mode could not be set. Using the desktop resolution.");
+    restoreDisplayMode();
+    return false;
+  }
+  app.exclusiveDevice = monitor.szDevice;
+  return true;
+}
+// Cover the window's monitor (after any mode change).
+void coverMonitor() {
+  MONITORINFO monitor{sizeof(monitor)};
+  GetMonitorInfoW(MonitorFromWindow(app.window, MONITOR_DEFAULTTONEAREST), &monitor);
+  SetWindowPos(app.window, nullptr, monitor.rcMonitor.left, monitor.rcMonitor.top,
+               monitor.rcMonitor.right - monitor.rcMonitor.left,
+               monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+               SWP_NOZORDER | SWP_FRAMECHANGED);
+}
 void fullscreen() {
 #ifdef JFG_RML_UI
   if (app.uiReady && FrontendUiCapturing() && !FrontendUiModalOpen())
@@ -314,20 +370,16 @@ void fullscreen() {
 #endif
   if (!app.fullscreen) {
     GetWindowPlacement(app.window, &app.placement);
-    MONITORINFO monitor{sizeof(monitor)};
-    GetMonitorInfoW(MonitorFromWindow(app.window, MONITOR_DEFAULTTONEAREST),
-                    &monitor);
     app.fullscreen = true;
     SetMenu(app.window, nullptr);
     SetWindowLongPtrW(app.window, GWL_STYLE,
                       WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN);
-    SetWindowPos(app.window, nullptr, monitor.rcMonitor.left,
-                 monitor.rcMonitor.top,
-                 monitor.rcMonitor.right - monitor.rcMonitor.left,
-                 monitor.rcMonitor.bottom - monitor.rcMonitor.top,
-                 SWP_NOZORDER | SWP_FRAMECHANGED);
+    if (app.video.fullscreen == jfg::FullscreenMode::exclusive)
+      applyDisplayMode();
+    coverMonitor();
   } else {
     app.fullscreen = false;
+    restoreDisplayMode();
 #ifndef JFG_RML_UI
     SetMenu(app.window, app.menu);
 #endif
@@ -341,6 +393,53 @@ void fullscreen() {
                 MF_BYCOMMAND | (app.fullscreen ? MF_CHECKED : MF_UNCHECKED));
   layout();
 }
+#ifdef JFG_RML_UI
+// Size the window so the game area below the menu bar is exactly size.
+void resizeGameArea(jfg::PixelSize size) {
+  if (!size.valid() || app.fullscreen)
+    return;
+  if (IsZoomed(app.window))
+    ShowWindow(app.window, SW_RESTORE);
+  const int menu = scaled(24);
+  RECT r{0, 0, static_cast<LONG>(size.width), static_cast<LONG>(size.height) + menu};
+  AdjustWindowRectExForDpi(&r, WS_OVERLAPPEDWINDOW, FALSE, 0, app.dpi);
+  SetWindowPos(app.window, nullptr, 0, 0, r.right - r.left, r.bottom - r.top,
+               SWP_NOMOVE | SWP_NOZORDER);
+}
+// Apply a changed video.ini to the frontend window. The game reads the rest.
+void applyVideo(const jfg::VideoSettings &previous) {
+  const bool kindChanged = previous.fullscreen != app.video.fullscreen;
+  const bool outputChanged = !(previous.output == app.video.output);
+  if (app.fullscreen && (kindChanged ||
+      (outputChanged && app.video.fullscreen == jfg::FullscreenMode::exclusive))) {
+    if (app.video.fullscreen == jfg::FullscreenMode::exclusive)
+      applyDisplayMode();
+    else
+      restoreDisplayMode();
+    coverMonitor();
+    layout();
+  } else if (!app.fullscreen && outputChanged) {
+    resizeGameArea(app.video.output);
+  }
+}
+void setWindowMode(const std::string &mode) {
+  if (mode == "window-windowed") {
+    if (app.fullscreen)
+      fullscreen();
+    return;
+  }
+  const auto previous = app.video;
+  app.video.fullscreen = mode == "window-exclusive" ? jfg::FullscreenMode::exclusive
+                                                    : jfg::FullscreenMode::borderless;
+  if (!(previous == app.video) &&
+      !write(L"video.ini", wide(jfg::encode_video_settings(app.video))))
+    status(L"Cannot save the video settings.");
+  if (!app.fullscreen)
+    fullscreen();
+  else
+    applyVideo(previous);
+}
+#endif
 void pick(bool rom) {
   std::vector<wchar_t> path(32768);
   OPENFILENAMEW dialog{};
@@ -471,13 +570,20 @@ void uiAction(const std::string &a) {
     else status(L"Cannot save the pause preference.");
     return;
   }
-  if (a == "aspect-original" || a == "aspect-widescreen") {
-    const jfg::VideoSettings settings{a == "aspect-widescreen"
-                                          ? jfg::AspectMode::widescreen
-                                          : jfg::AspectMode::original};
-    if (write(L"video.ini", wide(jfg::encode_video_settings(settings))))
-      app.widescreen = settings.aspect == jfg::AspectMode::widescreen;
-    else status(L"Cannot save the video settings.");
+  if (a.rfind("video-set\n", 0) == 0) {
+    const auto settings = jfg::parse_video_settings(a.substr(10));
+    if (!settings)
+      return;
+    const auto previous = app.video;
+    if (write(L"video.ini", wide(jfg::encode_video_settings(*settings)))) {
+      app.video = *settings;
+      applyVideo(previous);
+    } else
+      status(L"Cannot save the video settings.");
+    return;
+  }
+  if (a == "window-windowed" || a == "window-borderless" || a == "window-exclusive") {
+    setWindowMode(a);
     return;
   }
   if (a == "play") {
@@ -526,13 +632,6 @@ void uiAction(const std::string &a) {
     auto tool = std::make_unique<Process>();
     if (launch(*tool, a == "assets" ? L"assets" : a == "sessions" ? L"sessions" : a == "shortcut" ? L"shortcut" : L"export", app.window))
       app.tools.push_back(std::move(tool));
-  } else if (a == "size720" || a == "size1080") {
-    if (app.fullscreen)
-      fullscreen();
-    RECT r{0, 0, a == "size720" ? 1280 : 1920, a == "size720" ? 744 : 1104};
-    AdjustWindowRectExForDpi(&r, WS_OVERLAPPEDWINDOW, FALSE, 0, app.dpi);
-    SetWindowPos(app.window, nullptr, 0, 0, r.right - r.left, r.bottom - r.top,
-                 SWP_NOMOVE | SWP_NOZORDER);
   }
   if (command)
     PostMessageW(app.window, WM_COMMAND, command, 0);
@@ -641,7 +740,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
     app.status = control(L"STATIC", L"Preparing your profile...", SS_LEFT, 0);
     app.mods = read(L"frontend-mods.txt") == L"1";
     app.pauseInactive = read(L"frontend-pause-inactive.txt") == L"1";
-    app.widescreen = readWidescreen();
+    app.video = readVideo();
     CheckMenuItem(app.menu, Mods,
                   MF_BYCOMMAND | (app.mods ? MF_CHECKED : MF_UNCHECKED));
 #ifdef JFG_RML_UI
@@ -668,6 +767,12 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
   case WM_DPICHANGED: {
     app.dpi = HIWORD(wparam);
     fonts();
+    if (app.fullscreen) {
+      // A display mode change can change the DPI; keep covering the monitor.
+      coverMonitor();
+      layout();
+      return 0;
+    }
     const auto *suggested = reinterpret_cast<RECT *>(lparam);
     SetWindowPos(window, nullptr, suggested->left, suggested->top,
                  suggested->right - suggested->left,
@@ -727,6 +832,25 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
     else
       popup();
     return 0;
+  case kFrameStats:
+    app.fpsTenths = static_cast<int>(std::min<WPARAM>(wparam, 100000));
+    app.fpsAt = GetTickCount64();
+    return 0;
+  case WM_ACTIVATEAPP:
+    // Exclusive fullscreen gives the desktop mode back while another app has
+    // focus, and takes the chosen mode again on return.
+    if (app.fullscreen && app.video.fullscreen == jfg::FullscreenMode::exclusive) {
+      if (!wparam && !app.exclusiveDevice.empty()) {
+        restoreDisplayMode();
+        app.exclusiveSuspended = true;
+        coverMonitor();
+      } else if (wparam && app.exclusiveSuspended) {
+        app.exclusiveSuspended = false;
+        applyDisplayMode();
+        coverMonitor();
+      }
+    }
+    break;
   case kReady: {
     HWND render = reinterpret_cast<HWND>(wparam);
     if (GetParent(render) != app.viewport)
@@ -748,10 +872,18 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
 #ifdef JFG_RML_UI
     if (wparam == 2) {
       syncUiCapture();
-      FrontendUiFrame({app.render && IsWindow(app.render),
-                       app.session.running(), app.fullscreen, app.mods,
-                       text(app.rom), text(app.runtime), app.lastStatus, app.pauseInactive,
-                       app.widescreen});
+      FrontendUiState ui{app.render && IsWindow(app.render),
+                         app.session.running(), app.fullscreen, app.mods,
+                         text(app.rom), text(app.runtime), app.lastStatus, app.pauseInactive};
+      ui.video = app.video;
+      RECT area{};
+      if (GetClientRect(app.viewport, &area)) {
+        ui.viewWidth = area.right - area.left;
+        ui.viewHeight = area.bottom - area.top;
+      }
+      // A report older than two seconds (paused, loading) shows nothing.
+      ui.fpsTenths = GetTickCount64() - app.fpsAt < 2000 ? app.fpsTenths : -1;
+      FrontendUiFrame(ui);
       return 0;
     }
 #endif
@@ -896,6 +1028,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       DestroyWindow(window);
     return 0;
   case WM_DESTROY:
+    restoreDisplayMode();
 #ifdef JFG_RML_UI
     if (app.muteShortcutRegistered) UnregisterHotKey(window, kMuteShortcut);
 #endif
