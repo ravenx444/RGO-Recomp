@@ -46,6 +46,59 @@ struct Rt64RefreshPlan {
 inline constexpr std::uint32_t kViFrameSync = 0x80054FBCU;
 inline constexpr std::uint32_t kRunInOneFrame = 0x800FECCCU;
 
+// The engine passes the VIs per frame (delayDat, 0x800A3374) to its tick
+// functions, so almost all logic is already rate-independent. Three places
+// assume at least 2 ticks per frame (docs/rgo/framerate.md, Part E):
+inline constexpr std::uint32_t kDelayDat = 0x800A3374U;
+
+// 1. Overlay 47 animseqUpdateTextureScrollers(rate) computes
+//    (velocity * rate) >> 8, which rounds slow scrollers to zero at rate 1.
+//    True 60 batches its ticks and runs it once per 2 ticks, which gives it
+//    exactly its original 30 fps inputs.
+inline constexpr std::uint32_t kAnimseqUpdateTextureScrollers = 0x02F00000U;
+
+// Ticks to run now (0: skip this frame and keep them pending).
+[[nodiscard]] constexpr std::uint32_t batch_ticks(
+    std::uint32_t& pending, const std::uint32_t rate,
+    const std::uint32_t minimum = 2U) noexcept {
+    pending += rate;
+    if (pending < minimum)
+        return 0U;
+    const std::uint32_t run = pending;
+    pending = 0U;
+    return run;
+}
+
+// 2. partUpdateTriggers(object, ticks) is called with a literal 2 by some
+//    effects (jet flames, droplets, bubbles). With one-VI frames that would
+//    double their particles, so a literal 2 becomes the frame's real rate.
+inline constexpr std::uint32_t kPartUpdateTriggers = 0x8005F5ACU;
+
+[[nodiscard]] constexpr std::uint32_t trigger_ticks(
+    const std::uint32_t requested, const std::uint32_t frame_rate) noexcept {
+    return requested == 2U && frame_rate == 1U ? 1U : requested;
+}
+
+// 3. joyRead recomputes "pressed" from the last two controller reads every
+//    frame. A frame without a new read (possible once frames are one VI)
+//    would report the same press again, so its pressed/released masks are
+//    cleared when the call left both reads unchanged.
+inline constexpr std::uint32_t kJoyRead = 0x80043130U;
+inline constexpr std::uint32_t kControllerCurrent = 0x800FB0C0U;   // OSContPad[4]
+inline constexpr std::uint32_t kControllerPrevious = 0x800FB0D8U;  // OSContPad[4]
+inline constexpr std::uint32_t kControllerPressed = 0x800FB0F0U;   // u16[4]
+inline constexpr std::uint32_t kControllerReleased = 0x800FB0F8U;  // u16[4]
+inline constexpr std::size_t kControllerPadBytes = 24U;            // 4 x 6
+
+[[nodiscard]] constexpr bool controller_read_consumed(
+    const std::array<std::uint8_t, 48>& before,
+    const std::array<std::uint8_t, 48>& after) noexcept {
+    for (std::size_t index = 0U; index < before.size(); ++index)
+        if (before[index] != after[index])
+            return true;
+    return false;
+}
+
 // The game's logic rate for one game frame: 60 / the VIs it took (2 normally,
 // 3 after slow frames). Long stalls (loading) are clamped to 10 per second.
 [[nodiscard]] constexpr std::uint16_t game_rate_from_retraces(

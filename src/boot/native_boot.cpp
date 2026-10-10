@@ -1675,6 +1675,8 @@ struct State : JfgOriginalTimingFast {
   // RGO frame interpolation: the VI count at the previous game frame, and
   // how many object matrices each object pushed since the last camera.
   std::uint64_t last_frame_retrace = 0U;
+  // True 60: texture scroller ticks waiting to run in pairs.
+  std::uint32_t scroller_pending_ticks = 0U;
   std::unordered_map<std::uint32_t, std::uint32_t> object_matrix_pushes;
   float widescreen_extent = 1.0F;
   // HUD anchoring is active for the current frontUpdate frame.
@@ -5636,23 +5638,73 @@ bool hud_aligned_call(State &state, hle::GuestMemory &memory,
   return true;
 }
 
-// RGO true 60 fps logic: run viFrameSync with the game's own runInOneFrame
-// flag set, so it waits for one VI per frame and returns updateRate 1. The
-// game's value is restored afterwards for any code that reads it.
+// RGO true 60 fps logic (docs/rgo/framerate.md, Part E). viFrameSync runs
+// with the game's own runInOneFrame flag set, so it waits for one VI per
+// frame and every tick function gets updateRate 1; the game's value is
+// restored afterwards. Three places that assume 2 ticks per frame are
+// adjusted (frame_interpolation.hpp): texture scrollers run once per 2 ticks,
+// literal 2-tick particle bursts use the real rate, and a frame without a new
+// controller read reports no presses. Returns true when it ran the original.
 bool true60_dispatch(State &state, const std::uint32_t target,
                      std::uint8_t *rdram, recomp_context *context) {
-  if (target != jfg::kViFrameSync)
+  if (target != jfg::kViFrameSync && target != jfg::kAnimseqUpdateTextureScrollers &&
+      target != jfg::kPartUpdateTriggers && target != jfg::kJoyRead)
     return false;
   hle::GuestMemory memory({rdram, kRdramSize},
                           hle::GuestMemory::Layout::native_word_big_endian);
-  std::uint32_t saved = 0U;
   recomp_func_t *const original =
       jfg_generated_lookup_function(static_cast<std::int32_t>(target));
-  if (original == nullptr || !memory.read_u32(jfg::kRunInOneFrame, saved))
+  if (original == nullptr)
     return false;
-  (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+  if (target == jfg::kViFrameSync) {
+    std::uint32_t saved = 0U;
+    if (!memory.read_u32(jfg::kRunInOneFrame, saved))
+      return false;
+    (void)memory.write_u32(jfg::kRunInOneFrame, 1U);
+    original(rdram, context);
+    (void)memory.write_u32(jfg::kRunInOneFrame, saved);
+    return true;
+  }
+  if (target == jfg::kAnimseqUpdateTextureScrollers) {
+    const auto rate = static_cast<std::uint32_t>(context->r4);
+    if (rate > 6U)
+      return false;  // Not the rate argument this hook expects.
+    const std::uint32_t run = jfg::batch_ticks(state.scroller_pending_ticks, rate);
+    if (run == 0U)
+      return true;  // Skipped: these ticks run with the next frame's.
+    context->r4 = run;
+    original(rdram, context);
+    return true;
+  }
+  if (target == jfg::kPartUpdateTriggers) {
+    std::uint32_t frame_rate = 0U;
+    if (!memory.read_u32(jfg::kDelayDat, frame_rate))
+      return false;
+    context->r5 = jfg::trigger_ticks(static_cast<std::uint32_t>(context->r5), frame_rate);
+    original(rdram, context);
+    return true;
+  }
+  // joyRead: compare both controller reads before and after the call.
+  constexpr std::size_t kWords = jfg::kControllerPadBytes * 2U / 4U;
+  std::array<std::uint8_t, 48> before{}, after{};
+  auto snapshot = [&](std::array<std::uint8_t, 48>& bytes) {
+    for (std::size_t index = 0U; index < kWords; ++index) {
+      std::uint32_t word = 0U;
+      if (!memory.read_u32(jfg::kControllerCurrent + static_cast<std::uint32_t>(index * 4U), word))
+        return false;
+      for (std::size_t byte = 0U; byte < 4U; ++byte)
+        bytes[index * 4U + byte] = static_cast<std::uint8_t>(word >> (24U - byte * 8U));
+    }
+    return true;
+  };
+  if (!snapshot(before))
+    return false;
   original(rdram, context);
-  (void)memory.write_u32(jfg::kRunInOneFrame, saved);
+  if (snapshot(after) && !jfg::controller_read_consumed(before, after))
+    for (std::uint32_t offset = 0U; offset < 8U; offset += 4U) {
+      (void)memory.write_u32(jfg::kControllerPressed + offset, 0U);
+      (void)memory.write_u32(jfg::kControllerReleased + offset, 0U);
+    }
   return true;
 }
 

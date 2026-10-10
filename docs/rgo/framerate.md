@@ -283,38 +283,92 @@ Two follow-ups, each its own PR on top of `rgo/framerate`.
 - Replays and captures always run at 1x so recorded inputs stay
   deterministic.
 
-### Part E: true 60 fps game logic (`rgo/true-60fps`, planned)
+### Part E: true 60 fps game logic (`rgo/true-60fps`)
 
-**The engine is delta-based.**
-- `viFrameSync` returns the VIs elapsed since the last frame, and the main
-  loop passes it as `updateRate`/`ticks` to every tick function: `camTick`,
-  `trackDraw`, `frontUpdate`, object and overlay controls.
-- The game already has a 60 fps path: `runInOneFrame` forces
-  `gVideoDeltaTime = LOGIC_60FPS` (1 VI).
-- Setting it, with enough CPU overclock for a frame to fit in one VI,
-  makes the game simulate and draw 60 times per second with
-  `updateRate = 1`.
+**How the engine steps.** It follows Diddy Kong Racing's design: the main
+loop (`func_80044FAC`, ASM, checked in the disassembly) does
 
-**The audit before shipping it.** Systems that assume `updateRate` ≥ 2, or
-step once per frame instead of per tick, would run twice as fast or
-behave differently. The candidates are:
-- animation frame stepping;
-- countdowns and timers decremented once per frame;
-- jump and gravity integration (per-tick versus per-frame rounding);
-- AI decision timers and random rolls per frame;
-- particle spawn counts;
-- audio sequencing tied to frames;
-- cutscene scripts.
+```
+delayDat = viFrameSync(...);   // VIs since the last frame
+if (level just loaded) { viFrameRateReset(); delayDat = 2; }
+else if (delayDat > 6) delayDat = 6;
+```
 
-**Frame rate options after Part E.**
-- Original;
-- True 60 (logic at 60);
-- Display refresh / Unlocked: logic at 60, plus RT64 blending above it;
-- "Interpolate extra frames" on/off.
+and passes `delayDat` to every tick function:
+- `joyRead`, `frontUpdate`, `camTick` and `amAudioTick`;
+- `objObjectsTick`, which calls every object's control as `(object, rate)`;
+- `partUpdateParticles`, `trackUpdateFX`, `trackDraw` and `animseqUpdate`.
+
+Timers count in VIs. Physics runs in fixed one-VI substeps
+(`while (ticks--) { pos += vel; vel += g; }`), and damping uses
+`Powerf(k, ticks)`.
+
+**How true 60 is switched on.** The game already has a one-VI-per-frame
+mode:
+- `runInOneFrame` (0x800FECCC) makes `viFrameSync` wait for a single VI.
+- Only the planet map and the multiplayer stats screens use it.
+- `viFrameRateReset` clears it on every level load, FMV, weapon screen and
+  video-mode change.
+
+The hook therefore sets it around *every* `viFrameSync` call and restores
+the game's value afterwards. The emulated CPU runs at 8x (unless Original
+N64 slowdown is on), so a frame's work fits in one VI. A frame that still
+overruns reports 2 VIs, which the engine already handles.
+
+**Audit (decomp plus disassembly; notes in the session scratchpad, not
+committed).**
+- Of 87 decompiled tick, control and update functions, about 76 take the
+  rate. The rest are per-frame bookkeeping: lights, collision snapshots,
+  memory and overlay queues, viewport flip.
+- No gameplay timer, physics step, damage or AI timer in C assumes 2 ticks.
+  Blast damage is damage per tick × rate. Squad AI uses `iDeltaTime`.
+  Animation uses `objAnimDframe(…, rate)`.
+- **Fixed in this PR:**
+  - **Texture scrollers** (overlay 47 `animseqUpdateTextureScrollers`):
+    `(velocity × rate) >> 8` rounds slow scrollers to zero at rate 1. The
+    hook batches ticks and runs the scrollers once per 2 ticks, exactly
+    their original 30 fps inputs.
+  - **Literal 2-tick particle bursts** (`partUpdateTriggers(obj, 2)` in jet
+    flames, droplets, water bubbles and overlays 20/103) would double those
+    particles. A literal 2 on a one-VI frame becomes 1.
+  - **Repeated button presses.** `joyRead` recomputes "pressed" from the
+    last two controller reads every frame. A one-VI frame that receives no
+    new read would report the same press again. Such a frame now reports
+    no presses or releases.
+- **Known, cosmetic, left as is:** these happen once per frame, so twice as
+  often at 60:
+  - eye-blink rolls (`texAnimateTexture`);
+  - camera-shake jitter (the shake duration is scaled);
+  - a few emitters' random spawns (`hoovergemControl`, `bubblerControl`,
+    `treeControl`);
+  - splash, droplet and ripple fade counters;
+  - the lock-on flash phase, light-show trails, the electrocution flicker.
+  - The hovertank section's day-cycle factor also truncates differently at
+    rate 1.
+- **Not audited (still ASM):**
+  - most enemy and boss AI (overlays 50-155);
+  - the bodies of `controlPlayer` and `sidekickControl` (both receive the
+    rate);
+  - cutscene scripts (`animseqUpdate`);
+  - the HUD instruments.
+
+  These are what the owner's test is for.
+- **Unchanged:**
+  - The first frame after a level load is always 2 ticks (the main loop
+    forces it): one double step after each load.
+  - Audio runs every 2 retraces from the scheduler, independent of the
+    logic rate.
+
+**Frame rate options.**
+- **Original:** the game's own 30 fps; 20 only with Original N64 slowdown.
+- **True 60:** logic and drawing at 60.
+- **Display / Unlocked:** true 60, plus RT64 blending up to the display's
+  rate or uncapped, when **Interpolate extra frames** is on (the default).
+  With it off, both behave like True 60.
 
 **Above 60.** Logic above 60 would need fractional ticks, which the
-integer `updateRate` cannot express. Display rates above 60 therefore stay
-on RT64 blending.
+integer `delayDat` cannot express. Display rates above 60 come from
+blending.
 
 ## Risks and what to look for
 

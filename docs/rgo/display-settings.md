@@ -15,7 +15,8 @@ every 250 ms, so most changes apply while playing.
 | Anti-aliasing | Off / 2x / 4x / 8x MSAA | next game start |
 | VSync | On / Off | immediately |
 | FPS counter | Off / On | immediately |
-| Frame rate | Original / 60 / Display / Unlocked | immediately ([frame interpolation](framerate.md)) |
+| Frame rate | Original / True 60 / Display / Unlocked | immediately ([frame rate](framerate.md)) |
+| Interpolate extra frames | On / Off | immediately (Display and Unlocked only) |
 | Original N64 slowdown | Off / On | immediately ([details](framerate.md#part-d-no-n64-slowdown-rgono-n64-slowdown)) |
 
 ## How each setting works
@@ -103,6 +104,7 @@ msaa=off
 vsync=on
 fps_counter=off
 framerate=original
+interpolate_frames=on
 interpolate_objects=off
 n64_slowdown=off
 ```

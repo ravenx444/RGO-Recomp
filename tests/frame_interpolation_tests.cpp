@@ -70,6 +70,34 @@ int main() {
                 cpu_overclock_shift(with(FrameRate::original, true)) == kNoSlowdownOverclockShift,
         "true 60 gets a larger overclock");
 
+    // True 60 fixes: batched texture scroller ticks, literal-2 particle
+    // bursts and repeated controller presses.
+    {
+        std::uint32_t pending = 0U;
+        require(batch_ticks(pending, 1U) == 0U && pending == 1U, "first tick waits");
+        require(batch_ticks(pending, 1U) == 2U && pending == 0U, "second tick runs both");
+        require(batch_ticks(pending, 2U) == 2U, "a 2-tick frame runs at once");
+        require(batch_ticks(pending, 1U) == 0U && batch_ticks(pending, 3U) == 4U,
+            "a slow frame flushes pending ticks");
+        std::uint32_t total = 0U, ticks = 0U;
+        pending = 0U;
+        for (int frame = 0; frame < 61; ++frame) {
+            total += batch_ticks(pending, 1U);
+            ++ticks;
+        }
+        require(total + pending == ticks, "no ticks lost");
+    }
+    require(trigger_ticks(2U, 1U) == 1U, "literal 2 at one VI per frame");
+    require(trigger_ticks(2U, 2U) == 2U, "unchanged at 30 fps");
+    require(trigger_ticks(1U, 1U) == 1U && trigger_ticks(3U, 1U) == 3U,
+        "other tick counts unchanged");
+    {
+        std::array<std::uint8_t, 48> before{}, after{};
+        require(!controller_read_consumed(before, after), "no new read");
+        after[30] = 1U;
+        require(controller_read_consumed(before, after), "new read");
+    }
+
     // The game's own rate per frame.
     require(game_rate_from_retraces(2U) == 30U, "two VIs: 30 fps");
     require(game_rate_from_retraces(3U) == 20U, "three VIs: 20 fps");
