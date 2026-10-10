@@ -1949,6 +1949,9 @@ struct State : JfgOriginalTimingFast {
   std::array<jfg::PcLookDelta,4> pc_direct{};
   std::array<bool,4> pc_direct_used{};
   std::array<jfg::PcGyroAim,4> pc_gyro_aim{};
+  // RGO: gyro aim is on for a player with a motion controller. The aim hook
+  // then runs for gyro alone, without the experimental switch.
+  bool pc_gyro_on = false;
   // RGO dual input: Player 1's second device (companion_device), which input
   // paths are live per port this poll, and the controller slot per port.
   int pc_companion = -2;
@@ -2569,6 +2572,15 @@ void reload_controller_ports(State &state) {
     SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)));
     (void)state.controller_input_gate.blocked(true,state.controller_ports.samples);
   }
+  {
+    // RGO: which physical controller each player chose (controller_ports.hpp).
+    std::string pins;
+    std::ifstream pin_file(state.controller_config_path.parent_path() / "controller-ids.ini",std::ios::binary|std::ios::ate);
+    if(pin_file && pin_file.tellg()>0 && pin_file.tellg()<=4096) {
+      pin_file.seekg(0);pins.assign(std::istreambuf_iterator<char>(pin_file),{});
+    }
+    state.controller_ports.pins=jfg::parse_controller_pins(pins);
+  }
   for (std::size_t p = 0; p < 4; ++p) {
     const auto pc_path=state.controller_config_path.parent_path() /
       (p==0?"pc-input.ini":"pc-input-"+std::to_string(p+1)+".ini");
@@ -2618,16 +2630,18 @@ void sample_controller_ports(State &state) {
   state.pc_aim.fill({});
   state.pc_direct.fill({});
   std::array<bool, 4> available{};
+  std::array<std::string, 4> identities;
   std::array<jfg::StandardControllerSample, 4> hardware{};
   if (read_gamepads(state)) {
     for (std::size_t p = 0; p < 4; ++p) {
       available[p] = state.gamepad_snapshot.info[p].connected;
+      identities[p] = state.gamepad_snapshot.info[p].id;
       hardware[p] = state.gamepad_snapshot.pads[p];
     }
   } else
     for (std::size_t p = 0; p < 4; ++p)
       available[p] = read_xinput_device(static_cast<int>(p), hardware[p]);
-  const auto devices = state.controller_ports.devices(available);
+  const auto devices = state.controller_ports.devices(available, identities);
   state.pc_devices=devices;
   state.pc_companion=jfg::companion_device(devices,available);
   for (std::size_t p = 0; p < 4; ++p)
@@ -2637,9 +2651,10 @@ void sample_controller_ports(State &state) {
       if (state.pc_pad_slot[p] >= 0)
         state.gamepads->light(state.pc_pad_slot[p], jfg::player_light(static_cast<int>(p)));
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
-  const bool look_active=state.pc_experimental &&
-    jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
+  const bool gameplay_look=jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
+  const bool look_active=state.pc_experimental && gameplay_look;
+  state.pc_gyro_on=false;
   // One controller's sample for player p, with its look stick and gyro.
   const auto pad_sample=[&](std::size_t p,int device)->jfg::ControllerPortSample {
     if (device < 0 || !available[static_cast<std::size_t>(device)])
@@ -2651,13 +2666,16 @@ void sample_controller_ports(State &state) {
         state.controller_ports.mappings[p].stick,!state.pc_input[p].modern || (mapped.buttons&0x10)!=0);
     // RGO gyro aim: rotation since the last poll becomes direct angle deltas,
     // while aiming or always, unless the ratchet binding is held. Input
-    // recordings stay gyro-free so they replay exactly.
+    // recordings stay gyro-free so they replay exactly. Gyro does not need
+    // the experimental switch: without it the aim hook adds the gyro on top
+    // of the game's own aiming and changes nothing else.
     if(state.gamepads) {
       const auto gyro=state.gamepads->take_gyro(device);
       const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[p]);
       const bool ratchet=jfg::binding_down(state.controller_ports.mappings[p],
         hardware[static_cast<std::size_t>(device)],config.gyro_ratchet);
-      if(look_active && state.input_record_path.empty() &&
+      state.pc_gyro_on=state.pc_gyro_on || (config.gyro!=0 && state.gamepad_snapshot.info[static_cast<std::size_t>(device)].gyro);
+      if(gameplay_look && state.input_record_path.empty() &&
          jfg::pc_gyro_active(config,(mapped.buttons&0x10)!=0,ratchet))
         state.pc_direct[p]=jfg::pc_add_look(state.pc_direct[p],state.pc_gyro_aim[p].apply(config,gyro.yaw,gyro.pitch));
       else
@@ -7032,7 +7050,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       target == 0x8004B3D8U || target == 0x8004B518U)
     rumble_request(state, target, *context);
   // Separate look input is recorded alongside movement; older replays remain stock.
-  if(target==0x8003AABCU && state.pc_experimental && (state.play_mode || state.input_replay_loaded) &&
+  if(target==0x8003AABCU && (state.pc_experimental || state.pc_gyro_on) && (state.play_mode || state.input_replay_loaded) &&
      (state.input_record_path.empty() || state.pc_record_extended) && !state.pc_input_blocked) {
     jfg::mod::Memory pc_memory({rdram,kRdramSize});
     const auto actor=static_cast<std::uint32_t>(context->r4);

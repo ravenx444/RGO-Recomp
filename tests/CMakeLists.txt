@@ -631,6 +631,12 @@ target_compile_features(jfg_dual_input_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_dual_input_tests)
 add_test(NAME jfg.dual_input COMMAND jfg_dual_input_tests)
 
+add_executable(jfg_controller_assignment_tests controller_assignment_tests.cpp)
+target_include_directories(jfg_controller_assignment_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(jfg_controller_assignment_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_controller_assignment_tests)
+add_test(NAME jfg.controller_assignment COMMAND jfg_controller_assignment_tests)
+
 add_executable(jfg_pc_input_tests pc_input_tests.cpp)
 target_link_libraries(jfg_pc_input_tests PRIVATE jfg_runtime)
 target_compile_features(jfg_pc_input_tests PRIVATE cxx_std_20)

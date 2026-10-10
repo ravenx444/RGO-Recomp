@@ -184,14 +184,18 @@ int main() {
   {
     // RGO gyro aim settings and conversion.
     jfg::PcInputConfig gyroConfig;
-    check(gyroConfig.gyro==1 && gyroConfig.gyro_mode==0 && gyroConfig.gyro_ratchet==-1,"gyro defaults: on, while aiming, no ratchet");
-    check(jfg::effective_pc_input(false,gyroConfig).gyro==0,"gyro needs the experimental switch");
+    check(gyroConfig.gyro==0 && gyroConfig.gyro_mode==0 && gyroConfig.gyro_ratchet==-1,"gyro defaults: off, while aiming, no ratchet");
+    gyroConfig.gyro=1;
+    check(jfg::effective_pc_input(false,gyroConfig).gyro==1,"gyro works without the experimental switch");
+    gyroConfig.dual_stick=1;
+    check(jfg::effective_pc_input(false,gyroConfig).dual_stick==0,"other modern controls still need the switch");
+    gyroConfig={};
     gyroConfig.gyro_sensitivity=300;gyroConfig.gyro_mode=1;gyroConfig.gyro_ratchet=jfg::kBindingTouchpad;gyroConfig.gyro_invert_y=1;
     check(jfg::parse_pc_input(jfg::serialize_pc_input(gyroConfig),roundtrip)&&roundtrip.gyro_sensitivity==300&&roundtrip.gyro_mode==1&&
       roundtrip.gyro_ratchet==27&&roundtrip.gyro_invert_y==1,"gyro settings roundtrip");
     const auto gyroText=jfg::serialize_pc_input(jfg::PcInputConfig{});
     for(const auto& bad:{std::pair{"gyro_ratchet=-1","gyro_ratchet=29"},std::pair{"gyro_ratchet=-1","gyro_ratchet=-2"},
-        std::pair{"gyro_sensitivity=150","gyro_sensitivity=9"},std::pair{"gyro_mode=0","gyro_mode=2"},std::pair{"gyro=1","gyro=2"}}) {
+        std::pair{"gyro_sensitivity=150","gyro_sensitivity=9"},std::pair{"gyro_mode=0","gyro_mode=2"},std::pair{"gyro=0","gyro=2"}}) {
       auto t=gyroText;t.replace(t.find(bad.first),std::string(bad.first).size(),bad.second);
       check(!jfg::parse_pc_input(t,roundtrip),"out-of-range gyro setting accepted");
     }
@@ -211,6 +215,8 @@ int main() {
     check(small>=207 && small<=209,"tiny rotations accumulate across polls");
     check(gyro.apply(gyroConfig,std::nan(""),0.0)==jfg::PcLookDelta{},"invalid gyro data is ignored");
     gyroConfig={};
+    check(!jfg::pc_gyro_active(gyroConfig,true,false),"gyro is off by default");
+    gyroConfig.gyro=1;
     check(jfg::pc_gyro_active(gyroConfig,true,false) && !jfg::pc_gyro_active(gyroConfig,false,false),"default gyro only while aiming");
     check(!jfg::pc_gyro_active(gyroConfig,true,true),"ratchet pauses gyro");
     gyroConfig.gyro_mode=1;check(jfg::pc_gyro_active(gyroConfig,false,false),"always mode");

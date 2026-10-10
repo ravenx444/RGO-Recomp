@@ -158,7 +158,9 @@ opt-in for the hooks above). For the player on mouse and keyboard:
 ## Gyro aiming (PR 3)
 
 For DualShock 4, DualSense, Switch Pro and Joy-Con (any SDL controller with a
-gyro), with the Experimental switch on:
+gyro). Since the PS5 fixes it is off by default, does not need the
+Experimental switch, and its settings are on the player's device card (see
+below):
 
 - The SDL input thread enables the gyro and accelerometer, integrates the
   gyro at about 500 Hz using the sensor timestamps, and removes the drift
@@ -171,11 +173,17 @@ gyro), with the Experimental switch on:
   aims (stock aiming), or added to the mouse/stick deltas in the direct modes.
 - **Active: while aiming** (default) or **always**. Outside aiming the gyro
   turns the camera only when the modern camera is active for that player
-  (Modern camera + Dual-stick aim on); otherwise it does nothing there.
+  (Experimental on, Modern camera + Dual-stick aim on); otherwise it does
+  nothing there.
 - **Ratchet**: any controller binding (default none). While it is held the
   gyro is ignored, so you can re-centre your hands.
-- Settings (Controllers > gamepad player > Settings > Gyro aim): on/off,
-  sensitivity 10-1000%, while aiming/always, Gyro Y invert, ratchet.
+- Settings (Controllers > player > device card, shown when the player's
+  controller has a gyro): on/off, sensitivity 10-1000%, while aiming/always,
+  Gyro Y invert, ratchet.
+- Without the Experimental switch the aim hook (`0x8003AABC`) also runs
+  while some player has gyro on. With the switch off every player is in look
+  mode 0, so the hook only lets the game aim as usual and then adds the gyro
+  turn; it touches nothing else.
   `pc-input.ini` keys `gyro`, `gyro_sensitivity`, `gyro_mode`,
   `gyro_ratchet`, `gyro_invert_y`.
 - Gyro is not written to input recordings, and is off while recording, so
@@ -205,9 +213,37 @@ players' devices are never shared, so multiplayer assignments are unchanged.
   `pc-input.ini`). Player 1's gyro and stick settings are on the gamepad
   page; switch the device to the controller to edit them.
 
+## PS5 fixes: choosing a controller, gyro settings
+
+**Choosing a controller.** "Controller 1-4" are slots numbered in the order
+SDL finds pads, and every process (launcher, Controllers window, game) numbers
+them on its own. Saved assignments were slot numbers, so a saved choice could
+point at another pad, an absent Xbox-style pad's slot kept its player, and a
+controller another player had (by a saved slot or automatically) was hidden
+from the picker. Getting a DualSense onto Player 1 then took removing every
+player and restarting. Now:
+
+- Choosing a controller also saves which physical controller it is (USB
+  vendor:product plus the serial number when the pad reports one) in
+  `controller-ids.ini` (`playerN=<slot>,<identity>`). `controller-N.ini` is
+  unchanged, so older builds still read it; an entry only counts while that
+  player's `controller-N.ini` names the same slot.
+- Resolution (`ControllerPorts::devices`): players who chose a controller get
+  it wherever it is now (same unit first, then the same model if free); then
+  players with only a saved slot (older files); then Automatic players. An
+  absent chosen controller reserves nothing.
+- The picker lists every connected controller, marked with the player who has
+  it. Choosing one moves it (`claim_controller`): a player who had chosen it
+  becomes Automatic. The same goes for the mouse and keyboard.
+- Hot-plug: a chosen controller is found again in whatever slot it returns to.
+
+**Gyro settings** are on the device card for any player whose controller has a
+gyro, with no Experimental switch needed (see Gyro aiming above).
+
 ## Status
 
-- PR 1 (DualShock 4 / DualSense, rumble): in review.
-- PR 2 (direct mouse/keyboard aim): in review.
-- PR 3 (gyro): in review.
-- PR 4 (dual input): in review.
+- PR 1 (DualShock 4 / DualSense, rumble): merged (#9).
+- PR 2 (direct mouse/keyboard aim): merged (#10).
+- PR 3 (gyro): merged (#11).
+- PR 4 (dual input): merged (#12).
+- PS5 fixes (choosing a controller, gyro settings): in review.

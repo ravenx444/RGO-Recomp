@@ -199,24 +199,22 @@ struct Ui : Rml::EventListener {
       "<div class=\"muted\">Opt in to modern controls. This switch applies to the whole profile.</div></div>"+
       button("pc-experimental",pcExperimental()?"On":"Off")+"</div>";
   }
-  // RGO gyro aim settings for a gamepad player.
+  // RGO gyro aim, on the device card of a player whose controller has a gyro.
   std::string gyroHtml(const jfg::PcInputConfig &c) {
+    std::string html="<div class=\"device-row\"><div class=\"grow\">Gyro aim<div class=\"muted\">Turn the controller to aim.</div></div>"+
+      button("gyro",c.gyro?"On":"Off")+"</div>";
+    if(!c.gyro)return html;
     const int d=devices[player];
-    const auto &info=pads.info[static_cast<std::size_t>(d>=0 && d<4?d:0)];
-    std::string html="<div class=\"label\">GYRO AIM</div>";
-    if(d<0 || !info.connected)return html+"<p class=\"muted\">Connect the controller to set up gyro aim.</p>";
-    if(!info.gyro)return html+"<p class=\"muted\">This controller has no motion sensor. DualShock 4, DualSense and Switch Pro controllers do.</p>";
-    html+="<div class=\"row\">"+button("pc-gyro",c.gyro?"Gyro: on":"Gyro: off")+
-      button("pc-gyro-mode",c.gyro_mode?"Active: always":"Active: while aiming")+
-      button("pc-gyro-invert",c.gyro_invert_y?"Gyro Y: inverted":"Gyro Y: normal")+"</div>";
-    html+="<div class=\"row\"><span>Gyro sensitivity (%)</span><input class=\"volume\" type=\"range\" min=\"10\" max=\"1000\" step=\"10\" value=\""+
-      std::to_string(c.gyro_sensitivity)+"\" data-action=\"pc-tune8\"/><span id=\"pc-value8\">"+std::to_string(c.gyro_sensitivity)+"</span></div>";
-    html+="<div class=\"row\"><span>Ratchet (hold to pause gyro)</span><select id=\"gyro-ratchet\" data-action=\"pc-gyro-ratchet\">";
+    const bool calibrated=d>=0 && d<4 && pads.info[static_cast<std::size_t>(d)].gyro_calibrated;
+    html+="<div class=\"device-row\"><span>Gyro sensitivity (%)</span><input class=\"volume\" type=\"range\" min=\"10\" max=\"1000\" step=\"10\" value=\""+
+      std::to_string(c.gyro_sensitivity)+"\" data-action=\"gyro-tune\"/><span id=\"gyro-value\">"+std::to_string(c.gyro_sensitivity)+"</span></div>";
+    html+="<div class=\"device-row\">"+button("gyro-mode",c.gyro_mode?"Active: always":"Active: while aiming")+
+      button("gyro-invert",c.gyro_invert_y?"Gyro Y: inverted":"Gyro Y: normal")+"</div>";
+    html+="<div class=\"device-row\"><span>Ratchet (hold to pause gyro)</span><select id=\"gyro-ratchet\" data-action=\"gyro-ratchet\">";
     for(int b=-1;b<jfg::kBindingCount;++b)
       html+="<option value=\""+std::to_string(b)+"\""+(b==c.gyro_ratchet?" selected=\"selected\"":"")+">"+escape(bindingName(b))+"</option>";
-    html+="</select></div><p class=\"muted\">100% turns the aim as far as you turn the controller. "+
-      std::string(info.gyro_calibrated?"Gyro calibrated.":"Put the controller down for a second to calibrate the gyro.")+
-      " Always: outside aiming the gyro turns the camera when Modern camera and Dual-stick aim are on.</p>";
+    html+="</select></div><p class=\"muted\">"+std::string(calibrated?"Calibrated.":"Put the controller down for a second to calibrate.")+
+      " 100% turns the aim as far as you turn the controller.</p>";
     return html;
   }
   std::string pcFile() const { return player ? "pc-input-"+std::to_string(player+1)+".ini" : "pc-input.ini"; }
@@ -264,7 +262,6 @@ struct Ui : Rml::EventListener {
       }
       if(keyboard)html+="<div class=\"row\"><span>Aim button</span>"+button("pc-aim-toggle",c.aim_toggle?"Toggle":"Hold")+
         "<span class=\"muted\">Toggle: press R / aim once to start aiming, again to stop.</span></div>";
-      if(!keyboard)html+=gyroHtml(c);
       if(!keyboard)html+="<div class=\"row\"><span>Stick response</span>"+button("pc-curve",c.aim_curve==0?"Linear":c.aim_curve==1?"Precise":"Extra precise")+"<span class=\"muted\">Precise response slows small movements near the center.</span></div>";
       html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
     }
@@ -290,10 +287,18 @@ struct Ui : Rml::EventListener {
                                     mappings[p]);
       assignments.configure(p, mappings[p]);
     }
-    devices=assignments.devices(connected);
+    assignments.pins=jfg::parse_controller_pins(read("controller-ids.ini"));
+    resolve();
   }
-  bool saveController() {
-    auto &m = mappings[player];
+  // RGO: players resolve to controllers by identity first (controller_ports.hpp).
+  void resolve() {
+    std::array<std::string,4> ids;
+    for(std::size_t d=0;d<4;++d)if(connected[d])ids[d]=pads.info[d].id;
+    devices=assignments.devices(connected,ids);
+  }
+  bool saveController(int p = -1) {
+    if(p<0)p=player;
+    auto &m = mappings[p];
     std::ostringstream s;
     s << "version=1\ndevice=" << m.device << "\nstick=" << m.stick
       << "\ndeadzone=" << m.deadzone << "\nthreshold=" << m.threshold
@@ -301,40 +306,63 @@ struct Ui : Rml::EventListener {
       << "\ninvert_y=" << m.invert_y << "\n";
     for (int i = 0; i < 14; i++)
       s << "map" << i << "=" << m.bindings[i] << "\n";
-    if (writeFile(controllerFile(player), s.str())) {
-      assignments.configure(player, m);
+    if (writeFile(controllerFile(p), s.str())) {
+      assignments.configure(static_cast<std::size_t>(p), m);
       label("dialog-note", "Saved. Applied to the game immediately.");
       return true;
     }
     return false;
   }
+  // Any connected controller can be chosen; one another player has moves here.
   bool deviceAvailable(int d) const {
-    return jfg::controller_device_available(static_cast<std::size_t>(player),d,mappings,devices,connected);
+    return jfg::controller_device_selectable(d,connected);
+  }
+  // The other player who has a device now, or -1.
+  int deviceOwner(int d) const {
+    for(int p=0;p<4;++p)if(p!=player && devices[p]==d)return p;
+    return -1;
   }
   void discoverDevices() {
     pollPads();
     for(std::size_t d=0;d<4;++d)connected[d]=pads.info[d].connected;
-    devices=assignments.devices(connected);
+    resolve();
   }
   void normalizePicker() {
     if(pickerType==-3 || pickerType==-1){pickerDevice=pickerType;return;}
     if(pickerDevice>=0 && deviceAvailable(pickerDevice))return;
-    pickerDevice=-2;
-    for(int d=0;d<4;++d)if(deviceAvailable(d)){pickerDevice=d;break;}
+    pickerDevice=-2; // a free controller first, then one another player has
+    for(int d=0;d<4 && pickerDevice<0;++d)if(deviceAvailable(d) && deviceOwner(d)<0)pickerDevice=d;
+    for(int d=0;d<4 && pickerDevice<0;++d)if(deviceAvailable(d))pickerDevice=d;
   }
   bool assignDevice(int d) {
     discoverDevices(); // Revalidate immediately before saving a selection.
     if(!deviceAvailable(d)) {
       normalizePicker();modal("controllers");
-      label("dialog-note","That device is disconnected or belongs to another player. Choose an available device.");
+      label("dialog-note","That controller is disconnected. Choose another device.");
       return false;
     }
-    const int previous=mappings[player].device;
-    mappings[player].device=d;
-    if(!saveController()){mappings[player].device=previous;label("dialog-note","Could not save the device assignment.");return false;}
-    devices=assignments.devices(connected);learning=keyLearning=-1;
+    // RGO: remember which physical controller was chosen, and take it from
+    // whoever had it, so choosing a controller works first time.
+    const auto previousMappings=mappings;
+    auto pins=assignments.pins;
+    const std::string id=d>=0 && d<4 ? pads.info[static_cast<std::size_t>(d)].id : std::string{};
+    const auto changed=jfg::claim_controller(static_cast<std::size_t>(player),d,id,mappings,pins,devices);
+    bool saved=writeFile("controller-ids.ini",jfg::serialize_controller_pins(pins));
+    for(int p=0;p<4 && saved;++p)if(changed[static_cast<std::size_t>(p)])saved=saveController(p);
+    if(!saved){
+      mappings=previousMappings;
+      for(int p=0;p<4;++p)if(changed[static_cast<std::size_t>(p)])(void)saveController(p);
+      (void)writeFile("controller-ids.ini",jfg::serialize_controller_pins(assignments.pins));
+      resolve();label("dialog-note","Could not save the device assignment.");return false;
+    }
+    assignments.pins=pins;
+    std::string moved;
+    for(int p=0;p<4;++p)if(p!=player && changed[static_cast<std::size_t>(p)])moved+=(moved.empty()?"":", ")+std::string("Player ")+std::to_string(p+1);
+    resolve();learning=keyLearning=-1;
     devicePicker=false;controllerSettings=false;
-    modal("controllers");el("dialog-body")->SetScrollTop(0);return true;
+    modal("controllers");el("dialog-body")->SetScrollTop(0);
+    if(!moved.empty())label("dialog-note","Moved from "+moved+", now set to Automatic.");
+    return true;
   }
   std::string deviceSetupHtml() {
     const int configured=mappings[player].device,d=devices[player];
@@ -363,6 +391,7 @@ struct Ui : Rml::EventListener {
       html+="<div class=\"device-row\"><span>Rumble strength</span><input class=\"volume\" type=\"range\" min=\"0\" max=\"200\" step=\"10\" value=\""+
         std::to_string(strength)+"\" data-action=\"rumble-strength\"/><span id=\"rumble-value\">"+(strength?std::to_string(strength)+"%":std::string("Off"))+"</span>"+
         button("rumble-test","Test rumble",!canRumble || !strength)+"</div>";
+      if(online && pads.info[static_cast<std::size_t>(d)].gyro)html+=gyroHtml(pcInput[static_cast<std::size_t>(player)]);
     }
     html+="</div>";
     if(!devicePicker)return html;
@@ -373,10 +402,15 @@ struct Ui : Rml::EventListener {
     bool available=pickerType!=0?deviceAvailable(pickerDevice):pickerDevice>=0;
     if(pickerType==0){
       html+="<div class=\"device-row\"><span>Controller</span><select id=\"available-device\" data-action=\"device\""+std::string(available?"":" disabled=\"disabled\"")+">";
-      if(!available)html+="<option value=\"-2\">No available controllers</option>";
-      for(int slot=0;slot<4;++slot)if(deviceAvailable(slot))html+="<option value=\""+std::to_string(slot)+"\""+(slot==pickerDevice?" selected=\"selected\"":"")+">"+escape(padLabel(slot))+"</option>";
-      html+="</select>"+button("device-refresh","Refresh")+"</div><p class=\"muted\">Only connected controllers available to this player are listed. Remove a device from another player to move it here.</p>";
-    } else if(pickerType==-3)html+="<p class=\"muted\">"+std::string(available?"Use keyboard keys, mouse buttons and mouse look.":"Mouse and keyboard belong to another player. Remove them there first.")+"</p>";
+      if(!available)html+="<option value=\"-2\">No controllers connected</option>";
+      for(int slot=0;slot<4;++slot)if(deviceAvailable(slot)) {
+        const int owner=deviceOwner(slot);
+        html+="<option value=\""+std::to_string(slot)+"\""+(slot==pickerDevice?" selected=\"selected\"":"")+">"+escape(padLabel(slot))+
+          (owner>=0?" - Player "+std::to_string(owner+1):std::string{})+"</option>";
+      }
+      html+="</select>"+button("device-refresh","Refresh")+"</div><p class=\"muted\">"+
+        std::string(pickerDevice>=0 && deviceOwner(pickerDevice)>=0?"This controller moves here from Player "+std::to_string(deviceOwner(pickerDevice)+1)+".":"Connected controllers are listed.")+"</p>";
+    } else if(pickerType==-3)html+="<p class=\"muted\">"+std::string(deviceOwner(-3)<0?"Use keyboard keys, mouse buttons and mouse look.":"Mouse and keyboard move here from Player "+std::to_string(deviceOwner(-3)+1)+".")+"</p>";
     else html+="<p class=\"muted\">Use the next free controller. Player 1 falls back to keyboard when no controller has been assigned.</p>";
     html+="<div class=\"picker-actions\">"+button("device-apply",configured==-2?"Add":"Use device",!available)+button("device-cancel","Cancel")+"</div></div>";
     return html;
@@ -464,6 +498,7 @@ struct Ui : Rml::EventListener {
     const int d = devices[player];
     std::string description =
         pcKeyboard() ? "Mouse and keyboard assigned to this player."
+        : d < 0 && assignments.pinned(static_cast<std::size_t>(player)) ? "The chosen controller is not connected."
         : d < 0 ? "No physical controller is assigned."
                 : "Controller " + std::to_string(d + 1) +
                       (connected[d] ? " connected." : " offline.");
@@ -504,7 +539,7 @@ struct Ui : Rml::EventListener {
       if (on != connected[i]) {
         connected[i] = on;
         activated[i] = false;
-        devices = assignments.devices(connected);
+        resolve();
         std::string port;
         for (int p = 0; p < 4; p++)
           if (devices[p] == int(i))
@@ -551,7 +586,7 @@ struct Ui : Rml::EventListener {
       buttons[i] = held;
     }
 
-    devices = assignments.devices(connected);
+    resolve();
     lightPads();
     if(current=="controllers" && (wasConnected!=connected || wasDevices!=devices || wasKeyboard!=pcKeyboard())) {
       learning=keyLearning=-1;normalizePicker();modal("controllers");
@@ -1224,10 +1259,15 @@ struct Ui : Rml::EventListener {
         label("rumble-value",c.rumble?std::to_string(c.rumble)+"%":std::string("Off"));
         return;
       }
-      if(a=="pc-gyro-ratchet") {
+      if(a=="gyro-ratchet") {
         auto &c=pcInput[static_cast<std::size_t>(player)];
         c.gyro_ratchet=std::clamp(event.GetParameter<int>("value",c.gyro_ratchet),-1,jfg::kBindingCount-1);
         savePcInput();return;
+      }
+      if(a=="gyro-tune") {
+        auto &c=pcInput[static_cast<std::size_t>(player)];
+        c.gyro_sensitivity=std::clamp((event.GetParameter<int>("value",c.gyro_sensitivity)+5)/10*10,10,1000);
+        savePcInput();label("gyro-value",std::to_string(c.gyro_sensitivity));return;
       }
       if(a.rfind("pc-key",0)==0) {
         const auto i=static_cast<std::size_t>(std::stoi(a.substr(6)));
@@ -1236,10 +1276,10 @@ struct Ui : Rml::EventListener {
       }
       if(a.rfind("pc-tune",0)==0) {
         const int i=std::stoi(a.substr(7));auto &c=pcInput[static_cast<std::size_t>(player)];
-        if(i<0 || i>8)return;
-        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed,&c.gyro_sensitivity};
+        if(i<0 || i>7)return;
+        int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed};
         int* value=values[i];
-        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:i==7?30:10,i==2?30000:(i==0 || i==3)?500:i==7?360:i==8?1000:300);
+        *value=std::clamp(event.GetParameter<int>("value",*value),i==2?0:i==7?30:10,i==2?30000:(i==0 || i==3)?500:i==7?360:300);
         savePcInput();label(("pc-value"+std::to_string(i)).c_str(),std::to_string(*value));return;
       }
       if (a.rfind("tune-", 0) == 0) {
@@ -1298,6 +1338,13 @@ struct Ui : Rml::EventListener {
     if(a=="device-apply"){if(devicePicker && (pickerType!=0 || pickerDevice>=0))assignDevice(pickerDevice);return;}
     if(a=="device-remove"){assignDevice(-2);return;}
     if(a=="controller-settings"){controllerSettings=!controllerSettings;modal("controllers");return;}
+    if(a=="gyro" || a=="gyro-mode" || a=="gyro-invert") {
+      auto &c=pcInput[static_cast<std::size_t>(player)];
+      if(a=="gyro")c.gyro=!c.gyro;
+      else if(a=="gyro-mode")c.gyro_mode=!c.gyro_mode;
+      else c.gyro_invert_y=!c.gyro_invert_y;
+      savePcInput();modal("controllers");return;
+    }
     if(a=="dual-input" && player==0) {
       pcInput[0].dual_input=!pcInput[0].dual_input;
       savePcInput();modal("controllers");return;
@@ -1346,12 +1393,7 @@ struct Ui : Rml::EventListener {
         if(a!="pc-reset"){next.aim_toggle=c.aim_toggle;next.key_aim_speed=c.key_aim_speed;}
         c=next;
       }
-      else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;
-        const jfg::PcInputConfig defaults;c.gyro=defaults.gyro;c.gyro_sensitivity=defaults.gyro_sensitivity;c.gyro_mode=defaults.gyro_mode;
-        c.gyro_ratchet=defaults.gyro_ratchet;c.gyro_invert_y=defaults.gyro_invert_y;}
-      else if(a=="pc-gyro")c.gyro=!c.gyro;
-      else if(a=="pc-gyro-mode")c.gyro_mode=!c.gyro_mode;
-      else if(a=="pc-gyro-invert")c.gyro_invert_y=!c.gyro_invert_y;
+      else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;}
       else if(a=="pc-curve")c.aim_curve=(c.aim_curve+1)%3;
       else if(a=="pc-modern")c.modern=!c.modern;
       else if(a=="pc-mouse")c.mouse_aim=!c.mouse_aim;
@@ -1363,7 +1405,7 @@ struct Ui : Rml::EventListener {
       savePcInput();modal("controllers");return;
     }
     if (a == "device" || a == "input-type" || a == "session" || a == "volume" ||
-        a == "rumble-strength" || a.rfind("tune-", 0) == 0)
+        a == "rumble-strength" || a == "gyro-tune" || a == "gyro-ratchet" || a.rfind("tune-", 0) == 0)
       return;
     if (a.rfind("report-", 0) == 0) {
       selectedSession = a.substr(7);
@@ -1738,7 +1780,6 @@ void FrontendUiFrame(const FrontendUiState &state) {
     if (state.playing) {
       ui.assignments = jfg::ControllerPorts{};
       ui.loadControllers();
-      ui.devices = ui.assignments.devices(ui.connected);
     }
     ui.doc->SetClass("playing", state.playing);
     if (state.playing)

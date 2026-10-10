@@ -24,7 +24,8 @@ struct PcInputConfig {
   int aim_toggle = 0, key_aim_speed = 120; // key_aim_speed in degrees per second
   // Gyro aim: sensitivity in percent of real rotation; mode 0 while aiming,
   // 1 always; ratchet is a controller binding (-1 none) that pauses the gyro.
-  int gyro = 1, gyro_sensitivity = 150, gyro_mode = 0, gyro_ratchet = -1, gyro_invert_y = 0;
+  // Off until the player turns it on; it does not need the experimental switch.
+  int gyro = 0, gyro_sensitivity = 150, gyro_mode = 0, gyro_ratchet = -1, gyro_invert_y = 0;
   // Player 1 only: mouse/keyboard and a controller together (1), or the
   // device used last wins (0).
   int dual_input = 0;
@@ -45,7 +46,7 @@ inline std::string serialize_pc_experiments(bool enabled) {
 }
 inline PcInputConfig effective_pc_input(bool enabled,const PcInputConfig &saved) {
   auto active=saved;
-  if(!enabled)active.modern=active.mouse_aim=active.dual_stick=active.gyro=0;
+  if(!enabled)active.modern=active.mouse_aim=active.dual_stick=0;
   return active;
 }
 inline constexpr std::array<std::string_view,14> kPcSettings{

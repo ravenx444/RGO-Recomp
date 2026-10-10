@@ -3,6 +3,7 @@
 // thread owns SDL's joystick subsystem: Windows device notifications are tied
 // to the thread that initialised it, and polling it quickly keeps motion
 // sensor data fresh. Other threads read snapshots and queue output.
+#include "jfg/runtime/controller_ports.hpp"
 #include "jfg/runtime/gamepad.hpp"
 #include <SDL.h>
 #include <array>
@@ -26,6 +27,7 @@ struct GamepadInfo {
   GamepadFamily family = GamepadFamily::generic;
   int type = 0; // SDL_GameControllerType
   std::string name;
+  std::string id; // controller_identity(): which physical controller this is
   bool rumble = false, light = false;
   bool gyro = false, gyro_calibrated = false;
 };
@@ -213,6 +215,9 @@ private:
         info.family = gamepad_family(info.type);
         const char *name = SDL_GameControllerName(controller);
         info.name = name ? name : std::string(gamepad_family_name(info.family));
+        const char *serial = SDL_GameControllerGetSerial(controller);
+        info.id = controller_identity(SDL_GameControllerGetVendor(controller), SDL_GameControllerGetProduct(controller),
+                                      serial ? serial : "");
         info.rumble = SDL_GameControllerHasRumble(controller) == SDL_TRUE;
         info.light = SDL_GameControllerHasLED(controller) == SDL_TRUE;
         // Motion sensors (DualShock 4, DualSense, Switch Pro, Joy-Con). The
