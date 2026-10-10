@@ -130,9 +130,34 @@ deltas, gyro calibration, device merging) lives in header-only code under
 compiled by CI (it needs ROM-generated code), so each PR also gets a local
 MinGW syntax check of `native_boot.cpp` with stub generated headers.
 
+## Direct aiming (PR 2)
+
+Requires the profile-wide **Experimental** switch in Controllers (upstream's
+opt-in for the hooks above). For the player on mouse and keyboard:
+
+- **Mouse.** Raw mouse motion becomes angle deltas (about 0.1 degree per
+  count at 100%) written straight into the aim heading/pitch while aiming.
+  The crosshair stays centred on the aim and nothing springs back. With
+  **Modern camera + movement** on, the same deltas also turn the camera when
+  not aiming (upstream's look mode 3). With it off, the mouse aims only while
+  aiming (new look mode 5; upstream's mode 1, the mouse as a fake stick, is
+  kept only for old input recordings).
+- **Aim keys** (new bindings, default Numpad 8/2/4/6 with Num Lock on) turn
+  the aim at a set speed (default 120 degrees/s) through the same path. When
+  they are released the aim stays where it is.
+- **Aim button: Hold or Toggle.** R / aim (right mouse button in the Normal
+  and Expert presets). Toggle only applies during gameplay; menus, pauses,
+  cutscenes, the settings window and focus loss release a toggled aim, so
+  the controls never wait on a stuck button.
+- Settings (Controllers > keyboard player > Settings): mouse look
+  sensitivity (camera) and mouse aim sensitivity are separate, plus vertical
+  scale, Mouse Y invert, aim key speed and the aim button mode.
+- Settings live in `pc-input.ini` (version 4 keys `aim_toggle`,
+  `key_aim_speed`, `key20`-`key23`). Older files load with the defaults.
+
 ## Status
 
 - PR 1 (DualShock 4 / DualSense, rumble): in review.
-- PR 2 (direct mouse/keyboard aim): planned.
+- PR 2 (direct mouse/keyboard aim): in review.
 - PR 3 (gyro): planned.
 - PR 4 (dual input): planned.

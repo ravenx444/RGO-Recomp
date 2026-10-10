@@ -69,11 +69,11 @@ template <typename Value>
         return false;
     }
     unsigned mode=0;int look_x=0,look_y=0;
-    if(has_pc && (!parse_integer(fields[6],mode) || mode>4 ||
+    if(has_pc && (!parse_integer(fields[6],mode) || mode>5 ||
        !parse_integer(fields[7],look_x) || !parse_integer(fields[8],look_y) ||
        look_x < -32768 || look_x>32767 || look_y < -32768 || look_y>32767 ||
        ((mode==0 || !connected) && (look_x || look_y || mode)) ||
-       (mode!=3 && (look_x < -127 || look_x>127 || look_y < -127 || look_y>127))))
+       (mode!=3 && mode!=5 && (look_x < -127 || look_x>127 || look_y < -127 || look_y>127))))
       return false;
     output.sample.pc_mode=static_cast<std::uint8_t>(mode);
     output.sample.look_x=static_cast<std::int16_t>(look_x);
