@@ -78,6 +78,11 @@ struct CaptureContext {
     std::atomic<float> horizontal_extent = 1.0F;
     // RGO: frames presented to the swap chain (interpolated ones included).
     std::atomic<std::uint64_t> presents = 0U;
+    // RGO frame diagnostics: swap-chain present gaps (microseconds) since the
+    // game last read them. Written by RT64's present thread.
+    std::atomic<std::int64_t> last_present_us = 0;
+    std::atomic<std::uint64_t> present_gap_min = 0U;
+    std::atomic<std::uint64_t> present_gap_max = 0U;
     std::vector<std::byte> pixels;
     std::size_t width = 0U;
     std::size_t height = 0U;
@@ -115,6 +120,17 @@ void capture_draw(RenderCommandList* list, RenderFramebuffer* framebuffer) {
         context->previous_draw(list, framebuffer);
     }
     context->presents.fetch_add(1U, std::memory_order_relaxed);
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const std::int64_t last = context->last_present_us.exchange(now, std::memory_order_relaxed);
+    if (last != 0 && now > last) {
+        const auto gap = static_cast<std::uint64_t>(now - last);
+        const std::uint64_t minimum = context->present_gap_min.load(std::memory_order_relaxed);
+        if (minimum == 0U || gap < minimum)
+            context->present_gap_min.store(gap, std::memory_order_relaxed);
+        if (gap > context->present_gap_max.load(std::memory_order_relaxed))
+            context->present_gap_max.store(gap, std::memory_order_relaxed);
+    }
     context->draw(list, framebuffer);
 }
 
@@ -1170,6 +1186,13 @@ std::uint64_t Rt64Shell::display_presents() const noexcept {
         : 0U;
 }
 
+std::pair<std::uint64_t, std::uint64_t> Rt64Shell::take_display_intervals() noexcept {
+    if (impl_ == nullptr || impl_->capture == nullptr)
+        return {};
+    return {impl_->capture->present_gap_min.exchange(0U, std::memory_order_relaxed),
+            impl_->capture->present_gap_max.exchange(0U, std::memory_order_relaxed)};
+}
+
 float Rt64Shell::horizontal_extent() const noexcept {
     return impl_ != nullptr ? impl_->horizontal_extent : 1.0F;
 }
@@ -1213,6 +1236,8 @@ Rt64GraphicsDiagnostics Rt64Shell::last_graphics_diagnostics()
     diagnostics.loaded_vertices_high = stats.loaded_vertices_high;
     diagnostics.full_sync_microseconds = stats.full_sync_microseconds;
     diagnostics.rdram_check_microseconds = impl_->last_rdram_check_microseconds;
+    diagnostics.scene_hash = stats.scene_hash;
+    diagnostics.camera_hash = stats.camera_hash;
     diagnostics.display_list_branches = stats.display_list_branches;
     diagnostics.last_display_list_address = stats.last_display_list_address;
     diagnostics.last_display_list_target = stats.last_display_list_target;

@@ -3,6 +3,7 @@
 #include <functional>
 #include <string>
 #include <windows.h>
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/video_settings.hpp"
 struct FrontendUiState {
   bool playing = false, busy = false, fullscreen = false, mods = false;
@@ -14,6 +15,8 @@ struct FrontendUiState {
   jfg::VideoSettings video{};
   int viewWidth = 0, viewHeight = 0;
   int fpsTenths = -1, displayFpsTenths = -1;
+  // FPS counter "Detailed" (jfg/renderer/frame_stats.hpp).
+  jfg::FrameStats frameStats{};
 };
 bool FrontendUiInit(HWND, const std::filesystem::path &,
                     std::function<void(const std::string &)>, const std::string &tool = "");

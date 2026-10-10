@@ -14,7 +14,7 @@ every 250 ms, so most changes apply while playing.
 | Max aspect ratio | Unlimited / 32:9 / 21:9 / 16:9 / 16:10 | immediately |
 | Anti-aliasing | Off / 2x / 4x / 8x MSAA | next game start |
 | VSync | On / Off | immediately |
-| FPS counter | Off / On | immediately |
+| FPS counter | Off / On / Detailed | immediately |
 | Frame rate | Original / True 60 / Display / Unlocked | immediately ([frame rate](framerate.md)) |
 | Interpolate extra frames | On / Off | immediately (Display and Unlocked only) |
 | Original N64 slowdown | Off / On | immediately ([details](framerate.md#part-d-no-n64-slowdown-rgono-n64-slowdown)) |
@@ -88,6 +88,9 @@ child window), so it handles the mode.
 - JFG renders 30 or 20 frames per second (two or three VIs per frame).
 - With Frame rate above Original, the counter shows the displayed rate and the
   game's rate, for example `60.0 FPS (game 30.0)`.
+- *Detailed* adds game logic updates, newly drawn frames, camera updates,
+  repeated frames, controller samples and frame times
+  ([details](framerate.md#diagnostics-fps-counter-detailed)).
 
 ## File format
 
@@ -103,6 +106,7 @@ render_size=1920x1080
 msaa=off
 vsync=on
 fps_counter=off
+fps_details=off
 framerate=original
 interpolate_frames=on
 interpolate_objects=off

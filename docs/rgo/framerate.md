@@ -370,6 +370,50 @@ committed).**
 integer `delayDat` cannot express. Display rates above 60 come from
 blending.
 
+### Diagnostics: FPS counter "Detailed"
+
+The owner's first True 60 test showed `60.0 FPS`, but the game "felt like
+interpolated 30". The plain counter can't tell why, so Video settings →
+FPS counter → **Detailed** adds four lines (all per second, except the
+frame times):
+
+```
+60.0 FPS
+logic 60.0 | ticks 60.0
+drawn 60.0 | new 60.0 | camera 60.0 | repeats 0.0
+input 60.0
+game frame 16.6-16.8 ms
+display frame 16.5-16.9 ms
+```
+
+- **logic**: `viFrameSync` calls, one per game frame. **ticks**: the VIs
+  those frames handed to the game logic (`delayDat`). Ticks are 60 at full
+  speed in every mode. Logic is 30 at Original and 60 at True 60; a 30 here
+  at True 60 means the one-VI mode isn't engaged.
+- **drawn**: game presents that show a newly drawn picture. **repeats**:
+  presents that show a picture already shown.
+- **new**: drawn frames whose matrices differ from the previous drawn
+  frame's. The renderer shell hashes every matrix a frame loads
+  (`Rt64F3ddkrStats::scene_hash`). **camera**: the same for the camera
+  (slot 0) matrices alone. Both only mean something while the camera or
+  objects are moving: walk and turn while reading them.
+  - At True 60, while turning, `new` and `camera` should be about 60. A
+    value near 30 means the game logic updates the scene (or the camera)
+    only every other frame, even though it draws 60 pictures.
+- **input**: controller samples per second. `joyRead` only starts the next
+  controller read after the previous one completed, so this can be lower
+  than the logic rate. Mouse look (PC controls) is applied once per sample:
+  input at 30 while logic runs at 60 makes mouse turning step at 30.
+- **game frame**: the shortest and longest gap between game presents in the
+  last half second. **display frame**: the same between swap-chain
+  presents (RT64's present hook). Steady 60 is about 16.7 ms for both; gaps
+  alternating near 0 and 33 ms are frames presented in pairs, which looks
+  like 30.
+
+The numbers come from `include/jfg/renderer/frame_stats.hpp` (tested in
+`jfg.frame_interpolation`). The game posts them as `WM_APP + 25` to
+`WM_APP + 29`; `fps_details=on` in `video.ini` shows them.
+
 ## Risks and what to look for
 
 - **Off-screen task classification.** Tasks are classified by their color

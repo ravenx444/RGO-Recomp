@@ -1,5 +1,6 @@
 // RGO frame interpolation: rate mapping, IDs, frame grouping and camera cuts.
 #include "jfg/renderer/frame_interpolation.hpp"
+#include "jfg/renderer/frame_stats.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -96,6 +97,65 @@ int main() {
         require(!controller_read_consumed(before, after), "no new read");
         after[30] = 1U;
         require(controller_read_consumed(before, after), "new read");
+    }
+
+    // FPS counter "Detailed": message encoding, content tracking, gaps.
+    {
+        FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U};
+        const auto words = encode_frame_stats(stats);
+        FrameStats decoded{};
+        for (unsigned index = 0U; index < kFrameDetailMessageCount; ++index)
+            decode_frame_stats(decoded, index, words[index * 2U], words[index * 2U + 1U]);
+        stats.display_max = 0xFFFFU;  // Clamped to 16 bits.
+        require(decoded == stats, "frame stats round trip");
+    }
+    {
+        FrameContentTracker tracker;
+        const std::uint32_t a = 0x00200000U, b = 0x00300000U;
+        tracker.drawn(a, 1U, 10U);
+        auto shown = tracker.presented(a);
+        require(shown.fresh && shown.scene_changed && shown.camera_changed, "first frame is new");
+        require(!tracker.presented(a).fresh, "showing it again is a repeat");
+        tracker.drawn(b, 1U, 10U);
+        shown = tracker.presented(b);
+        require(shown.fresh && !shown.scene_changed && !shown.camera_changed,
+            "same matrices in the other buffer: drawn but not new");
+        tracker.drawn(a, 2U, 10U);
+        shown = tracker.presented(a);
+        require(shown.fresh && shown.scene_changed && !shown.camera_changed,
+            "scene moved, camera still");
+        tracker.drawn(b, 3U, 11U);
+        tracker.drawn(0x00400000U, 9U, 9U);  // An off-screen target.
+        shown = tracker.presented(b);
+        require(shown.fresh && shown.scene_changed && shown.camera_changed, "camera moved");
+        tracker.drawn(a, 3U, 11U);
+        tracker.drawn(a, 4U, 12U);  // Two tasks into one picture combine.
+        require(tracker.presented(a).scene_changed, "combined tasks");
+        require(!tracker.presented(0x00500000U).fresh && !tracker.presented(0U).fresh,
+            "unknown buffers are repeats");
+        // Alternate frames with unchanged content: 60 drawn, 30 new.
+        FrameContentTracker pairs;
+        unsigned drawn = 0U, fresh_content = 0U;
+        for (std::uint64_t frame = 0U; frame < 60U; ++frame) {
+            const std::uint32_t target = (frame & 1U) ? a : b;
+            pairs.drawn(target, frame / 2U, frame / 2U);
+            const auto result = pairs.presented(target);
+            drawn += result.fresh ? 1U : 0U;
+            fresh_content += result.scene_changed ? 1U : 0U;
+        }
+        require(drawn == 60U && fresh_content == 30U, "every other frame unchanged");
+    }
+    {
+        IntervalRange range;
+        require(range.minimum_tenths() == 0U && range.maximum_tenths() == 0U, "no gaps");
+        range.add(16667U);
+        range.add(33333U);
+        range.add(15950U);
+        require(range.minimum_tenths() == 160U && range.maximum_tenths() == 333U, "gap range");
+        const std::array<std::uint32_t, 2> words{1U, 2U}, swapped{2U, 1U};
+        require(mix_content_hash(kContentHashSeed, words) !=
+                    mix_content_hash(kContentHashSeed, swapped),
+            "hash depends on order");
     }
 
     // The game's own rate per frame.

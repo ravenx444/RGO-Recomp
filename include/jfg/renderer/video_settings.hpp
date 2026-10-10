@@ -98,6 +98,9 @@ struct VideoSettings {
     std::uint8_t msaa = 1U;  // sample count: 1, 2, 4 or 8
     bool vsync = true;
     bool fps_counter = false;
+    // FPS counter "Detailed": logic, drawn, new and shown frames per second
+    // and frame times (jfg/renderer/frame_stats.hpp).
+    bool fps_details = false;
     FrameRate framerate = FrameRate::original;
     // Blend extra frames above the game's rate (Display / Unlocked).
     bool interpolate_frames = true;
@@ -217,6 +220,7 @@ parse_pair(std::string_view text, const char separator) noexcept {
                                 : std::to_string(settings.msaa) + "x";
     text += settings.vsync ? "\nvsync=on" : "\nvsync=off";
     text += settings.fps_counter ? "\nfps_counter=on" : "\nfps_counter=off";
+    text += settings.fps_details ? "\nfps_details=on" : "\nfps_details=off";
     text += "\nframerate=";
     text += settings.framerate == FrameRate::sixty      ? "60"
             : settings.framerate == FrameRate::display  ? "display"
@@ -262,11 +266,11 @@ parse_pair(std::string_view text, const char separator) noexcept {
             return std::nullopt;
         const std::string_view key = line.substr(0U, equals);
         const std::string_view value = line.substr(equals + 1U);
-        constexpr std::array<std::string_view, 14U> keys{
+        constexpr std::array<std::string_view, 15U> keys{
             "aspect", "max_aspect", "fullscreen", "output", "render",
             "render_scale", "render_size", "msaa", "vsync", "fps_counter",
             "framerate", "interpolate_objects", "n64_slowdown",
-            "interpolate_frames"};
+            "interpolate_frames", "fps_details"};
         const auto found = std::find(keys.begin(), keys.end(), key);
         if (found == keys.end()) {
             for (const char ch : key)
@@ -340,6 +344,8 @@ parse_pair(std::string_view text, const char separator) noexcept {
             ok = on_off(settings.interpolate_objects);
         } else if (key == "interpolate_frames") {
             ok = on_off(settings.interpolate_frames);
+        } else if (key == "fps_details") {
+            ok = on_off(settings.fps_details);
         } else {
             ok = on_off(settings.n64_slowdown);
         }
