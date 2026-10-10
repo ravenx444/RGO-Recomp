@@ -120,7 +120,7 @@ static JFG_CLOCK_INLINE void jfg_clock_charge(JfgOriginalTimingFast* s,uint64_t 
  if(s->fast_clock){
   const uint64_t ticks=s->diagnostic_cpu_half_tick+1U;
   s->cpu_count+=ticks>>JFG_FAST_CLOCK_SHIFT;
-  s->diagnostic_cpu_half_tick=ticks&((1U<<JFG_FAST_CLOCK_SHIFT)-1U);
+  s->diagnostic_cpu_half_tick=ticks&(uint64_t)((1U<<JFG_FAST_CLOCK_SHIFT)-1U);
   return;
  }
  cycles+=s->diagnostic_cpu_half_tick;
@@ -141,7 +141,7 @@ static JFG_CLOCK_INLINE void jfg_fast_run_sync(JfgOriginalTimingFast* s) {
  s->observed_guest_instructions+=consumed;s->execution_fast_hits+=consumed;
  ticks=s->diagnostic_cpu_half_tick+consumed;
  s->cpu_count+=ticks>>JFG_FAST_CLOCK_SHIFT;
- s->diagnostic_cpu_half_tick=ticks&((1U<<JFG_FAST_CLOCK_SHIFT)-1U);
+ s->diagnostic_cpu_half_tick=ticks&(uint64_t)((1U<<JFG_FAST_CLOCK_SHIFT)-1U);
  *s->io_guest_count=s->cpu_count;
 }
 // Ends a run. Skipped instructions left no branch bookkeeping, so after any

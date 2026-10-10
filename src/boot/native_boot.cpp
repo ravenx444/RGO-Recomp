@@ -10146,6 +10146,8 @@ int run_child(const char *path, const unsigned retrace_target,
   sample_controller_ports(state);
   // One opt-in runtime mode owns CPU, OS, device clocks and host pacing.
   // Diagnostic traces and the travel fixture are independent and optional.
+#if defined(JFG_HEADLESS_LIVE)
+  // RGO frame trace (headless measurement, docs/rgo/framerate.md).
   if (const char *trace = std::getenv("JFG_RGO_FRAME_TRACE");
       trace != nullptr && *trace != '\0') {
     state.rgo_frame_trace = std::fopen(trace, "w");
@@ -10158,7 +10160,6 @@ int run_child(const char *path, const unsigned retrace_target,
     std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\n",
                state.rgo_frame_trace);
   }
-#if defined(JFG_HEADLESS_LIVE)
   state.counter_log = std::getenv("JFG_RGO_COUNTER_LOG") != nullptr;
   state.wall_floor_disabled = std::getenv("JFG_RGO_DETERMINISTIC_CLOCK") != nullptr;
   state.fast_run_disabled = std::getenv("JFG_RGO_NO_FAST_RUNS") != nullptr;
