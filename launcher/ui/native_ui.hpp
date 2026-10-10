@@ -9,10 +9,11 @@ struct FrontendUiState {
   std::wstring rom, runtime, status;
   bool pauseInactive = false;
   // RGO display settings (video.ini), the game area size in pixels and the
-  // game's last reported frame rate in tenths (-1: none yet).
+  // game's last reported frame rates in tenths (-1: none yet): its own
+  // frames and the frames presented to the display.
   jfg::VideoSettings video{};
   int viewWidth = 0, viewHeight = 0;
-  int fpsTenths = -1;
+  int fpsTenths = -1, displayFpsTenths = -1;
 };
 bool FrontendUiInit(HWND, const std::filesystem::path &,
                     std::function<void(const std::string &)>, const std::string &tool = "");

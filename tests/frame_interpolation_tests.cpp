@@ -1,0 +1,128 @@
+// RGO frame interpolation: rate mapping, IDs, frame grouping and camera cuts.
+#include "jfg/renderer/frame_interpolation.hpp"
+
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <set>
+
+namespace {
+
+void require(const bool condition, const char* message) {
+    if (!condition) {
+        std::fprintf(stderr, "%s\n", message);
+        std::exit(1);
+    }
+}
+
+using Matrix = std::array<std::array<float, 4>, 4>;
+
+// Row-vector view matrix for a camera at `eye` turned `yaw` radians about Y.
+Matrix view(const float x, const float y, const float z, const float yaw) {
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    // World -> camera rotation is the transpose of the camera's orientation.
+    Matrix m{};
+    m[0] = {c, 0.0F, s, 0.0F};
+    m[1] = {0.0F, 1.0F, 0.0F, 0.0F};
+    m[2] = {-s, 0.0F, c, 0.0F};
+    // t = -eye * R
+    m[3] = {-(x * c + z * -s), -y, -(x * s + z * c), 1.0F};
+    return m;
+}
+
+bool near(const float a, const float b, const float tolerance = 1e-3F) {
+    return std::abs(a - b) < tolerance;
+}
+
+}  // namespace
+
+int main() {
+    using namespace jfg;
+
+    // Frame rate setting -> RT64 refresh configuration.
+    require(refresh_plan(FrameRate::original) == Rt64RefreshPlan{}, "original");
+    require(refresh_plan(FrameRate::sixty) ==
+                Rt64RefreshPlan{Rt64RefreshMode::manual, 60},
+        "60");
+    require(refresh_plan(FrameRate::display).mode == Rt64RefreshMode::display,
+        "display");
+    require(refresh_plan(FrameRate::unlocked) ==
+                Rt64RefreshPlan{Rt64RefreshMode::manual, kUnlockedRefreshTarget},
+        "unlocked");
+    require(!interpolation_requested(FrameRate::original) &&
+                interpolation_requested(FrameRate::sixty),
+        "interpolation only above original");
+
+    // The game's own rate per frame.
+    require(game_rate_from_retraces(2U) == 30U, "two VIs: 30 fps");
+    require(game_rate_from_retraces(3U) == 20U, "three VIs: 20 fps");
+    require(game_rate_from_retraces(1U) == 60U, "one VI: 60 fps");
+    require(game_rate_from_retraces(0U) == 60U, "no measurement");
+    require(game_rate_from_retraces(40U) == 10U, "loading stall clamps");
+
+    // Main frames versus off-screen work.
+    require(is_main_frame_target(320U, 240U, 320U, 240U), "screen buffer");
+    require(is_main_frame_target(320U, 180U, 320U, 240U), "letterboxed screen");
+    require(!is_main_frame_target(64U, 64U, 320U, 240U), "shadow mask");
+    require(!is_main_frame_target(320U, 16U, 320U, 240U), "thin strip");
+    require(!is_main_frame_target(160U, 120U, 320U, 240U), "quarter buffer");
+    require(is_main_frame_target(320U, 240U, 0U, 0U), "unknown VI, screen size");
+
+    // IDs never collide with RT64's ignore/auto or with each other's ranges.
+    std::set<std::uint32_t> cameras;
+    for (const bool ortho : {false, true})
+        for (const bool screen : {false, true})
+            for (std::uint32_t ordinal = 0U; ordinal < 8U; ++ordinal)
+                cameras.insert(camera_group_id(ortho, screen, ordinal));
+    require(cameras.size() == 32U, "camera ids distinct");
+    require(*cameras.begin() > 0U && *cameras.rbegin() < kObjectIdBase,
+        "camera ids in range");
+    std::set<std::uint32_t> objects;
+    for (std::uint32_t address = 0x80100000U; address < 0x80100000U + 64U * 0x40U;
+         address += 0x40U)
+        for (std::uint32_t push = 0U; push < 4U; ++push) {
+            const auto id = object_group_id(address, push);
+            require(id >= kObjectIdBase && id != 0xFFFFFFFFU, "object id range");
+            objects.insert(id);
+            const auto bone = bone_group_id(id, push);
+            require(bone >= kObjectIdBase && bone != 0xFFFFFFFFU && bone != id,
+                "bone id range");
+        }
+    require(objects.size() == 256U, "object ids distinct");
+    require(object_group_id(0x80123450U, 1U) == object_group_id(0x80123450U, 1U),
+        "object ids stable");
+    require(bone_group_id(0U, 3U) == 0U, "no object, no bone id");
+
+    // Camera pose from a view matrix.
+    const auto pose = camera_pose_from_view(view(100.0F, 50.0F, -30.0F, 0.3F), 1.5F);
+    require(pose.valid && near(pose.position[0], 100.0F) &&
+                near(pose.position[1], 50.0F) && near(pose.position[2], -30.0F),
+        "camera position");
+    require(near(pose.forward[0] * pose.forward[0] + pose.forward[1] * pose.forward[1] +
+                     pose.forward[2] * pose.forward[2],
+                 1.0F),
+        "unit forward");
+    require(!camera_pose_from_view(Matrix{}, 1.0F).valid, "degenerate view");
+
+    // Cuts: steady motion blends; jumps, sharp turns and zooms snap.
+    const auto at = [](float x, float yaw, float focal = 1.5F) {
+        return camera_pose_from_view(view(x, 0.0F, 0.0F, yaw), focal);
+    };
+    require(!camera_cut(at(0.0F, 0.0F), at(30.0F, 0.0F), at(60.0F, 0.05F)),
+        "walking camera blends");
+    require(!camera_cut(at(0.0F, 0.0F), at(300.0F, 0.0F), at(600.0F, 0.0F)),
+        "fast but steady camera blends");
+    require(camera_cut(at(0.0F, 0.0F), at(30.0F, 0.0F), at(3000.0F, 0.0F)),
+        "teleport snaps");
+    require(camera_cut(CameraPose{}, at(0.0F, 0.0F), at(5000.0F, 0.0F)),
+        "jump without history snaps");
+    require(camera_cut(at(0.0F, 0.0F), at(0.0F, 0.0F), at(0.0F, 1.2F)),
+        "sharp turn snaps");
+    require(!camera_cut(at(0.0F, 0.0F), at(0.0F, 0.0F), at(0.0F, 0.4F)),
+        "normal turn blends");
+    require(camera_cut(at(0.0F, 0.0F), at(0.0F, 0.0F), at(0.0F, 0.0F, 2.5F)),
+        "zoom snaps");
+    require(camera_cut(at(0.0F, 0.0F), CameraPose{}, at(0.0F, 0.0F)),
+        "no previous camera");
+    return 0;
+}

@@ -15,6 +15,7 @@ every 250 ms, so most changes apply while playing.
 | Anti-aliasing | Off / 2x / 4x / 8x MSAA | next game start |
 | VSync | On / Off | immediately |
 | FPS counter | Off / On | immediately |
+| Frame rate | Original / 60 / Display / Unlocked | immediately ([frame interpolation](framerate.md)) |
 
 ## How each setting works
 
@@ -82,8 +83,9 @@ child window), so it handles the mode.
 - The game reports frames presented per second to the frontend twice a second
   (`WM_APP + 24`, tenths of FPS).
 - The frontend shows the number in the top-right corner while playing.
-- JFG renders 30 or 20 frames per second (two or three VIs per frame), so
-  that is what the counter shows today.
+- JFG renders 30 or 20 frames per second (two or three VIs per frame).
+- With Frame rate above Original, the counter shows the displayed rate and the
+  game's rate, for example `60.0 FPS (game 30.0)`.
 
 ## File format
 
@@ -99,7 +101,13 @@ render_size=1920x1080
 msaa=off
 vsync=on
 fps_counter=off
+framerate=original
+interpolate_objects=off
 ```
+
+`framerate` and `interpolate_objects` belong to
+[frame interpolation](framerate.md). `interpolate_objects` has no settings
+page entry yet; set it by hand to try phase 2.
 
 `jfg::parse_video_settings` (`include/jfg/renderer/video_settings.hpp`) reads
 this format and the original `version=1` file. It rejects the whole file on:

@@ -66,6 +66,7 @@
 #include "jfg/evidence/g2_private_task_adapter.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/frame_interpolation.hpp"
 #include "jfg/renderer/widescreen.hpp"
 #include "jfg/runtime/audio_task_bridge.hpp"
 #include "jfg/runtime/input_replay.hpp"
@@ -1666,9 +1667,15 @@ struct State : JfgOriginalTimingFast {
   bool video_managed = false;
   jfg::VideoSettings video{jfg::AspectMode::original};
   bool widescreen = false;
-  // FPS counter: presents counted since the last report to the frontend.
+  // FPS counter: game frames and swap-chain presents (interpolated frames
+  // included) counted since the last report to the frontend.
   std::uint64_t frame_rate_presents = 0U;
+  std::uint64_t frame_rate_display_start = 0U;
   std::chrono::steady_clock::time_point frame_rate_start{};
+  // RGO frame interpolation: the VI count at the previous game frame, and
+  // how many object matrices each object pushed since the last camera.
+  std::uint64_t last_frame_retrace = 0U;
+  std::unordered_map<std::uint32_t, std::uint32_t> object_matrix_pushes;
   float widescreen_extent = 1.0F;
   // HUD anchoring is active for the current frontUpdate frame.
   bool hud_anchoring = false;
@@ -2380,6 +2387,12 @@ void refresh_video_settings(State &state) {
     if (state.video_managed)
       state.rt64_shell->set_video_settings(state.video);
     state.widescreen_extent = state.rt64_shell->horizontal_extent();
+    // RGO frame interpolation: this game frame took this many VIs (2 for
+    // 30 fps, 3 for 20 fps); RT64 blends extra frames at that logic rate.
+    if (state.last_frame_retrace != 0U)
+      state.rt64_shell->set_game_rate(jfg::game_rate_from_retraces(
+          state.vi_retraces - state.last_frame_retrace));
+    state.last_frame_retrace = state.vi_retraces;
   }
   // FPS counter: report presented frames per second to the frontend twice a
   // second; it shows them when the setting is on.
@@ -2387,18 +2400,28 @@ void refresh_video_settings(State &state) {
   if (state.frame_rate_start == std::chrono::steady_clock::time_point{}) {
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
+    state.frame_rate_display_start = state.rt64_shell != nullptr
+        ? state.rt64_shell->display_presents() : 0U;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
     const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
         now - state.frame_rate_start).count();
-    const auto tenths = static_cast<WPARAM>(
-        (state.frame_rate_presents * 10'000'000ULL +
-         static_cast<std::uint64_t>(elapsed_us) / 2U) /
-        static_cast<std::uint64_t>((std::max)(elapsed_us, decltype(elapsed_us){1})));
+    const auto per_second_tenths = [&](const std::uint64_t count) {
+      return (count * 10'000'000ULL + static_cast<std::uint64_t>(elapsed_us) / 2U) /
+          static_cast<std::uint64_t>((std::max)(elapsed_us, decltype(elapsed_us){1}));
+    };
+    const std::uint64_t displayed = state.rt64_shell != nullptr
+        ? state.rt64_shell->display_presents() : 0U;
+    const auto tenths = static_cast<WPARAM>(per_second_tenths(state.frame_rate_presents));
+    // Displayed frames per second (RT64's swap-chain presents), which exceed
+    // the game's own rate while frame interpolation is on.
+    const auto display_tenths = static_cast<LPARAM>(
+        per_second_tenths(displayed - state.frame_rate_display_start));
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr)
-      PostMessageW(GetAncestor(window, GA_ROOT), WM_APP + 24U, tenths, 0);
+      PostMessageW(GetAncestor(window, GA_ROOT), WM_APP + 24U, tenths, display_tenths);
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
+    state.frame_rate_display_start = displayed;
   }
 }
 
@@ -5608,6 +5631,46 @@ bool hud_aligned_call(State &state, hle::GuestMemory &memory,
   return true;
 }
 
+// RGO frame interpolation, phase 2 (experimental, interpolate_objects=on):
+// run the game's object matrix writers and tag each matrix they write with an
+// ID from the object pointer and how many matrices it pushed since the last
+// camera. The renderer checks the tag against the matrix words, so tags for
+// reused matrix memory are ignored. Returns true when it ran the original.
+bool interpolation_tag_dispatch(State &state, const std::uint32_t target,
+                                std::uint8_t *rdram, recomp_context *context) {
+  if (target == jfg::kCamSetProjMtx) {
+    // A new camera: objects are drawn again for it (split screen).
+    state.object_matrix_pushes.clear();
+    return false;
+  }
+  if (target != jfg::kCamPushModelMtx && target != jfg::kCamPushFloatModelMtx &&
+      target != jfg::kCamPushMuzzleMtx)
+    return false;
+  hle::GuestMemory memory({rdram, kRdramSize},
+                          hle::GuestMemory::Layout::native_word_big_endian);
+  std::uint32_t cursor = 0U;
+  if (!memory.read_u32(static_cast<std::uint32_t>(context->r5), cursor))
+    return false;
+  const std::uint32_t key =
+      jfg::object_key(target, static_cast<std::uint32_t>(context->r6));
+  recomp_func_t *const original =
+      jfg_generated_lookup_function(static_cast<std::int32_t>(target));
+  if (original == nullptr)
+    return false;
+  original(rdram, context);
+  const std::uint32_t matrix = (cursor & 0x1FFFFFFFU) | kKseg0;
+  std::array<std::uint32_t, 16> words{};
+  for (std::size_t index = 0U; index < words.size(); ++index)
+    if (!memory.read_u32(matrix + static_cast<std::uint32_t>(index * 4U), words[index]))
+      return true;
+  if (state.object_matrix_pushes.size() > 4096U)
+    state.object_matrix_pushes.clear();
+  const std::uint32_t push = state.object_matrix_pushes[key]++;
+  state.rt64_shell->tag_matrix(matrix & 0x00FFFFFFU, jfg::matrix_words_hash(words),
+                               jfg::object_group_id(key, push));
+  return true;
+}
+
 // Returns true when it ran the original function itself.
 bool widescreen_hud_dispatch(State &state, const std::uint32_t target,
                              std::uint8_t *rdram, recomp_context *context) {
@@ -5795,6 +5858,11 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       return 1;
     }
   }
+  // RGO frame interpolation: tag object matrices (experimental).
+  if (state.rt64_shell != nullptr && state.video.interpolate_objects &&
+      jfg::interpolation_requested(state.video.framerate) &&
+      interpolation_tag_dispatch(state, target, rdram, context))
+    return 1;
   // RGO widescreen HUD: track the HUD frame and its element groups, and
   // anchor elements drawn by the 2D primitives.
   std::optional<HudGroupScope> hud_group;

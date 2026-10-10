@@ -70,8 +70,11 @@ int main() {
                 "version=2\naspect=widescreen\nmax_aspect=unlimited\n"
                 "fullscreen=borderless\noutput=auto\nrender=match\n"
                 "render_scale=100\nrender_size=1920x1080\nmsaa=off\n"
-                "vsync=on\nfps_counter=off\n",
+                "vsync=on\nfps_counter=off\nframerate=original\n"
+                "interpolate_objects=off\n",
         "default encoding");
+    require(defaults.framerate == FrameRate::original && !defaults.interpolate_objects,
+        "original frame rate by default");
 
     VideoSettings custom;
     custom.aspect = AspectMode::original;
@@ -84,6 +87,8 @@ int main() {
     custom.msaa = 8U;
     custom.vsync = false;
     custom.fps_counter = true;
+    custom.framerate = FrameRate::display;
+    custom.interpolate_objects = true;
     require(parse_video_settings(encode_video_settings(custom)) == custom,
         "full round trip");
     for (const auto scale : {25U, 100U, 155U, 200U}) {
@@ -92,6 +97,13 @@ int main() {
         s.render_scale = scale;
         require(parse_video_settings(encode_video_settings(s)) == s,
             "render scale round trip");
+    }
+    for (const auto rate : {FrameRate::original, FrameRate::sixty,
+                            FrameRate::display, FrameRate::unlocked}) {
+        VideoSettings s;
+        s.framerate = rate;
+        require(parse_video_settings(encode_video_settings(s))->framerate == rate,
+            "frame rate round trip");
     }
     for (const std::uint8_t samples : {std::uint8_t{1}, std::uint8_t{2}, std::uint8_t{4}, std::uint8_t{8}}) {
         VideoSettings s;
@@ -110,9 +122,12 @@ int main() {
     // Missing keys keep defaults; unknown keys (newer builds) are ignored.
     require(parse_video_settings("version=2\nvsync=off\n")->vsync == false,
         "partial file");
-    require(parse_video_settings("version=2\nframerate=unlocked\nvsync=off\n")
+    require(parse_video_settings("version=2\nfuture_option=7\nvsync=off\n")
                 ->vsync == false,
         "unknown keys ignored");
+    require(parse_video_settings("version=2\nframerate=60\n")->framerate ==
+                FrameRate::sixty,
+        "framerate=60");
     for (const char* bad : {
              "", "version=1\naspect=original",  // no final line break
              "version=3\n", "aspect=original\nversion=2\n",
@@ -125,7 +140,8 @@ int main() {
              "version=2\nrender_size=100x100\n", "version=2\nmsaa=16x\n",
              "version=2\nvsync=yes\n", "version=2\nfps_counter=\n",
              "version=2\n=on\n", "version=2\nnoequals\n",
-             "version=2\nBad-Key=1\n"})
+             "version=2\nBad-Key=1\n", "version=2\nframerate=144\n",
+             "version=2\ninterpolate_objects=yes\n"})
         require(!parse_video_settings(bad), "invalid settings rejected");
     require(!parse_video_settings(std::string(2000U, 'x')), "oversized file");
 

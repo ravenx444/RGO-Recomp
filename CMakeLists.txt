@@ -271,6 +271,7 @@ if(JFG_ENABLE_RT64)
 
     include(cmake/rt64_vi_presentation.cmake)
     include(cmake/rt64_depth_bounds.cmake)
+    include(cmake/rt64_frame_interpolation.cmake)
 
     # The pinned Plume D3D12 backend assumes every CopyTextureRegion
     # destination is a texture when configuring programmable sample

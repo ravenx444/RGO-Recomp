@@ -42,6 +42,15 @@ enum class RenderMode : std::uint8_t {
     custom,
 };
 
+// RGO frame interpolation: how many frames RT64 presents. Game logic keeps
+// its original rate; RT64 renders blended frames in between.
+enum class FrameRate : std::uint8_t {
+    original,  // one frame per game frame (30 or 20 fps)
+    sixty,     // 60 fps
+    display,   // the display's refresh rate
+    unlocked,  // as many as RT64 can render, uncapped
+};
+
 struct PixelSize {
     std::uint32_t width = 0U;
     std::uint32_t height = 0U;
@@ -88,6 +97,9 @@ struct VideoSettings {
     std::uint8_t msaa = 1U;  // sample count: 1, 2, 4 or 8
     bool vsync = true;
     bool fps_counter = false;
+    FrameRate framerate = FrameRate::original;
+    // Experimental (no settings page entry yet): also blend object matrices.
+    bool interpolate_objects = false;
     friend bool operator==(const VideoSettings&, const VideoSettings&) = default;
 };
 
@@ -197,7 +209,14 @@ parse_pair(std::string_view text, const char separator) noexcept {
     text += settings.msaa <= 1U ? std::string("off")
                                 : std::to_string(settings.msaa) + "x";
     text += settings.vsync ? "\nvsync=on" : "\nvsync=off";
-    text += settings.fps_counter ? "\nfps_counter=on\n" : "\nfps_counter=off\n";
+    text += settings.fps_counter ? "\nfps_counter=on" : "\nfps_counter=off";
+    text += "\nframerate=";
+    text += settings.framerate == FrameRate::sixty      ? "60"
+            : settings.framerate == FrameRate::display  ? "display"
+            : settings.framerate == FrameRate::unlocked ? "unlocked"
+                                                        : "original";
+    text += settings.interpolate_objects ? "\ninterpolate_objects=on\n"
+                                         : "\ninterpolate_objects=off\n";
     return text;
 }
 
@@ -233,9 +252,10 @@ parse_pair(std::string_view text, const char separator) noexcept {
             return std::nullopt;
         const std::string_view key = line.substr(0U, equals);
         const std::string_view value = line.substr(equals + 1U);
-        constexpr std::array<std::string_view, 10U> keys{
+        constexpr std::array<std::string_view, 12U> keys{
             "aspect", "max_aspect", "fullscreen", "output", "render",
-            "render_scale", "render_size", "msaa", "vsync", "fps_counter"};
+            "render_scale", "render_size", "msaa", "vsync", "fps_counter",
+            "framerate", "interpolate_objects"};
         const auto found = std::find(keys.begin(), keys.end(), key);
         if (found == keys.end()) {
             for (const char ch : key)
@@ -297,8 +317,16 @@ parse_pair(std::string_view text, const char separator) noexcept {
             else ok = false;
         } else if (key == "vsync") {
             ok = on_off(settings.vsync);
-        } else {
+        } else if (key == "fps_counter") {
             ok = on_off(settings.fps_counter);
+        } else if (key == "framerate") {
+            if (value == "original") settings.framerate = FrameRate::original;
+            else if (value == "60") settings.framerate = FrameRate::sixty;
+            else if (value == "display") settings.framerate = FrameRate::display;
+            else if (value == "unlocked") settings.framerate = FrameRate::unlocked;
+            else ok = false;
+        } else {
+            ok = on_off(settings.interpolate_objects);
         }
         if (!ok)
             return std::nullopt;

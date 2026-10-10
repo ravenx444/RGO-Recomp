@@ -1,6 +1,7 @@
 #include "jfg/runtime/snapshot_copy.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/frame_interpolation.hpp"
 #include "jfg/renderer/widescreen.hpp"
 
 #include "rt64_f3ddkr.hpp"
@@ -75,6 +76,8 @@ struct CaptureContext {
     std::unique_ptr<RenderBuffer> readback;
     // Written by the game thread, read by RT64's present thread.
     std::atomic<float> horizontal_extent = 1.0F;
+    // RGO: frames presented to the swap chain (interpolated ones included).
+    std::atomic<std::uint64_t> presents = 0U;
     std::vector<std::byte> pixels;
     std::size_t width = 0U;
     std::size_t height = 0U;
@@ -111,6 +114,7 @@ void capture_draw(RenderCommandList* list, RenderFramebuffer* framebuffer) {
     if (context->previous_draw != nullptr) {
         context->previous_draw(list, framebuffer);
     }
+    context->presents.fetch_add(1U, std::memory_order_relaxed);
     context->draw(list, framebuffer);
 }
 
@@ -342,6 +346,9 @@ struct Rt64Shell::Impl {
     VideoSettings video{AspectMode::original};
     float horizontal_extent = 1.0F;
     double render_multiplier = 0.0;
+    // RGO frame interpolation: the game's own rate and object matrix tags.
+    std::uint16_t game_rate = 30U;
+    Rt64MatrixTags matrix_tags;
 
     // RGO display settings: choose RT64's aspect target and render
     // resolution for the current window and VI mode, and its VSync.
@@ -405,6 +412,19 @@ struct Rt64Shell::Impl {
                 changed = true;
             }
             render_multiplier = multiplier;
+        }
+        // Frame rate: RT64 blends extra frames up to this target.
+        const Rt64RefreshPlan refresh = refresh_plan(video.framerate);
+        const auto refresh_mode = refresh.mode == Rt64RefreshMode::display
+            ? RT64::UserConfiguration::RefreshRate::Display
+            : refresh.mode == Rt64RefreshMode::manual
+                ? RT64::UserConfiguration::RefreshRate::Manual
+                : RT64::UserConfiguration::RefreshRate::Original;
+        if (config.refreshRate != refresh_mode ||
+            config.refreshRateTarget != refresh.target) {
+            config.refreshRate = refresh_mode;
+            config.refreshRateTarget = refresh.target;
+            changed = true;
         }
         if (changed)
             app.updateUserConfig(false);
@@ -942,6 +962,14 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
             impl_->application->emulatorConfig.framebuffer.copyWithGPU = false;
         impl_->f3ddkr->begin(impl_->task_rdram);
         impl_->f3ddkr->install();
+        // RGO frame interpolation: tell RT64 the game's own rate for this
+        // task (RT64 would otherwise infer 60 from this port's presents) and
+        // give the shell the camera and object matrix tags.
+        const bool interpolating = interpolation_requested(impl_->video.framerate);
+        impl_->f3ddkr->set_interpolation(interpolating,
+            impl_->video.interpolate_objects, &impl_->matrix_tags);
+        if (interpolating)
+            application.state->setRefreshRate(impl_->game_rate);
         const auto rdram_check_start = std::chrono::steady_clock::now();
         // Refresh CPU-owned intensity buffers when they are next drawn. Texture
         // loads already use RAM; invalidate render contents for the next draw
@@ -1112,6 +1140,34 @@ void Rt64Shell::set_video_settings(const VideoSettings& settings) noexcept {
 
 double Rt64Shell::render_multiplier() const noexcept {
     return impl_ != nullptr ? impl_->render_multiplier : 0.0;
+}
+
+void Rt64Shell::set_game_rate(const std::uint16_t rate) noexcept {
+    if (impl_ != nullptr)
+        impl_->game_rate = static_cast<std::uint16_t>(
+            std::clamp<unsigned>(rate, 10U, 60U));
+}
+
+void Rt64Shell::tag_matrix(const std::uint32_t physical_address,
+                           const std::uint32_t words_hash,
+                           const std::uint32_t id) noexcept {
+    if (impl_ == nullptr)
+        return;
+    try {
+        // Tags are checked against the matrix words, so old entries are
+        // harmless; bound the table instead of tracking frame boundaries.
+        if (impl_->matrix_tags.size() >= 65536U)
+            impl_->matrix_tags.clear();
+        impl_->matrix_tags[physical_address & 0x00FFFFFFU] = {words_hash, id};
+    }
+    catch (...) {
+    }
+}
+
+std::uint64_t Rt64Shell::display_presents() const noexcept {
+    return impl_ != nullptr && impl_->capture != nullptr
+        ? impl_->capture->presents.load(std::memory_order_relaxed)
+        : 0U;
 }
 
 float Rt64Shell::horizontal_extent() const noexcept {

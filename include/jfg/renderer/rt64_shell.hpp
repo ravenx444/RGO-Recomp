@@ -214,6 +214,16 @@ public:
     void set_video_settings(const VideoSettings& settings) noexcept;
     // RT64's resolution multiplier for the last submitted frame (0 before).
     [[nodiscard]] double render_multiplier() const noexcept;
+    // RGO frame interpolation. The game's logic rate (60 / VIs per game
+    // frame) for the next tasks; RT64 blends frames up to the Frame rate
+    // setting's target.
+    void set_game_rate(std::uint16_t rate) noexcept;
+    // An object matrix the game wrote at physical_address with these words,
+    // and its interpolation ID (frame_interpolation.hpp).
+    void tag_matrix(std::uint32_t physical_address, std::uint32_t words_hash,
+                    std::uint32_t id) noexcept;
+    // Frames presented to the swap chain so far, interpolated ones included.
+    [[nodiscard]] std::uint64_t display_presents() const noexcept;
     // How much wider than the game's own projection the last submitted frame
     // is presented (1.0 when widescreen is off or the window is 4:3).
     [[nodiscard]] float horizontal_extent() const noexcept;

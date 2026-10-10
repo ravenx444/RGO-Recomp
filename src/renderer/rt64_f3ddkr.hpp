@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <unordered_map>
+#include <utility>
 
 namespace RT64 {
 struct Application;
@@ -48,6 +50,11 @@ inline constexpr std::uint32_t kF3ddkrRejectReturnStackUnderflow = 7U;
 inline constexpr std::uint32_t kF3ddkrRejectTextureShiftWrap = 9U;
 inline constexpr std::uint32_t kF3ddkrRejectMoveMemRange = 10U;
 
+// RGO frame interpolation: object matrix tags recorded by the game hooks,
+// by physical matrix address: {hash of the matrix words, interpolation ID}.
+using Rt64MatrixTags =
+    std::unordered_map<std::uint32_t, std::pair<std::uint32_t, std::uint32_t>>;
+
 class Rt64F3ddkr final {
 public:
     explicit Rt64F3ddkr(RT64::Application& application);
@@ -59,6 +66,10 @@ public:
     void install() noexcept;
     // Accept geometry up to extent * w horizontally (RGO widescreen).
     void set_horizontal_extent(float extent) noexcept;
+    // RGO frame interpolation: give RT64 the camera and matrix IDs so it can
+    // blend frames. Off (the default) keeps the original matrix handling.
+    void set_interpolation(bool enabled, bool objects,
+                           const Rt64MatrixTags* tags) noexcept;
     [[nodiscard]] bool complete() const noexcept;
     [[nodiscard]] std::size_t command_count() const noexcept;
     [[nodiscard]] Rt64F3ddkrStats stats() const noexcept;
