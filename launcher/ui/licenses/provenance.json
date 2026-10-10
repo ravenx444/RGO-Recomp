@@ -9,6 +9,11 @@
     "freetype": {
       "repository": "https://github.com/freetype/freetype",
       "commit": "526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b"
+    },
+    "sdl2": {
+      "repository": "https://github.com/libsdl-org/SDL",
+      "release": "2.26.3",
+      "archive_sha256": "c661205a553b7d252425f4b751ff13209e5e020b876bbfa1598494af61790057"
     }
   },
   "sources": {
@@ -123,6 +128,10 @@
     "freetype/docs/FTL.TXT": {
       "url": "https://github.com/freetype/freetype/blob/526ec5c47b9ebccc4754c85ac0c0cdf7c85a5e9b/docs/FTL.TXT",
       "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
+    },
+    "sdl2/LICENSE.txt": {
+      "url": "https://github.com/libsdl-org/SDL/blob/release-2.26.3/LICENSE.txt",
+      "sha256": "9928507f684c1965d07f2b6ef4b4723d5efc2f6b4ab731f743a413c51c319927"
     }
   },
   "notice_sha256": {
@@ -130,7 +139,8 @@
     "FreeType-ThirdParty.txt": "a66e314677c8f00988eb0b3b8e5363ae37e568cb8f44be30c4203a3def0285b1",
     "RmlUi-Containers-MIT.txt": "f8314901f32a5e132372f2568c77d5482d226582bbc92456d9d4d486029835a6",
     "RmlUi-Debugger-OFL.txt": "8d5167099532ac2f0cf25a95e9d70572837d6fd22f47718206ca147915945f49",
-    "RmlUi-MIT.txt": "64c049f65ec810b805457dc1f24745002203f919ea5a16b6fcd7ca5f45ea298e"
+    "RmlUi-MIT.txt": "64c049f65ec810b805457dc1f24745002203f919ea5a16b6fcd7ca5f45ea298e",
+    "SDL2-zlib.txt": "9928507f684c1965d07f2b6ef4b4723d5efc2f6b4ab731f743a413c51c319927"
   },
   "hash_convention": "SHA-256 of UTF-8 notice text with LF newlines; source hashes are exact Git blob bytes.",
   "optional_coverage": "RmlUi Debugger font notice retained because the aggregate target links Debugger; linker dead stripping may omit these assets. FreeType HarfBuzz-source notices retained although external HarfBuzz is disabled."

@@ -292,7 +292,10 @@ status, settings and clickable binding fields ([input settings source](https://g
 Dolphin's mapping window also informs refreshing discovery without changing
 saved selections ([source](https://github.com/dolphin-emu/dolphin/blob/master/Source/Core/DolphinQt/Config/Mapping/MappingWindow.cpp)).
 These are independently implemented interaction patterns in RmlUi. JFG currently
-uses one input device per player and discovers gamepads through XInput.
+uses one input device per player. RGO discovers gamepads through SDL2's
+GameController API (DualShock 4, DualSense, Switch Pro and Xbox controllers),
+shows the controller's own button names, and plays the game's rumble; see
+[docs/rgo/input.md](../rgo/input.md).
 
 **Mouse and keyboard** shows key and mouse-button bindings with experimental
 mouse options. A gamepad shows controller bindings and experimental dual-stick

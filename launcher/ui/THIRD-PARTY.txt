@@ -24,6 +24,11 @@ FreeType 2.14.1
   HarfBuzz-derived source notices: licenses/FreeType-ThirdParty.txt
   External HarfBuzz integration is disabled; its source notices are retained.
 
+SDL 2.26.3
+  Release archive: SDL2-2.26.3.tar.gz (libsdl-org/SDL release-2.26.3)
+  zlib license: licenses/SDL2-zlib.txt
+  Linked statically for game controller input.
+
 Barlow and Chakra Petch fonts
   SIL Open Font License 1.1:
     licenses/Barlow-OFL.txt

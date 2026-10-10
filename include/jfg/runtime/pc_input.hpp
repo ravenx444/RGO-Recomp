@@ -18,6 +18,8 @@ struct PcInputConfig {
   int dual_stick = 0, aim_sensitivity = 100, aim_deadzone = 7849, aim_invert_y = 0;
   int mouse_aim_sensitivity = 100, camera_sensitivity = 100, aim_curve = 0;
   int mouse_vertical_sensitivity = 100, stick_vertical_sensitivity = 100;
+  // RGO (version 4) extension settings; see kPcExtensions.
+  int rumble = 100;
   // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A.
   std::array<int,20> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
                            'W','S','A','D',16,'Z'};
@@ -40,21 +42,28 @@ inline constexpr std::array<std::string_view,14> kPcSettings{
   "aim_sensitivity","aim_deadzone","aim_invert_y","modern",
   "mouse_aim_sensitivity","camera_sensitivity","aim_curve",
   "mouse_vertical_sensitivity","stick_vertical_sensitivity"};
+// RGO: version 4 adds these optional settings. A missing one keeps its default,
+// so files written before a setting existed still load.
+struct PcExtension { std::string_view name; int minimum, maximum; int PcInputConfig::*field; };
+inline constexpr std::array<PcExtension,1> kPcExtensions{{
+  {"rumble",0,200,&PcInputConfig::rumble}}};
 inline std::string serialize_pc_input(const PcInputConfig &c) {
-  const std::array<int,14> values{3,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
+  const std::array<int,14> values{4,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
     c.dual_stick,c.aim_sensitivity,c.aim_deadzone,c.aim_invert_y,c.modern,
     c.mouse_aim_sensitivity,c.camera_sensitivity,c.aim_curve,
     c.mouse_vertical_sensitivity,c.stick_vertical_sensitivity};
   std::ostringstream out;
   for (std::size_t i=0;i<values.size();++i) out<<kPcSettings[i]<<'='<<values[i]<<'\n';
+  for (const auto &e:kPcExtensions) out<<e.name<<'='<<c.*e.field<<'\n';
   for (std::size_t i=0;i<c.keys.size();++i) out<<"key"<<i<<'='<<c.keys[i]<<'\n';
   return out.str();
 }
 inline bool parse_pc_input(std::string_view text,PcInputConfig &result) {
   if(text.empty() || text.size()>4096) return false;
   PcInputConfig c;
-  std::array<int,34> values{};
-  std::array<bool,34> seen{};
+  constexpr std::size_t kExtensionSlot=34;
+  std::array<int,kExtensionSlot+kPcExtensions.size()> values{};
+  std::array<bool,kExtensionSlot+kPcExtensions.size()> seen{};
   while(!text.empty()) {
     const auto n=text.find('\n');auto line=text.substr(0,n);
     text=n==text.npos?std::string_view{}:text.substr(n+1);
@@ -64,12 +73,18 @@ inline bool parse_pc_input(std::string_view text,PcInputConfig &result) {
     std::size_t slot=seen.size();
     for(std::size_t i=0;i<kPcSettings.size();++i)if(key==kPcSettings[i])slot=i;
     for(std::size_t i=0;i<c.keys.size();++i)if(key=="key"+std::to_string(i))slot=i+kPcSettings.size();
+    for(std::size_t i=0;i<kPcExtensions.size();++i)if(key==kPcExtensions[i].name)slot=kExtensionSlot+i;
     if(slot==seen.size() || seen[slot] || value.empty())return false;
     int number=0;const auto parsed=std::from_chars(value.data(),value.data()+value.size(),number);
     if(parsed.ec!=std::errc{} || parsed.ptr!=value.data()+value.size() || value!=std::to_string(number))return false;
     seen[slot]=true;values[slot]=number;
   }
-  if(values[0]<1 || values[0]>3)return false;
+  if(values[0]<1 || values[0]>4)return false;
+  for(std::size_t i=0;i<kPcExtensions.size();++i) {
+    const auto &e=kPcExtensions[i];auto &value=values[kExtensionSlot+i];
+    if(!seen[kExtensionSlot+i]){value=c.*e.field;seen[kExtensionSlot+i]=true;}
+    else if(values[0]<4 || value<e.minimum || value>e.maximum)return false;
+  }
   if(values[0]<3) {
     for(std::size_t i=9;i<kPcSettings.size();++i){if(seen[i])return false;seen[i]=true;}
     values[9]=values[2];values[10]=values[5];values[11]=0;values[12]=values[13]=100;
@@ -89,6 +104,7 @@ inline bool parse_pc_input(std::string_view text,PcInputConfig &result) {
   c.dual_stick=values[4];c.aim_sensitivity=values[5];c.aim_deadzone=values[6];c.aim_invert_y=values[7];
   c.modern=values[8];c.mouse_aim_sensitivity=values[9];c.camera_sensitivity=values[10];c.aim_curve=values[11];
   c.mouse_vertical_sensitivity=values[12];c.stick_vertical_sensitivity=values[13];
+  for(std::size_t i=0;i<kPcExtensions.size();++i)c.*kPcExtensions[i].field=values[kExtensionSlot+i];
   result=c;return true;
 }
 inline PcInputConfig pc_keyboard_preset(bool expert=false) {

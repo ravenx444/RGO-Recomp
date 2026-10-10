@@ -8,7 +8,7 @@ GPL requirements where GPL-covered components are used.
 
 Third-party font files are vendored under `launcher/ui/fonts`, with their
 SIL Open Font License notices and source/hash manifest. The launcher statically
-links RmlUi and FreeType, fetched at the revisions in `launcher/ui/CMakeLists.txt`.
+links RmlUi, FreeType and SDL 2.26.3, fetched at the revisions in `launcher/ui/CMakeLists.txt`.
 Their retained notices are indexed in [launcher notices](launcher/ui/THIRD-PARTY.txt)
 and [notice provenance](launcher/ui/licenses/provenance.json).
 
@@ -59,6 +59,7 @@ to the upstream algorithm; the project license does not override upstream rights
 | RmlUi's robin_hood and itlib containers | [MIT notices](launcher/ui/licenses/RmlUi-Containers-MIT.txt) |
 | RmlUi Debugger's Courier Prime Code fonts | [OFL notice](launcher/ui/licenses/RmlUi-Debugger-OFL.txt); retained for the aggregate target, including assets that the linker may omit |
 | FreeType 2.14.1 | [FreeType License](launcher/ui/licenses/FreeType-FTL.txt) and [component notices](launcher/ui/licenses/FreeType-ThirdParty.txt), including BDF/PCF, The Open Group, hashing, zlib and HarfBuzz-derived source |
+| SDL 2.26.3 (static, controller input) | [zlib](launcher/ui/licenses/SDL2-zlib.txt) |
 | Barlow | [SIL OFL 1.1](launcher/ui/fonts/Barlow-OFL.txt) |
 | Chakra Petch | [SIL OFL 1.1](launcher/ui/fonts/ChakraPetch-OFL.txt) |
 

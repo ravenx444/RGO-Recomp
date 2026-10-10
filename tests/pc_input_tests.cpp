@@ -30,7 +30,7 @@ int main() {
   auto replace=[&](std::string a,std::string b){auto t=text;t.replace(t.find(a),a.size(),b);invalid(t);};
   replace("key0=32","key0=258");replace("key0=32","key0=-1");replace("mouse_sensitivity=100","mouse_sensitivity=0");
   replace("aim_deadzone=7849","aim_deadzone=32767");replace("dual_stick=0","dual_stick=2");replace("key0=32","key0=32junk");
-  replace("version=3","version=4");invalid(std::string(4097,'x'));
+  replace("version=4","version=5");invalid(std::string(4097,'x'));
   std::array<bool,258> keys{};
   const auto sample=[&](){return jfg::map_pc_keyboard(config,[&](int k){return keys[static_cast<std::size_t>(k)];});};
   keys['W']=keys['D']=true;auto move=sample();check(move.x==80&&move.y==80,"movement directions");
@@ -69,10 +69,10 @@ int main() {
   check(gate.blocked(true,raw),"settings capture");raw[0].buttons=1;check(gate.blocked(false,raw),"aim deflection prevents premature release");raw[0].buttons=0;check(!gate.blocked(false,raw),"neutral release");
   config=jfg::pc_keyboard_preset();check(config.modern==1,"modern keyboard preset");
   auto old=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble"}) {
     const auto at=old.find(std::string(name)+"=");old.erase(at,old.find('\n',at)-at+1);
   }
-  old.replace(old.find("version=3"),9,"version=1");
+  old.replace(old.find("version=4"),9,"version=1");
   old.erase(old.find("modern=1\n"),9);
   check(jfg::parse_pc_input(old,roundtrip) && !roundtrip.modern,"v1 profile retains legacy aim");
   config={};mouse.add(10,-5);auto angular=mouse.take_angles(config);
@@ -119,16 +119,29 @@ int main() {
   pad.axes[2]=0;check(jfg::pc_aim_stick(config,pad,0)==jfg::N64StickSample{},"curve neutral stays neutral");
   config={};config.mouse_sensitivity=175;config.aim_sensitivity=125;
   auto v2=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble"}) {
     const auto at=v2.find(std::string(name)+"=");v2.erase(at,v2.find('\n',at)-at+1);
   }
-  v2.replace(v2.find("version=3"),9,"version=2");
+  v2.replace(v2.find("version=4"),9,"version=2");
   check(jfg::parse_pc_input(v2,roundtrip)&&roundtrip.mouse_aim_sensitivity==175&&roundtrip.camera_sensitivity==125&&roundtrip.aim_curve==0,"v2 migration preserves both existing look speeds");
   invalid(v2+"camera_sensitivity=100\n");
   config.aim_curve=2;config.mouse_aim_sensitivity=50;config.camera_sensitivity=150;config.mouse_vertical_sensitivity=80;config.stick_vertical_sensitivity=120;
   check(jfg::parse_pc_input(jfg::serialize_pc_input(config),roundtrip)&&jfg::serialize_pc_input(roundtrip)==jfg::serialize_pc_input(config),"all v3 settings roundtrip");
   replace("aim_curve=0","aim_curve=3");replace("camera_sensitivity=100","camera_sensitivity=301");
   replace("mouse_vertical_sensitivity=100","mouse_vertical_sensitivity=0");
+  // RGO version 4: optional extension settings with defaults.
+  replace("rumble=100","rumble=201");replace("rumble=100","rumble=-1");
+  {
+    auto v3=text;v3.replace(v3.find("version=4"),9,"version=3");
+    invalid(v3);
+    v3.erase(v3.find("rumble=100\n"),11);
+    check(jfg::parse_pc_input(v3,roundtrip)&&roundtrip.rumble==100,"v3 profile loads with default rumble");
+    auto v4=text;v4.erase(v4.find("rumble=100\n"),11);
+    check(jfg::parse_pc_input(v4,roundtrip)&&roundtrip.rumble==100,"missing v4 extension keeps its default");
+    jfg::PcInputConfig quiet;quiet.rumble=0;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(quiet),roundtrip)&&roundtrip.rumble==0,"rumble strength roundtrips");
+    invalid(text+"rumble=50\n");
+  }
   jfg::ControllerMapping guestMapping;
   jfg::StandardControllerSample menuPad;menuPad.axes[2]=32767;
   jfg::PcInputConfig dual;dual.dual_stick=dual.modern=1;

@@ -42,8 +42,9 @@ older build does not acquire these code changes.
 4. **Multiplayer.** Modern camera and movement hooks currently require
    single-player gameplay. Split-screen support needs separate implementation
    and qualification; ordinary mapped controller inputs remain available.
-5. **Additional controller backends.** Controller discovery currently uses
-   XInput. Native support for other device APIs remains separate work.
+5. **Additional controller backends.** RGO: controller discovery now uses
+   SDL2 (DualShock 4, DualSense, Switch Pro, Xbox); see
+   [docs/rgo/input.md](../rgo/input.md).
 
 These items are documented for later work. Do not resume the camera or KBM
 feature investigation merely because this backlog exists.
