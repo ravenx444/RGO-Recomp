@@ -65,6 +65,7 @@
 #include "jfg/evidence/g2_private_task_adapter.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
+#include "jfg/renderer/widescreen.hpp"
 #include "jfg/runtime/audio_task_bridge.hpp"
 #include "jfg/runtime/input_replay.hpp"
 #include "jfg/runtime/save_device_runtime.hpp"
@@ -1656,6 +1657,15 @@ struct State : JfgOriginalTimingFast {
   std::uint32_t vi_mode_control = 0U;
   void *native_window = nullptr;
   jfg::ViPresentationSize window_presentation{320U, 240U};
+  // RGO widescreen. The launcher passes its profile's video.ini through
+  // JFG_VIDEO_CONFIG; edits apply live while playing.
+  bool video_settings_checked = false;
+  bool widescreen = false;
+  float widescreen_extent = 1.0F;
+  std::chrono::steady_clock::time_point video_settings_next_read{};
+#if defined(_WIN32)
+  std::unique_ptr<jfg::AsyncVolumeFile> video_settings_file;
+#endif
   std::unique_ptr<jfg::Rt64Shell> rt64_shell;
   std::vector<std::byte> rt64_rdram;
   std::uint32_t graphics_color_image = 0U;
@@ -2320,6 +2330,42 @@ bool service_host_audio(State &state, const bool pace) {
   return true;
 }
 
+// RGO widescreen: follow the launcher's video settings while playing.
+void refresh_video_settings(State &state) {
+  if (!state.video_settings_checked) {
+    state.video_settings_checked = true;
+    wchar_t *path = nullptr;
+    std::size_t length = 0;
+    if (_wdupenv_s(&path, &length, L"JFG_VIDEO_CONFIG") == 0 && path) {
+      const std::filesystem::path config(path);
+      std::free(path);
+      // A missing or unreadable file means the default setting.
+      state.widescreen =
+          jfg::VideoSettings{}.aspect == jfg::AspectMode::widescreen;
+      if (!config.empty()) {
+        state.video_settings_file = std::make_unique<jfg::AsyncVolumeFile>();
+        state.video_settings_file->start(config);
+      }
+    } else {
+      // Direct runs without a launcher profile: interactive play gets the
+      // default, while replays and captures keep the original picture.
+      state.widescreen = state.play_mode && !state.input_replay_loaded;
+    }
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (state.video_settings_file && now >= state.video_settings_next_read) {
+    state.video_settings_next_read = now + std::chrono::milliseconds(250);
+    // A partial replacement fails to parse and keeps the last setting.
+    if (const auto text = state.video_settings_file->latest())
+      if (const auto settings = jfg::parse_video_settings(*text))
+        state.widescreen = settings->aspect == jfg::AspectMode::widescreen;
+  }
+  if (state.rt64_shell != nullptr) {
+    state.rt64_shell->set_widescreen(state.widescreen);
+    state.widescreen_extent = state.rt64_shell->horizontal_extent();
+  }
+}
+
 void service_live_window(State &state) {
   state.window_input.consume(state.host_keys,state.host_key_presses,state.exit_requested);
   {
@@ -2349,8 +2395,13 @@ void service_live_window(State &state) {
   }
   state.host_frame_start = frame_start;
   state.host_frame_start_initialized = true;
-  const auto presentation = jfg::vi_presentation_size(
+  auto presentation = jfg::vi_presentation_size(
       state.vi_mode_horizontal_start, state.rt64_vi.vertical_start);
+  // RGO widescreen: a standalone window opens out to at least 16:9; the
+  // renderer then fills whatever shape the player gives it.
+  if (state.widescreen && presentation.valid() &&
+      presentation.width * 9U < presentation.height * 16U)
+    presentation = {presentation.height * 16U / 9U, presentation.height};
   if (state.native_window != nullptr && presentation.valid() &&
       presentation.width * state.window_presentation.height !=
           state.window_presentation.width * presentation.height) {
@@ -5297,6 +5348,7 @@ void present_completed_video(State &state, const std::uint32_t target) {
           state.rt64_rdram, jfg::Rt64MemoryLayout::host_word_swapped);
       if (state.last_rt64_error != jfg::Rt64ShellError::none)
         fail_closed_dispatch(state, "renderer", "present-cpu-import", target);
+      refresh_video_settings(state);
       write_private_progress(state, "graphics-present-begin");
       const auto present_start = std::chrono::steady_clock::now();
       const bool capture_frame = !state.frame_capture_path.empty() &&
@@ -5512,6 +5564,40 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     fail_closed_dispatch(state, "mmio", "unsupported-register", target);
   ++state.dispatch_calls;
 #if defined(_WIN32) && defined(JFG_PHASE8_LIVE_RUNTIME)
+  // RGO widescreen: the track renderer culls level blocks against fixed
+  // camera-space side planes sized for the original picture. Open them by
+  // the presented horizontal extent while func_800158BC builds the planes,
+  // then restore the table. Qualify the routine by its prologue.
+  if (target == 0x800158BCU && state.widescreen_extent > 1.0F) {
+    hle::GuestMemory memory({rdram, kRdramSize},
+                           hle::GuestMemory::Layout::native_word_big_endian);
+    constexpr auto triangles = jfg::kTrackFrustumTrianglesAddress;
+    std::array<std::uint32_t, jfg::kTrackFrustumFloatCount> saved{};
+    std::uint32_t first = 0U, second = 0U;
+    bool qualified = memory.read_u32(target, first) &&
+        memory.read_u32(target + 4U, second) && first == 0x27BDFF30U &&
+        second == 0xAFB1005CU;
+    for (std::size_t index = 0U; qualified && index < saved.size(); ++index)
+      qualified = memory.read_u32(
+          triangles + static_cast<std::uint32_t>(index * 4U), saved[index]);
+    recomp_func_t *const original = qualified
+        ? jfg_generated_lookup_function(static_cast<std::int32_t>(target))
+        : nullptr;
+    if (original) {
+      std::array<float, jfg::kTrackFrustumFloatCount> widened{};
+      for (std::size_t index = 0U; index < saved.size(); ++index)
+        widened[index] = std::bit_cast<float>(saved[index]);
+      jfg::widen_track_frustum(widened, state.widescreen_extent);
+      for (std::size_t index = 0U; index < saved.size(); ++index)
+        (void)memory.write_u32(triangles + static_cast<std::uint32_t>(index * 4U),
+                               std::bit_cast<std::uint32_t>(widened[index]));
+      original(rdram, context);
+      for (std::size_t index = 0U; index < saved.size(); ++index)
+        (void)memory.write_u32(triangles + static_cast<std::uint32_t>(index * 4U),
+                               saved[index]);
+      return 1;
+    }
+  }
   // The normal camera has computed its desired point, but has not yet run
   // scenery constraints. Feed the orbit into that existing solver, never over
   // its final position. Qualify both the owning routine and this call site.

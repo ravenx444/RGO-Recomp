@@ -7,6 +7,7 @@ struct FrontendUiState {
   bool playing = false, busy = false, fullscreen = false, mods = false;
   std::wstring rom, runtime, status;
   bool pauseInactive = false;
+  bool widescreen = true;
 };
 bool FrontendUiInit(HWND, const std::filesystem::path &,
                     std::function<void(const std::string &)>, const std::string &tool = "");

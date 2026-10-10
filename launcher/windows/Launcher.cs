@@ -98,6 +98,7 @@ namespace JfgLauncher
             string target = PrepareNavigationProfile(profile);
             ProcessStartInfo info = StartInfo(runtime, rom, target);
             info.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] = AudioPreferences.FileName(profile);
+            info.EnvironmentVariables["JFG_VIDEO_CONFIG"] = VideoPreferences.FileName(profile);
             // Each run has a new export directory, so old maps cannot look current.
             string exports = Path.Combine(target, "maps", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
             info.EnvironmentVariables["JFG_NAVIGATION_MOD"] = "1";
@@ -251,6 +252,7 @@ namespace JfgLauncher
                 info.EnvironmentVariables["JFG_CONTROLLER_CONFIG"] = ControllerProfile.FileName(profile);
             }
             info.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] = AudioPreferences.FileName(profile);
+            info.EnvironmentVariables["JFG_VIDEO_CONFIG"] = VideoPreferences.FileName(profile);
             return info;
         }
 

@@ -299,6 +299,8 @@ internal static class FrontendBridge
                         ControllerProfile.FileName(root);
                     process.StartInfo.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] =
                         AudioPreferences.FileName(root);
+                    process.StartInfo.EnvironmentVariables["JFG_VIDEO_CONFIG"] =
+                        VideoPreferences.FileName(root);
                     if (owner != IntPtr.Zero)
                         process.StartInfo.EnvironmentVariables["JFG_FRONTEND_PARENT"] =
                             owner.ToInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);

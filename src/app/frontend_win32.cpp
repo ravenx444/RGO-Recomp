@@ -13,6 +13,7 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
+#include "jfg/renderer/widescreen.hpp"
 #ifdef JFG_RML_UI
 #include "native_ui.hpp"
 #endif
@@ -70,7 +71,8 @@ struct App {
   std::vector<std::unique_ptr<Process>> tools;
   std::vector<HWND> liveModals;
   bool playing = false, setting = false, fullscreen = false, closing = false,
-       mods = false, pauseInactive = false, manualPause = false;
+       mods = false, pauseInactive = false, manualPause = false,
+       widescreen = true;
   bool stopRequested = false, initializing = true;
   ULONGLONG startedAt = 0;
   UINT dpi = 96;
@@ -121,6 +123,14 @@ bool write(const wchar_t *name, const std::wstring &value) {
   return MoveFileExW(temporary.c_str(), path.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) !=
          FALSE;
+}
+// RGO widescreen: the game follows the same profile file while it runs.
+bool readWidescreen() {
+  // read() drops the final line break that the settings format requires.
+  const auto settings =
+      jfg::parse_video_settings(utf8(read(L"video.ini")) + "\n");
+  return settings.value_or(jfg::VideoSettings{}).aspect ==
+         jfg::AspectMode::widescreen;
 }
 std::wstring text(HWND control) {
   int n = GetWindowTextLengthW(control);
@@ -461,6 +471,15 @@ void uiAction(const std::string &a) {
     else status(L"Cannot save the pause preference.");
     return;
   }
+  if (a == "aspect-original" || a == "aspect-widescreen") {
+    const jfg::VideoSettings settings{a == "aspect-widescreen"
+                                          ? jfg::AspectMode::widescreen
+                                          : jfg::AspectMode::original};
+    if (write(L"video.ini", wide(jfg::encode_video_settings(settings))))
+      app.widescreen = settings.aspect == jfg::AspectMode::widescreen;
+    else status(L"Cannot save the video settings.");
+    return;
+  }
   if (a == "play") {
     if (text(app.rom).empty()) {
       pick(true);
@@ -622,6 +641,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
     app.status = control(L"STATIC", L"Preparing your profile...", SS_LEFT, 0);
     app.mods = read(L"frontend-mods.txt") == L"1";
     app.pauseInactive = read(L"frontend-pause-inactive.txt") == L"1";
+    app.widescreen = readWidescreen();
     CheckMenuItem(app.menu, Mods,
                   MF_BYCOMMAND | (app.mods ? MF_CHECKED : MF_UNCHECKED));
 #ifdef JFG_RML_UI
@@ -730,7 +750,8 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       syncUiCapture();
       FrontendUiFrame({app.render && IsWindow(app.render),
                        app.session.running(), app.fullscreen, app.mods,
-                       text(app.rom), text(app.runtime), app.lastStatus, app.pauseInactive});
+                       text(app.rom), text(app.runtime), app.lastStatus, app.pauseInactive,
+                       app.widescreen});
       return 0;
     }
 #endif
