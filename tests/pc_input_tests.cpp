@@ -1,4 +1,5 @@
 #include "jfg/runtime/pc_input.hpp"
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -69,7 +70,7 @@ int main() {
   check(gate.blocked(true,raw),"settings capture");raw[0].buttons=1;check(gate.blocked(false,raw),"aim deflection prevents premature release");raw[0].buttons=0;check(!gate.blocked(false,raw),"neutral release");
   config=jfg::pc_keyboard_preset();check(config.modern==1,"modern keyboard preset");
   auto old=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y"}) {
     const auto at=old.find(std::string(name)+"=");old.erase(at,old.find('\n',at)-at+1);
   }
   old.replace(old.find("version=4"),9,"version=1");
@@ -119,7 +120,7 @@ int main() {
   pad.axes[2]=0;check(jfg::pc_aim_stick(config,pad,0)==jfg::N64StickSample{},"curve neutral stays neutral");
   config={};config.mouse_sensitivity=175;config.aim_sensitivity=125;
   auto v2=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y"}) {
     const auto at=v2.find(std::string(name)+"=");v2.erase(at,v2.find('\n',at)-at+1);
   }
   v2.replace(v2.find("version=4"),9,"version=2");
@@ -134,7 +135,7 @@ int main() {
   {
     auto v3=text;v3.replace(v3.find("version=4"),9,"version=3");
     invalid(v3);
-    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed"}) {
+    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y"}) {
       const auto at=v3.find(std::string(name)+"=");v3.erase(at,v3.find('\n',at)-at+1);
     }
     check(jfg::parse_pc_input(v3,roundtrip)&&roundtrip.rumble==100,"v3 profile loads with default rumble");
@@ -179,6 +180,41 @@ int main() {
     check(keyAim.take(keyConfig,down,1.0/30.0)==jfg::PcLookDelta{},"unbound aim key is ignored");
     check(jfg::pc_add_look({16000,-16000},{1000,-1000})==jfg::PcLookDelta{16384,-16384},"look sources add with a bound");
     check(jfg::pc_add_look({10,20},{-3,5})==jfg::PcLookDelta{7,25},"look sources add");
+  }
+  {
+    // RGO gyro aim settings and conversion.
+    jfg::PcInputConfig gyroConfig;
+    check(gyroConfig.gyro==1 && gyroConfig.gyro_mode==0 && gyroConfig.gyro_ratchet==-1,"gyro defaults: on, while aiming, no ratchet");
+    check(jfg::effective_pc_input(false,gyroConfig).gyro==0,"gyro needs the experimental switch");
+    gyroConfig.gyro_sensitivity=300;gyroConfig.gyro_mode=1;gyroConfig.gyro_ratchet=jfg::kBindingTouchpad;gyroConfig.gyro_invert_y=1;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(gyroConfig),roundtrip)&&roundtrip.gyro_sensitivity==300&&roundtrip.gyro_mode==1&&
+      roundtrip.gyro_ratchet==27&&roundtrip.gyro_invert_y==1,"gyro settings roundtrip");
+    const auto gyroText=jfg::serialize_pc_input(jfg::PcInputConfig{});
+    for(const auto& bad:{std::pair{"gyro_ratchet=-1","gyro_ratchet=29"},std::pair{"gyro_ratchet=-1","gyro_ratchet=-2"},
+        std::pair{"gyro_sensitivity=150","gyro_sensitivity=9"},std::pair{"gyro_mode=0","gyro_mode=2"},std::pair{"gyro=1","gyro=2"}}) {
+      auto t=gyroText;t.replace(t.find(bad.first),std::string(bad.first).size(),bad.second);
+      check(!jfg::parse_pc_input(t,roundtrip),"out-of-range gyro setting accepted");
+    }
+    gyroConfig={};gyroConfig.gyro_sensitivity=100;
+    jfg::PcGyroAim gyro;
+    constexpr double quarter=6.283185307179586/4.0;
+    auto turn=gyro.apply(gyroConfig,-quarter,0.0);
+    check(turn.x==16384 && turn.y==0,"turning the controller right 90 degrees turns the aim right 90 degrees");
+    check(gyro.apply(gyroConfig,0.0,0.0)==jfg::PcLookDelta{},"a still controller does not turn the aim");
+    turn=gyro.apply(gyroConfig,0.0,quarter/90.0);
+    check(turn.y>=181 && turn.y<=182 && turn.x==0,"nose up aims up");
+    gyroConfig.gyro_invert_y=1;
+    check(gyro.apply(gyroConfig,0.0,quarter/90.0).y<0,"gyro Y invert");
+    gyroConfig.gyro_invert_y=0;gyroConfig.gyro_sensitivity=200;
+    check(gyro.apply(gyroConfig,quarter/90.0,0.0).x<=-363,"gyro sensitivity scales and left is negative");
+    int small=0;for(int i=0;i<1000;++i)small+=gyro.apply(gyroConfig,-0.00001,0.0).x;
+    check(small>=207 && small<=209,"tiny rotations accumulate across polls");
+    check(gyro.apply(gyroConfig,std::nan(""),0.0)==jfg::PcLookDelta{},"invalid gyro data is ignored");
+    gyroConfig={};
+    check(jfg::pc_gyro_active(gyroConfig,true,false) && !jfg::pc_gyro_active(gyroConfig,false,false),"default gyro only while aiming");
+    check(!jfg::pc_gyro_active(gyroConfig,true,true),"ratchet pauses gyro");
+    gyroConfig.gyro_mode=1;check(jfg::pc_gyro_active(gyroConfig,false,false),"always mode");
+    gyroConfig.gyro=0;check(!jfg::pc_gyro_active(gyroConfig,true,false),"gyro off");
   }
   {
     jfg::PcAimLatch latch;

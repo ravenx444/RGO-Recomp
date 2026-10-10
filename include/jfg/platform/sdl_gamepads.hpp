@@ -27,6 +27,7 @@ struct GamepadInfo {
   int type = 0; // SDL_GameControllerType
   std::string name;
   bool rumble = false, light = false;
+  bool gyro = false, gyro_calibrated = false;
 };
 struct GamepadSnapshot {
   std::array<GamepadInfo, 4> info{};
@@ -78,6 +79,15 @@ public:
     out.has_light = true;
     ++out.light_sequence;
   }
+  // Gyro rotation since the last call (radians; yaw positive to the left,
+  // pitch positive nose up), bias-corrected. Zero for pads without a gyro.
+  GyroDelta take_gyro(int slot) {
+    if (slot < 0 || slot >= GamepadSlots::kCount) return {};
+    const std::lock_guard lock(mutex_);
+    const GyroDelta out = gyro_[static_cast<std::size_t>(slot)];
+    gyro_[static_cast<std::size_t>(slot)] = {};
+    return out;
+  }
   void stop_rumble() {
     for (int slot = 0; slot < GamepadSlots::kCount; ++slot) rumble(slot, 0.0F, 0.0F, 0U);
   }
@@ -94,6 +104,10 @@ private:
     SDL_GameController *controller = nullptr;
     SDL_JoystickID id = -1;
     std::uint64_t rumble_applied = 0U, light_applied = 0U;
+    bool accel = false;
+    Uint64 gyro_time = 0U;
+    std::chrono::steady_clock::time_point gyro_host{};
+    GyroIntegrator gyro;
   };
 
   static bool xinput(SDL_JoystickGUID guid) noexcept {
@@ -189,7 +203,10 @@ private:
         if (!is_xinput) SDL_GameControllerSetPlayerIndex(controller, slot);
         auto &pad = pads_[static_cast<std::size_t>(slot)];
         // A new pad does not replay an old rumble; it does take the slot's colour.
-        pad = {controller, id, output[static_cast<std::size_t>(slot)].rumble_sequence, 0U};
+        pad = {};
+        pad.controller = controller;
+        pad.id = id;
+        pad.rumble_applied = output[static_cast<std::size_t>(slot)].rumble_sequence;
         auto &info = working_.info[static_cast<std::size_t>(slot)];
         info.connected = true;
         info.type = static_cast<int>(SDL_GameControllerGetType(controller));
@@ -198,6 +215,13 @@ private:
         info.name = name ? name : std::string(gamepad_family_name(info.family));
         info.rumble = SDL_GameControllerHasRumble(controller) == SDL_TRUE;
         info.light = SDL_GameControllerHasLED(controller) == SDL_TRUE;
+        // Motion sensors (DualShock 4, DualSense, Switch Pro, Joy-Con). The
+        // accelerometer only helps tell when the controller lies still.
+        info.gyro = SDL_GameControllerHasSensor(controller, SDL_SENSOR_GYRO) == SDL_TRUE &&
+                    SDL_GameControllerSetSensorEnabled(controller, SDL_SENSOR_GYRO, SDL_TRUE) == 0;
+        pad.accel = info.gyro && SDL_GameControllerHasSensor(controller, SDL_SENSOR_ACCEL) == SDL_TRUE &&
+                    SDL_GameControllerSetSensorEnabled(controller, SDL_SENSOR_ACCEL, SDL_TRUE) == 0;
+        info.gyro_calibrated = false;
         changed = true;
       }
     for (std::size_t slot = 0; slot < pads_.size(); ++slot) {
@@ -212,6 +236,7 @@ private:
       for (int axis = 0; axis < 6; ++axis)
         sample.axes[static_cast<std::size_t>(axis)] =
             SDL_GameControllerGetAxis(pad.controller, static_cast<SDL_GameControllerAxis>(axis));
+      if (working_.info[slot].gyro) read_gyro(pad, slot);
       const auto &out = output[slot];
       if (out.rumble_sequence != pad.rumble_applied) {
         pad.rumble_applied = out.rumble_sequence;
@@ -227,6 +252,34 @@ private:
     if (changed) ++working_.generation;
     const std::lock_guard lock(mutex_);
     published_ = working_;
+    for (std::size_t slot = 0; slot < pads_.size(); ++slot) {
+      // Whatever nobody takes is bounded, so a late reader cannot get a jump.
+      const GyroDelta add = pads_[slot].gyro.take();
+      auto &total = gyro_[slot];
+      if (!pads_[slot].controller) { total = {}; continue; }
+      total.yaw = std::clamp(total.yaw + add.yaw, -0.5, 0.5);
+      total.pitch = std::clamp(total.pitch + add.pitch, -0.5, 0.5);
+    }
+  }
+  void read_gyro(Pad &pad, std::size_t slot) {
+    std::array<float, 3> rate{}, accel{};
+    Uint64 time = 0U;
+    if (SDL_GameControllerGetSensorDataWithTimestamp(pad.controller, SDL_SENSOR_GYRO, &time, rate.data(), 3) != 0)
+      return;
+    double seconds = 0.0;
+    if (time != 0U) { // sensor timestamps in microseconds, when the driver has them
+      if (time == pad.gyro_time) return; // no new report since the last poll
+      seconds = pad.gyro_time != 0U && time > pad.gyro_time ? static_cast<double>(time - pad.gyro_time) * 1e-6 : 0.0;
+      pad.gyro_time = time;
+    } else {
+      const auto now = std::chrono::steady_clock::now();
+      seconds = pad.gyro_host == std::chrono::steady_clock::time_point{} ? 0.0
+          : std::chrono::duration<double>(now - pad.gyro_host).count();
+      pad.gyro_host = now;
+    }
+    if (pad.accel) SDL_GameControllerGetSensorData(pad.controller, SDL_SENSOR_ACCEL, accel.data(), 3);
+    pad.gyro.add(rate, accel, seconds);
+    working_.info[slot].gyro_calibrated = pad.gyro.calibrated();
   }
 
   mutable std::mutex mutex_;
@@ -238,5 +291,6 @@ private:
   std::array<Pad, 4> pads_{};
   std::array<Output, 4> output_{};
   GamepadSnapshot working_{}, published_{};
+  std::array<GyroDelta, 4> gyro_{};
 };
 } // namespace jfg

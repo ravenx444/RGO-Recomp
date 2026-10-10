@@ -77,25 +77,27 @@ struct MappedControllerSample {
     std::uint16_t buttons = 0;
     N64StickSample stick{};
 };
+// Whether one binding (see ControllerMapping) is held, using the mapping's thresholds.
+inline bool binding_down(const ControllerMapping& mapping, const StandardControllerSample& sample,
+                         int binding) noexcept {
+    if (binding >= 0 && binding < 15) return sample.buttons[static_cast<std::size_t>(binding)];
+    if (binding == kBindingTouchpad || binding == kBindingMisc)
+        return sample.buttons[static_cast<std::size_t>(binding - 12)];
+    if (binding >= 15 && binding <= 26) {
+        const auto axis = static_cast<std::size_t>((binding - 15) / 2);
+        const int threshold = axis >= 4U ? mapping.trigger : mapping.threshold;
+        return (binding - 15) % 2 == 0 ? sample.axes[axis] > threshold : sample.axes[axis] < -threshold;
+    }
+    return false;
+}
 inline MappedControllerSample map_controller(const ControllerMapping& mapping,
                                              const StandardControllerSample& sample) noexcept {
     constexpr std::array<std::uint16_t, 14> masks{
         0x8000, 0x4000, 0x2000, 0x1000, 0x0800, 0x0400, 0x0200, 0x0100,
         0x0020, 0x0010, 0x0008, 0x0004, 0x0002, 0x0001};
     MappedControllerSample result;
-    for (std::size_t i = 0; i < mapping.bindings.size(); ++i) {
-        const int binding = mapping.bindings[i];
-        bool down = false;
-        if (binding >= 0 && binding < 15) down = sample.buttons[static_cast<std::size_t>(binding)];
-        else if (binding == kBindingTouchpad || binding == kBindingMisc)
-            down = sample.buttons[static_cast<std::size_t>(binding - 12)];
-        else if (binding >= 15 && binding <= 26) {
-            const auto axis = static_cast<std::size_t>((binding - 15) / 2);
-            const int threshold = axis >= 4U ? mapping.trigger : mapping.threshold;
-            down = (binding - 15) % 2 == 0 ? sample.axes[axis] > threshold : sample.axes[axis] < -threshold;
-        }
-        if (down) result.buttons |= masks[i];
-    }
+    for (std::size_t i = 0; i < mapping.bindings.size(); ++i)
+        if (binding_down(mapping, sample, mapping.bindings[i])) result.buttons |= masks[i];
     const auto axis = static_cast<std::size_t>(mapping.stick == 1 ? 2 : 0);
     // SDL Y grows downward; N64 Y grows upward. Normalize before optional inversion.
     const int x = sample.axes[axis] * (mapping.invert_x ? -1 : 1);

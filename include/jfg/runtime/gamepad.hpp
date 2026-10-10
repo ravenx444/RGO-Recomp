@@ -180,4 +180,91 @@ private:
   struct Channel { float amplitude = 0.0F; double begin = 0.0, end = 0.0; };
   std::array<Channel, 4> channels_{};
 };
+
+// Gyro integration with automatic bias calibration. SDL reports angular speed
+// in rad/s (x pitch, positive nose up; y yaw, positive turning left; z roll)
+// and acceleration in m/s^2. Controllers drift slightly at rest, so whenever
+// the controller lies still for a second the average rate becomes the bias.
+// Very small corrected rates are tightened towards zero to hide noise.
+struct GyroDelta {
+  double yaw = 0.0, pitch = 0.0; // radians since the last take()
+};
+class GyroIntegrator {
+public:
+  static constexpr double kStillSeconds = 1.0;
+  static constexpr double kStillRate = 0.15;      // rad/s on any axis
+  static constexpr double kStillSpread = 0.04;    // rad/s range within the window
+  static constexpr double kStillAccelSpread = 0.6; // m/s^2 range of |accel|
+  static constexpr double kTightening = 0.005;    // rad/s, about 0.3 deg/s
+  void add(const std::array<float, 3> &gyro, const std::array<float, 3> &accel, double seconds) noexcept {
+    if (!(seconds > 0.0) || seconds > 0.05) seconds = 0.0; // stalls and timestamp jumps
+    for (const float value : gyro)
+      if (!std::isfinite(value)) return;
+    calibrate(gyro, accel, seconds);
+    std::array<double, 3> rate{};
+    for (std::size_t i = 0; i < 3; ++i) {
+      rate[i] = static_cast<double>(gyro[i]) - bias_[i];
+      const double magnitude = std::abs(rate[i]);
+      if (magnitude < kTightening) rate[i] *= magnitude / kTightening;
+    }
+    pitch_ += rate[0] * seconds;
+    yaw_ += rate[1] * seconds;
+  }
+  GyroDelta take() noexcept {
+    const GyroDelta out{yaw_, pitch_};
+    yaw_ = pitch_ = 0.0;
+    return out;
+  }
+  void reset() noexcept { *this = GyroIntegrator{}; }
+  [[nodiscard]] bool calibrated() const noexcept { return calibrated_; }
+  [[nodiscard]] const std::array<double, 3> &bias() const noexcept { return bias_; }
+
+private:
+  void restart(const std::array<float, 3> &gyro, double accel) noexcept {
+    window_ = 0.0;
+    count_ = 0;
+    sum_ = {};
+    for (std::size_t i = 0; i < 3; ++i) low_[i] = high_[i] = gyro[i];
+    accel_low_ = accel_high_ = accel;
+  }
+  void calibrate(const std::array<float, 3> &gyro, const std::array<float, 3> &accel, double seconds) noexcept {
+    const double a = std::sqrt(double(accel[0]) * accel[0] + double(accel[1]) * accel[1] + double(accel[2]) * accel[2]);
+    bool still = count_ > 0;
+    for (std::size_t i = 0; i < 3; ++i) {
+      if (std::abs(gyro[i]) > kStillRate) still = false;
+      low_[i] = std::min(low_[i], double(gyro[i]));
+      high_[i] = std::max(high_[i], double(gyro[i]));
+      if (high_[i] - low_[i] > kStillSpread) still = false;
+    }
+    accel_low_ = std::min(accel_low_, a);
+    accel_high_ = std::max(accel_high_, a);
+    if (accel_high_ - accel_low_ > kStillAccelSpread) still = false;
+    if (!still) {
+      restart(gyro, a);
+      count_ = 1;
+      for (std::size_t i = 0; i < 3; ++i) sum_[i] = gyro[i];
+      return;
+    }
+    ++count_;
+    window_ += seconds;
+    for (std::size_t i = 0; i < 3; ++i) sum_[i] += gyro[i];
+    if (window_ < kStillSeconds) return;
+    for (std::size_t i = 0; i < 3; ++i) {
+      const double mean = sum_[i] / static_cast<double>(count_);
+      bias_[i] = calibrated_ ? bias_[i] + 0.5 * (mean - bias_[i]) : mean;
+    }
+    calibrated_ = true;
+    restart(gyro, a);
+    count_ = 1;
+    for (std::size_t i = 0; i < 3; ++i) sum_[i] = gyro[i];
+  }
+
+  double yaw_ = 0.0, pitch_ = 0.0;
+  std::array<double, 3> bias_{};
+  bool calibrated_ = false;
+  double window_ = 0.0;
+  std::size_t count_ = 0;
+  std::array<double, 3> sum_{}, low_{}, high_{};
+  double accel_low_ = 0.0, accel_high_ = 0.0;
+};
 } // namespace jfg
