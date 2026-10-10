@@ -71,21 +71,21 @@ int main() {
                 "fullscreen=borderless\noutput=auto\nrender=match\n"
                 "render_scale=100\nrender_size=1920x1080\nmsaa=off\n"
                 "vsync=on\nfps_counter=off\nframerate=original\n"
-                "interpolate_frames=on\ninterpolate_objects=off\nn64_slowdown=off\n",
+                "interpolate_frames=on\ninterpolate_objects=on\nn64_slowdown=off\n",
         "default encoding");
-    require(!defaults.n64_slowdown && cpu_overclock_shift(defaults) == kNoSlowdownOverclockShift,
-        "no N64 slowdown by default");
+    require(!defaults.n64_slowdown && fast_clock(defaults),
+        "no N64 slowdown by default: the fast clock");
     {
         VideoSettings slow;
         slow.n64_slowdown = true;
-        require(cpu_overclock_shift(slow) == 0U, "slowdown on: original CPU speed");
+        require(!fast_clock(slow), "slowdown on: the original cost model");
         require(parse_video_settings(encode_video_settings(slow))->n64_slowdown,
             "n64_slowdown round trip");
         require(parse_video_settings("version=2\nvsync=on\n")->n64_slowdown == false,
             "files without the key keep the default");
     }
-    require(defaults.framerate == FrameRate::original && !defaults.interpolate_objects,
-        "original frame rate by default");
+    require(defaults.framerate == FrameRate::original && defaults.interpolate_objects,
+        "original frame rate by default; blending includes objects");
 
     VideoSettings custom;
     custom.aspect = AspectMode::original;
@@ -99,7 +99,7 @@ int main() {
     custom.vsync = false;
     custom.fps_counter = true;
     custom.framerate = FrameRate::display;
-    custom.interpolate_objects = true;
+    custom.interpolate_objects = false;
     custom.n64_slowdown = true;
     custom.interpolate_frames = false;
     require(parse_video_settings(encode_video_settings(custom)) == custom,

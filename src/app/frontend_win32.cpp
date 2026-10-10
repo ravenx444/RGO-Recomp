@@ -13,6 +13,7 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
 #ifdef JFG_RML_UI
 #include "native_ui.hpp"
@@ -20,8 +21,8 @@
 namespace fs = std::filesystem;
 namespace {
 constexpr UINT kReady = WM_APP + 20, kHotkey = WM_APP + 21;
-// RGO: the game reports its frame rates in tenths of FPS: its own frames in
-// wparam, frames presented to the display (interpolated included) in lparam.
+// RGO: the game reports its FPS counter (jfg/renderer/frame_stats.hpp)
+// packed into wparam and lparam.
 constexpr UINT kFrameStats = WM_APP + 24;
 #ifdef JFG_RML_UI
 constexpr int kMuteShortcut = 0x4a46;
@@ -79,7 +80,7 @@ struct App {
   jfg::VideoSettings video{};
   std::wstring exclusiveDevice;
   bool exclusiveSuspended = false;
-  int fpsTenths = -1, displayFpsTenths = -1;
+  jfg::FrameStats frameStats{};
   ULONGLONG fpsAt = 0;
   bool stopRequested = false, initializing = true;
   ULONGLONG startedAt = 0;
@@ -834,8 +835,8 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       popup();
     return 0;
   case kFrameStats:
-    app.fpsTenths = static_cast<int>(std::min<WPARAM>(wparam, 100000));
-    app.displayFpsTenths = static_cast<int>(std::clamp<LPARAM>(lparam, 0, 100000));
+    app.frameStats = jfg::unpack_frame_stats({static_cast<std::uint64_t>(wparam),
+                                              static_cast<std::uint64_t>(lparam)});
     app.fpsAt = GetTickCount64();
     return 0;
   case WM_ACTIVATEAPP:
@@ -884,9 +885,8 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
         ui.viewHeight = area.bottom - area.top;
       }
       // A report older than two seconds (paused, loading) shows nothing.
-      const bool fresh = GetTickCount64() - app.fpsAt < 2000;
-      ui.fpsTenths = fresh ? app.fpsTenths : -1;
-      ui.displayFpsTenths = fresh ? app.displayFpsTenths : -1;
+      ui.frameStatsValid = app.fpsAt != 0 && GetTickCount64() - app.fpsAt < 2000;
+      ui.frameStats = app.frameStats;
       FrontendUiFrame(ui);
       return 0;
     }

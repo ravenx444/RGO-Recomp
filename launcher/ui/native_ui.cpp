@@ -671,12 +671,16 @@ struct Ui : Rml::EventListener {
     html += "<div class=\"row\"><div class=\"grow\">Interpolate extra frames<div class=\"muted\">Display and Unlocked: blend frames "
             "between the game's 60 to reach your display's rate.</div></div><div class=\"segments\">" +
             button("interpolate-on", "On") + button("interpolate-off", "Off") + "</div></div>";
-    html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">On: heavy scenes drop to 20 fps "
-            "as on the console. Off keeps the full frame rate.</div></div><div class=\"segments\">" +
+    html += "<div class=\"row\"><div class=\"grow\">Blend moving objects<div class=\"muted\">With interpolation: characters "
+            "and objects move smoothly too. Off: only the camera blends.</div></div><div class=\"segments\">" +
+            button("objects-on", "On") + button("objects-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">Original frame rate only. On: heavy "
+            "scenes drop to 20 fps as on the console. Off keeps a steady 30.</div></div><div class=\"segments\">" +
             button("slowdown-off", "Off") + button("slowdown-on", "On") + "</div></div>";
     html += "<div class=\"row\"><span class=\"grow\">VSync</span><div class=\"segments\">" + button("vsync-on", "On") +
             button("vsync-off", "Off") + "</div></div>";
-    html += "<div class=\"row\"><span class=\"grow\">FPS counter</span><div class=\"segments\">" + button("fps-off", "Off") +
+    html += "<div class=\"row\"><div class=\"grow\">FPS counter<div class=\"muted\">Game: logic updates per second. Render: frames "
+            "drawn. Display: frames shown, blended ones included.</div></div><div class=\"segments\">" + button("fps-off", "Off") +
             button("fps-on", "On") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">Pause when inactive<div class=\"muted\">Pause when you switch to another app. Resume when you return.</div></div>" +
             button("pause-inactive", state.pauseInactive ? "On" : "Off") + "</div>";
@@ -712,6 +716,8 @@ struct Ui : Rml::EventListener {
       v.n64_slowdown = a == "slowdown-on";
     else if (a == "interpolate-on" || a == "interpolate-off")
       v.interpolate_frames = a == "interpolate-on";
+    else if (a == "objects-on" || a == "objects-off")
+      v.interpolate_objects = a == "objects-on";
     else if (a == "framerate-original" || a == "framerate-60" || a == "framerate-display" ||
              a == "framerate-unlocked")
       v.framerate = a == "framerate-60"        ? jfg::FrameRate::sixty
@@ -1063,6 +1069,7 @@ struct Ui : Rml::EventListener {
           v.fps_counter ? "action-fps-on" : "action-fps-off",
           v.n64_slowdown ? "action-slowdown-on" : "action-slowdown-off",
           v.interpolate_frames ? "action-interpolate-on" : "action-interpolate-off",
+          v.interpolate_objects ? "action-objects-on" : "action-objects-off",
           v.framerate == jfg::FrameRate::sixty      ? "action-framerate-60"
           : v.framerate == jfg::FrameRate::display  ? "action-framerate-display"
           : v.framerate == jfg::FrameRate::unlocked ? "action-framerate-unlocked"
@@ -1638,21 +1645,12 @@ void FrontendUiFrame(const FrontendUiState &state) {
   ui.doc->SetClass("paused", paused);
   // RGO FPS counter, reported by the game twice a second.
   if (auto *fps = ui.el("fps-counter")) {
-    const bool show = state.playing && state.video.fps_counter && state.fpsTenths >= 0;
+    const bool show = state.playing && state.video.fps_counter && state.frameStatsValid;
     fps->SetClass("visible", show);
-    if (show && (state.fpsTenths != ui.state.fpsTenths ||
-                 state.displayFpsTenths != ui.state.displayFpsTenths)) {
-      // With frame interpolation the display shows more frames than the
-      // game makes; show both.
-      char text[64];
-      if (state.displayFpsTenths > state.fpsTenths + 5)
-        std::snprintf(text, sizeof(text), "%d.%d FPS (game %d.%d)",
-                      state.displayFpsTenths / 10, state.displayFpsTenths % 10,
-                      state.fpsTenths / 10, state.fpsTenths % 10);
-      else
-        std::snprintf(text, sizeof(text), "%d.%d FPS", state.fpsTenths / 10, state.fpsTenths % 10);
-      fps->SetInnerRML(text);
-    }
+    // Game: logic updates per second, the rate the game plays at. Render:
+    // real frames drawn. Display: frames shown, blended ones included.
+    if (show && (!ui.state.frameStatsValid || state.frameStats != ui.state.frameStats))
+      fps->SetInnerRML(escape(jfg::format_frame_stats(state.frameStats)));
   }
   const bool viewChanged = state.viewWidth != ui.state.viewWidth || state.viewHeight != ui.state.viewHeight;
   ui.state = state;

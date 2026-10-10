@@ -45,6 +45,85 @@ struct Rt64RefreshPlan {
 // wait for one VI per frame and pass updateRate 1 to every tick function.
 inline constexpr std::uint32_t kViFrameSync = 0x80054FBCU;
 inline constexpr std::uint32_t kRunInOneFrame = 0x800FECCCU;
+// gVideoDeltaTime (u8): the VIs viFrameSync waits for, 1 / 2 / 3.
+inline constexpr std::uint32_t kVideoDeltaTime = 0x800FECACU;
+
+// runInOneFrame alone is not enough: the game's scheduler holds the frame's
+// "graphics done" message until two VIs have passed since the last one
+// (__scTaskComplete, US 0x80050A08, sched.c: "if (sc->frameCount <= 1) defer
+// to the next retrace"), and the main loop waits for that message, so frames
+// still took two VIs. True 60 raises sc->frameCount (OSSched + 0x300) to 2
+// before the call, so the message goes out as soon as the frame is drawn.
+inline constexpr std::uint32_t kScTaskComplete = 0x80050A08U;
+inline constexpr std::uint32_t kSchedFrameCountOffset = 0x300U;
+
+[[nodiscard]] constexpr std::uint32_t true60_frame_count(
+    const std::uint32_t frame_count) noexcept {
+    return frame_count < 2U ? 2U : frame_count;
+}
+
+// True 60 needs the host to finish every frame within one VI. When it cannot
+// (a slow PC, a heavy scene), frames take one, two, three VIs in turn, which
+// plays at the right speed but judders. Like the game's own 30/20 fps
+// switch, the governor then hands the game back its steady 30 for a while
+// and tries 60 again later, waiting longer after each failed try.
+class True60Governor {
+public:
+    static constexpr std::uint32_t kWindow = 60U;       // frames
+    static constexpr std::uint32_t kLateLimit = 6U;     // late frames per window
+    static constexpr std::uint64_t kFirstPause = 240U;  // VIs (4 s)
+    static constexpr std::uint64_t kLongestPause = 1800U;
+    static constexpr std::uint64_t kSettled = 600U;     // VIs at 60 that reset the wait
+
+    // true: run this frame at true 60.
+    [[nodiscard]] constexpr bool active(const std::uint64_t vi) const noexcept {
+        return vi >= resume_vi_;
+    }
+
+    // A true 60 frame took this many VIs (viFrameSync's return value).
+    constexpr void frame(const std::uint32_t vis, const std::uint64_t vi) noexcept {
+        if (!active(vi))
+            return;  // paused: the game runs its own 30
+        late_ = (late_ << 1U) | (vis > 1U ? 1U : 0U);
+        if (frames_ < kWindow)
+            ++frames_;
+        if (pause_ != 0U && vi >= resume_vi_ + kSettled)
+            pause_ = 0U;  // held 60 long enough: the next pause is short again
+        if (frames_ < kWindow || late_frames() <= kLateLimit)
+            return;
+        pause_ = pause_ == 0U ? kFirstPause : std::min(pause_ * 2U, kLongestPause);
+        resume_vi_ = vi + pause_;
+        late_ = 0U;
+        frames_ = 0U;
+    }
+
+    // A new level or cutscene shot: forget the back-off and try 60 at once.
+    // Without this, a heavy cutscene that paused for 30 s would keep the
+    // light gameplay after it at 30 for most of that time.
+    constexpr void new_scene(const std::uint64_t vi) noexcept {
+        late_ = 0U;
+        frames_ = 0U;
+        pause_ = 0U;
+        resume_vi_ = vi;
+    }
+
+    [[nodiscard]] constexpr std::uint32_t late_frames() const noexcept {
+        std::uint32_t count = 0U;
+        for (std::uint32_t bit = 0U; bit < kWindow; ++bit)
+            count += static_cast<std::uint32_t>((late_ >> bit) & 1U);
+        return count;
+    }
+
+private:
+    std::uint64_t late_ = 0U;
+    std::uint32_t frames_ = 0U;
+    std::uint64_t pause_ = 0U;
+    std::uint64_t resume_vi_ = 0U;
+};
+
+// The level being played (a cutscene is a level too); the governor starts
+// over when it changes.
+inline constexpr std::uint32_t kCurrentLevel = 0x800FB114U;
 
 // The engine passes the VIs per frame (delayDat, 0x800A3374) to its tick
 // functions, so almost all logic is already rate-independent. Three places

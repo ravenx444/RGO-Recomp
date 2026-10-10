@@ -3,17 +3,19 @@
 #include <functional>
 #include <string>
 #include <windows.h>
+#include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/video_settings.hpp"
 struct FrontendUiState {
   bool playing = false, busy = false, fullscreen = false, mods = false;
   std::wstring rom, runtime, status;
   bool pauseInactive = false;
   // RGO display settings (video.ini), the game area size in pixels and the
-  // game's last reported frame rates in tenths (-1: none yet): its own
-  // frames and the frames presented to the display.
+  // game's last reported frame statistics (frame_stats.hpp; none yet or
+  // stale when frameStatsValid is false).
   jfg::VideoSettings video{};
   int viewWidth = 0, viewHeight = 0;
-  int fpsTenths = -1, displayFpsTenths = -1;
+  bool frameStatsValid = false;
+  jfg::FrameStats frameStats{};
 };
 bool FrontendUiInit(HWND, const std::filesystem::path &,
                     std::function<void(const std::string &)>, const std::string &tool = "");

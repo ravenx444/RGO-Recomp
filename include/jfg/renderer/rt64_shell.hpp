@@ -224,6 +224,14 @@ public:
                     std::uint32_t id) noexcept;
     // Frames presented to the swap chain so far, interpolated ones included.
     [[nodiscard]] std::uint64_t display_presents() const noexcept;
+    // RGO FPS counter: the shortest and longest gap between two presented
+    // frames since the previous call, in microseconds (0 when fewer than two
+    // frames were presented).
+    struct DisplayFrameTimes {
+        std::uint64_t min_us = 0U;
+        std::uint64_t max_us = 0U;
+    };
+    [[nodiscard]] DisplayFrameTimes take_display_frame_times() noexcept;
     // How much wider than the game's own projection the last submitted frame
     // is presented (1.0 when widescreen is off or the window is 4:3).
     [[nodiscard]] float horizontal_extent() const noexcept;

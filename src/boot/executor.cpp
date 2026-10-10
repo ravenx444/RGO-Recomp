@@ -1,6 +1,14 @@
 #include "jfg/boot/executor.hpp"
 
+#include <chrono>
 #include <utility>
+
+#if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
+#include <immintrin.h>
+#define JFG_EXECUTOR_PAUSE() _mm_pause()
+#else
+#define JFG_EXECUTOR_PAUSE() ((void)0)
+#endif
 
 namespace jfg::boot {
 
@@ -12,6 +20,13 @@ struct ExecutorShutdown final {};
 
 // The running participant's own id, so yield_to_scheduler() needs no argument.
 thread_local int t_self = kSchedulerParticipant;
+
+// RGO: how long a participant waiting for the baton spins before it sleeps on
+// its condition variable. The game's threads hand the baton on thousands of
+// times a second, often after a few microseconds; a waiter that is still
+// spinning takes it without the futex wake-up and context switch a sleeping
+// one needs (docs/rgo/framerate.md, "Host speed").
+constexpr std::chrono::microseconds kBatonSpin{50};
 
 } // namespace
 
@@ -85,6 +100,12 @@ void BatonExecutor::hand_off(const int to) {
 }
 
 void BatonExecutor::wait_until_holder(const int self) {
+    const auto spin_until = std::chrono::steady_clock::now() + kBatonSpin;
+    for (unsigned spin = 1U; holder_.load(std::memory_order_acquire) != self; ++spin) {
+        if ((spin & 63U) == 0U && std::chrono::steady_clock::now() >= spin_until)
+            break;
+        JFG_EXECUTOR_PAUSE();
+    }
     std::unique_lock<std::mutex> lock(mutex_);
     auto &ready = self == kSchedulerParticipant ? cv_
         : *participants_[static_cast<std::size_t>(self)].ready;

@@ -66,9 +66,59 @@ int main() {
                 true_logic_60(with(FrameRate::sixty, false)) &&
                 true_logic_60(with(FrameRate::unlocked, true)),
         "true 60 logic above original");
-    require(cpu_overclock_shift(with(FrameRate::sixty, true)) == kTrue60OverclockShift &&
-                cpu_overclock_shift(with(FrameRate::original, true)) == kNoSlowdownOverclockShift,
-        "true 60 gets a larger overclock");
+    {
+        VideoSettings slow = with(FrameRate::sixty, true);
+        slow.n64_slowdown = true;
+        require(fast_clock(slow) && fast_clock(with(FrameRate::original, true)),
+            "true 60 always uses the fast clock");
+        slow.framerate = FrameRate::original;
+        require(!fast_clock(slow), "slowdown applies at the Original frame rate");
+    }
+    // The true 60 governor: occasional late frames (a level load) keep 60;
+    // a host that keeps missing VIs gets the game's steady 30 for a while,
+    // longer after each failed try, and 60 again once it held.
+    {
+        True60Governor governor;
+        std::uint64_t vi = 1000U;
+        for (int frame = 0; frame < 120; ++frame, ++vi)
+            governor.frame(frame % 20 == 0 ? 6U : 1U, vi);
+        require(governor.active(vi), "a few late frames keep true 60");
+        for (int frame = 0; frame < 60; ++frame, vi += 2U)
+            governor.frame(frame % 4 == 0 ? 1U : 2U, vi);
+        require(!governor.active(vi) && governor.active(vi + True60Governor::kFirstPause),
+            "too many late frames pause true 60 for the first pause");
+        vi += True60Governor::kFirstPause;
+        for (int frame = 0; frame < 60; ++frame, vi += 2U)
+            governor.frame(2U, vi);
+        require(!governor.active(vi + True60Governor::kFirstPause) &&
+                    governor.active(vi + 2U * True60Governor::kFirstPause),
+            "a second failure pauses twice as long");
+        vi += 2U * True60Governor::kFirstPause;
+        for (std::uint64_t frame = 0; frame < True60Governor::kSettled + 60U; ++frame, ++vi)
+            governor.frame(1U, vi);
+        for (int frame = 0; frame < 60; ++frame, vi += 2U)
+            governor.frame(2U, vi);
+        require(governor.active(vi + True60Governor::kFirstPause),
+            "after holding 60 the next pause is short again");
+        // Two failures in a row: the pause is long, until the scene changes.
+        for (std::uint64_t pause = True60Governor::kFirstPause;
+             pause <= 2U * True60Governor::kFirstPause; pause *= 2U) {
+            vi += pause;  // resume at the end of each pause, fail again
+            for (int frame = 0; frame < 60; ++frame, vi += 2U)
+                governor.frame(2U, vi);
+        }
+        require(!governor.active(vi + 2U * True60Governor::kFirstPause), "a long pause");
+        governor.new_scene(vi);
+        require(governor.active(vi), "a new scene tries 60 at once");
+        for (int frame = 0; frame < 60; ++frame, vi += 2U)
+            governor.frame(2U, vi);
+        require(!governor.active(vi) && governor.active(vi + True60Governor::kFirstPause),
+            "and a failure there starts with the first pause again");
+    }
+    // The scheduler's frame-done message is released at once at true 60.
+    require(true60_frame_count(0U) == 2U && true60_frame_count(1U) == 2U &&
+                true60_frame_count(2U) == 2U && true60_frame_count(5U) == 5U,
+        "true 60 lifts the scheduler's frame count to 2");
 
     // True 60 fixes: batched texture scroller ticks, literal-2 particle
     // bursts and repeated controller presses.

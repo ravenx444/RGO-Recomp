@@ -101,11 +101,14 @@ struct VideoSettings {
     FrameRate framerate = FrameRate::original;
     // Blend extra frames above the game's rate (Display / Unlocked).
     bool interpolate_frames = true;
-    // Experimental (no settings page entry yet): also blend object matrices.
-    bool interpolate_objects = false;
-    // Reproduce the N64's slowdown: heavy scenes drop to 20 fps because the
-    // emulated CPU needs more than two VIs for a frame. Off (the default)
-    // overclocks the emulated CPU so the game keeps its full frame rate.
+    // Also blend moving objects' matrices. Without it the camera blends but
+    // objects (the player the camera follows) step at the game's rate, which
+    // shakes them against the scene on displays above 60 Hz.
+    bool interpolate_objects = true;
+    // Reproduce the N64's slowdown at the Original frame rate: heavy scenes
+    // drop to 20 fps because the emulated CPU needs more than two VIs for a
+    // frame. Off (the default) uses the fast clock, so the game keeps its
+    // full frame rate. True 60 always uses the fast clock.
     bool n64_slowdown = false;
     friend bool operator==(const VideoSettings&, const VideoSettings&) = default;
 };
@@ -351,22 +354,18 @@ parse_pair(std::string_view text, const char separator) noexcept {
     return settings;
 }
 
-// Emulated CPU overclock (power of two) for the original-timing runtime:
-// Count advances by instruction cost / (2 << shift). 0 is the N64's own
-// speed; 4x leaves even the heaviest scenes well inside two VIs per frame,
-// and true 60 fps logic (one VI per frame) gets 8x.
-inline constexpr std::uint32_t kNoSlowdownOverclockShift = 2U;
-inline constexpr std::uint32_t kTrue60OverclockShift = 3U;
-
 [[nodiscard]] constexpr bool true_logic_60(const VideoSettings& settings) noexcept {
     return settings.framerate != FrameRate::original;
 }
 
-[[nodiscard]] constexpr std::uint32_t cpu_overclock_shift(
-    const VideoSettings& settings) noexcept {
-    if (settings.n64_slowdown)
-        return 0U;
-    return true_logic_60(settings) ? kTrue60OverclockShift : kNoSlowdownOverclockShift;
+// The emulated CPU's clock (docs/rgo/framerate.md). The fast clock charges
+// almost no emulated time for CPU work and skips waits to the next device
+// event, so a game frame never needs more than its minimum VIs: 2 at
+// Original (a steady 30 fps), 1 at true 60. The original VR4300 cost model
+// (the N64's own slowdown to 20 fps) is kept only for Original N64 slowdown
+// at the Original frame rate.
+[[nodiscard]] constexpr bool fast_clock(const VideoSettings& settings) noexcept {
+    return true_logic_60(settings) || !settings.n64_slowdown;
 }
 
 // ---------------------------------------------------------------------------

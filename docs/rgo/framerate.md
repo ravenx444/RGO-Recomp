@@ -1,16 +1,236 @@
-# Unlocked frame rate (roadmap Tier 1, item 2)
+# Frame rate (roadmap Tier 1, item 2)
 
-Goal: present frames at 60 fps, the display's refresh rate or as fast as
-possible, while the game's logic keeps its original rate, so gameplay speed
-does not change. Like other N64Recomp ports, this uses RT64's frame
-interpolation. RT64 renders extra frames between two game frames by blending
-the camera and object matrices of the previous and the current game frame.
+Goal: the game itself runs at 60 frames per second, so it plays and feels
+like 60, with gameplay at its original speed. Display rates above 60 come
+from frame interpolation on top of that.
 
-This page records what the investigation found, the plan, and what is done.
-The cloud cannot run the game, so every gameplay-visible step still needs a
-test on the owner's PC.
+**Status.** Frame rate **True 60** runs the game's logic 60 times per
+emulated second in menus, every opening cutscene and gameplay, at the
+original game speed, measured headlessly (see [Measurements](#measurements)).
+**Original** with *Original N64 slowdown* off holds a steady 30.
+A PC that cannot keep up keeps the game's speed and gets fewer frames
+instead of slow motion. Owner test steps are at the end.
 
-## Findings
+## Why the first attempt did not work
+
+PR #8 (`rgo/true-60fps`) forced the game's one-VI mode and overclocked the
+emulated CPU 8x. The headless Linux build (below) measured it at 30 game
+frames per emulated second, crashing in the opening cutscene:
+
+| Branch / setting | Game frames per emulated second | Emulated time per wall second (this cloud VM) | Result |
+|---|---|---|---|
+| main, Original (console speed) | 30, 18-26 in heavy cutscenes | 0.54-0.83 | the console's own slowdown |
+| PR #8, Original + slowdown Off (4x) | 30 | - | fail-closed at VI 424 (`unqualified-event-tie`) |
+| PR #8, True 60 + slowdown Off (8x) | 30.0 (every frame 2 VIs) | 0.43-0.67 | fail-closed at VI 7983 in the opening cutscene (`unqualified-event-tie`) |
+
+Three separate causes:
+
+1. **The scheduler holds every frame to two VIs.** `runInOneFrame` makes
+   `viFrameSync` wait for one VI, but the game's scheduler
+   (`__scTaskComplete`, US 0x80050A08, decomp `sched.c`) keeps the frame's
+   "graphics done" message until two VIs have passed since the previous one
+   (`if (sc->frameCount <= 1) defer`). The main loop waits for that message,
+   so frames still took two VIs. The decomp even notes it: "If you want to
+   make the game 60FPS, change this to 2."
+2. **The overclock made the host do more work, not less.** Production
+   builds charge each guest instruction its VR4300 cycles
+   (`jfg_original_timing_step`). Cutscenes busy-wait for the music
+   (`amWaitForMidiSync` polls `osRecvMesg(NOBLOCK)` in a loop), and every
+   poll is charged. At 8x, waiting one VI takes 8x as many polls, so the
+   host executed 139 million guest instructions per emulated second instead
+   of 52 million. Emulated time fell behind the wall clock: 30 game frames
+   per emulated second became 15-20 per real second, in slow motion. That
+   is the "N64 speed, 15-20 fps feel".
+3. **The crash.** Device events (VI, AI, PI, SI, timer, RSP, RDP) are
+   ordered by their Count deadlines, and two equal deadlines fail closed
+   unless they are the RSP/RDP pair. With Count advancing by a fraction of a
+   tick per instruction, two devices started a few instructions apart share
+   a deadline. That trap is the cutscene crash.
+
+The FPS counter showed presented frames (up to ~700 with Unlocked
+interpolation), not game logic, so it hid all of this.
+
+## Design
+
+### The fast clock
+
+`fast_clock` in `jfg/boot/original_timing_fast.h` and the runtime
+(`src/boot/native_boot.cpp`). Used by True 60 / Display / Unlocked, and by
+Original with *Original N64 slowdown* off. Slowdown On keeps the original
+cost model unchanged (the faithful console timing, with its 20 fps drops).
+
+- **CPU work costs almost no emulated time.** Every instruction advances
+  Count by a flat 1/16 tick and skips the cache model, so even the heaviest
+  frame finishes in a fraction of a VI. Polling loops on device registers
+  still see time pass.
+- **Waits skip to the next device event.** The idle loop already did. A
+  thread that polls the same empty queue from the same call site 16 times in
+  quick succession (`osRecvMesg` NOBLOCK, about 4,000 instructions apart at
+  most) is waiting for an interrupt: Count jumps to the earliest device
+  deadline. Polls a frame apart (`mainResetPressed`, `viFrameSync`'s check
+  for pending VIs) never skip; skipping there stretched frames and put a
+  cutscene out of step with its music until it waited for a sync that had
+  already passed (a hang at VI 7095 found headlessly). Polling the VI line
+  register (`__osViInit` waits for the top of the screen at boot) skips to
+  the next VI the same way.
+- **Skip runs.** Every guest instruction calls a timing hook. Under the fast
+  clock an ordinary instruction only adds 1/16 of a tick, so the native
+  check grants a run of instructions that cannot reach the next device
+  deadline, and the generated hook just counts the run down
+  (`jfg_fast_budget`, `jfg_fast_run_sync` in `original_timing_fast.h`). A run
+  ends a few ticks before the deadline, at an MMIO access, at any COP0
+  operation and when the dispatcher moves Count. It is only granted with no
+  interrupt pending (masked ones included). FPU instructions only skip
+  while the FPU is usable, so the coprocessor-unusable exception libultra
+  uses to save FPU state still happens. Idle-loop boundaries, thread parks
+  and CACHE instructions always reach the check.
+  `JFG_RGO_NO_FAST_RUNS=1` checks every instruction again.
+- **Equal deadlines are ordered** (`select_reference_event(..., order_ties)`)
+  instead of failing closed.
+- **Real-time floor.** CPU work is free in emulated time, so a slow host
+  would otherwise play in slow motion. Count is kept at most a quarter VI
+  behind the wall clock (anchored at each paced VI), so the next VI arrives
+  while a slow frame is still running; the game counts two VIs and
+  simulates two ticks, like the console and other N64Recomp ports. A stall
+  longer than three VIs (shader compile, window drag) is skipped, not
+  replayed; a burst of VIs made the game's scheduler declare its graphics
+  task crashed. `JFG_RGO_DETERMINISTIC_CLOCK=1` turns the floor off for
+  measurements.
+
+### True 60
+
+`true60_dispatch` in `src/boot/native_boot.cpp`, constants in
+`jfg/renderer/frame_interpolation.hpp`.
+
+- `viFrameSync` runs with `runInOneFrame` set (one VI per frame, update rate
+  1), as before.
+- `__scTaskComplete` runs with the scheduler's `frameCount` (OSSched +
+  0x300) raised to 2, so the frame-done message goes out at once.
+- The three places that assume two ticks per frame stay fixed: texture
+  scrollers run per two ticks, literal two-tick particle bursts use the real
+  rate, and a frame without a new controller read reports no new presses.
+- **Governor** (`True60Governor`). If more than 6 of the last 60 frames
+  needed more than one VI (the host is too slow for 60 here), the game gets
+  its own steady 30 for 4 s, then tries 60 again; the pause doubles after
+  each failed try (up to 30 s) and resets after 10 s at 60. A steady 30 looks
+  better than frames of one, two and three VIs in turn.
+
+### Settings apply live
+
+The game rereads `video.ini` every 250 ms and applies it on the next frame:
+the clock, True 60, interpolation and the counter. Going back to Original
+also hands the game back its 30 fps mode (`gVideoDeltaTime` would otherwise
+stay at 60 until the next level load). Only Anti-aliasing needs a restart,
+and the settings page says so.
+
+### FPS counter
+
+`Game 60 | Render 60 | Display 144 | 6.9-7.0 ms`
+(`jfg/renderer/frame_stats.hpp`):
+
+- **Game**: game logic updates per second (`viFrameSync` calls). This is the
+  rate the game simulates at, the only one that changes how it plays.
+- **Render**: real game frames handed to the renderer per second.
+- **Display**: frames the swap chain presented per second, blended frames
+  included.
+- **min-max ms**: the shortest and longest gap between two presented frames
+  in the last half second. A wide spread is judder.
+
+### Frame pacing
+
+- VIs are paced to the audio-anchored wall clock with a precise wait (sleep
+  until 2 ms before, then yield), instead of a plain sleep that can wake a
+  millisecond or more late (`jfg/runtime/precise_wait.hpp`).
+- Above 60, RT64 blends frames between game frames. Blending only the camera
+  made objects the camera follows (the player) step at 60 against a smoothly
+  moving scene, which reads as judder. **Blend moving objects** (on by
+  default) blends object matrices too; turn it off if an object glitches.
+
+### Host speed
+
+True 60 runs twice as many game frames per second, so the host has to run
+the game's code twice as fast as at 30. Profiling the headless build
+(`perf`, True 60, deterministic clock) found where the time went:
+
+| Where | Share of host time before | Change |
+|---|---|---|
+| Single-step trap after every device register access | 35-42 % | **One-trap MMIO** (below) |
+| RDRAM snapshot per graphics task (`copy_changed_snapshot_bytes`) | 10-24 % | unchanged, see Risks |
+| Handing the baton between guest threads (futex wake-ups) | 13-20 % | **brief spin before sleeping** |
+| `dispatch` and the generated code | the rest | unchanged |
+
+- **One-trap MMIO** (`jfg/boot/mmio_instruction.hpp`, `mmio_emulate_move` in
+  `native_boot.cpp`). Device registers sit on guarded pages. A guest access
+  faulted, the handler presented the register, then single-stepped the host
+  instruction and took a second trap to apply a write. The game makes about
+  11,000 register accesses a second at True 60 (`osSetIntMask`, the
+  exception handler, thread switches, DMA), and the single-step trap is
+  expensive. Now the handler decodes the faulting instruction; when it is a
+  plain 32-bit `mov`, `movsxd` or `mov dword, imm` (all of them in the GCC
+  build), it does the load or store on the register page itself, finishes
+  the access and skips the instruction. The register page and the order of
+  start, access and finish are unchanged, so the game sees exactly the same
+  values: a deterministic run gives a frame trace identical to the
+  single-step one, Count and instruction counts included. Any other
+  encoding still single-steps. `JFG_RGO_MMIO_SINGLE_STEP=1` turns it off.
+- **Baton spin** (`src/boot/executor.cpp`). Each guest thread is a host
+  thread and exactly one runs at a time. A thread waiting for the baton now
+  spins for up to 50 microseconds before it sleeps, so quick hand-offs skip
+  the futex wake-up. The order of execution is unchanged.
+- **The governor starts over in a new scene.** A heavy cutscene that cannot
+  hold 60 grows the governor's pause up to 30 s; the gameplay after it used
+  to stay at 30 for that long. The pause now resets when the level changes.
+
+Unpaced throughput (emulated seconds per wall second, `--unpaced`; above 1.0
+is headroom for real time) on this cloud VM, True 60:
+
+THROUGHPUT_PLACEHOLDER
+
+## Headless measurement
+
+The live runtime builds headless on Linux (CMake `JFG_HEADLESS_LIVE=ON`):
+the same guest CPU, OS, device clocks and audio pacing as the Windows build,
+without a window or GPU renderer (`src/renderer/rt64_shell_headless.cpp`).
+Guest memory and MMIO trapping use `memfd`/`mmap` and SIGSEGV/SIGTRAP in
+place of Windows file views and guard pages; `headless_win32_compat.hpp`
+gives the few Win32 calls a Linux meaning.
+
+1. Generate the code from the ROM (Linux): `python3 scripts/generate_from_rom.py
+   --rom <rom> --workspace <ws> --dependency-root <deps>` (the
+   `build_from_rom.py` dependencies at their `dependencies.lock.json`
+   commits).
+2. Configure and build:
+   `cmake -S . -B <build> -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+   -DJFG_WARNINGS_AS_ERRORS=OFF -DJFG_ENABLE_GENERATED_CODE=ON
+   -DJFG_BUILD_PHASE6_NATIVE_BOOT=ON -DJFG_BUILD_PHASE8_LIVE=ON -DJFG_HEADLESS_LIVE=ON
+   -DJFG_GENERATED_ROOT=<ws>/normalized -DJFG_PHASE6_LIBULTRA_IDENTIFICATION=<ws>/libultra.json
+   -DJFG_PHASE8_PRIVATE_AUDIO_ADAPTER_ROOT=<ws>/audio
+   -DJFG_PHASE8_PRIVATE_AUDIO_RUNTIME_INCLUDE=<deps>/N64ModernRuntime/librecomp/include`,
+   then `ninja -C <build> jfg-native-boot` (needs SDL2 development files).
+3. Run: `python3 scripts/rgo_headless_run.py --executable <build>/jfg-native-boot
+   --rom <rom> --mode true60 --vis 15000 --deterministic --out <private dir>`.
+   Modes: `original-slowdown`, `original`, `true60`, `display`, `unlocked`.
+   `--switch 4000:original` rewrites `video.ini` mid-run. `--deterministic
+   --unpaced` also drops the wait for the wall clock at each VI, so
+   `emulated_per_wall` in the report is the host's speed (above 1.0:
+   headroom for real time).
+
+The run uses `JFG_RGO_AUTOPILOT=newgame` (`jfg/rgo/headless_autopilot.hpp`):
+it reads the front-end state from RAM and presses A through the title and
+the name keyboard, then walks forward and turns in gameplay. It reaches the
+first level identically at every setting. `JFG_RGO_FRAME_TRACE` writes one
+row per game frame (VI, ticks, Count, wall time, front-end mode, level);
+`scripts/rgo_frame_rate.py` turns it into the numbers below.
+`JFG_RGO_COUNTER_LOG=1` prints the FPS counter to stderr.
+
+Keep the ROM, the generated code, the build and every output outside the
+repository.
+
+## Measurements
+
+MEASUREMENTS_PLACEHOLDER
+
+## Frame interpolation above 60
 
 ### How the game makes a frame (decomp, ravenx444/Rocket-Group-Orion)
 
@@ -109,7 +329,7 @@ Zelda 64, Banjo, Starfox, Goemon and Dinosaur Planet (N64Recomp):
 - **HUD:** aligned only (`gEXSetRectAlign`/`gEXSetViewportAlign`). Animated 2D
   is redrawn as ortho triangles inside tagged groups.
 
-## Plan
+### Plan
 
 Each phase is a separate, testable step. **Frame rate: Original leaves the
 renderer exactly as before every phase.** The new code paths only run when a
@@ -183,7 +403,7 @@ higher frame rate is chosen.
      lists. They need to be redrawn on the GPU (extended GBI rectangles), or
      the frames that contain them must not be interpolated.
 
-## Status
+### Status
 
 - [x] **Phase 0.**
   - The setting: `framerate=` in `video.ini`, plus the Frame rate row.
@@ -193,7 +413,7 @@ higher frame rate is chosen.
 - [x] **Phase 1.**
   - The camera split (`apply_camera` and `select_matrix` in `src/renderer/rt64_f3ddkr.cpp`).
   - Camera IDs and cut detection (`include/jfg/renderer/frame_interpolation.hpp`).
-- [x] **Phase 2 (experimental, off unless `interpolate_objects=on`).**
+- [x] **Phase 2: objects (on by default since true 60; Blend moving objects).**
   - Hooks on `camPushModelMtx`, `camPushFloatModelMtx` and `camPushMuzzleMtx` (`interpolation_tag_dispatch` in `src/boot/native_boot.cpp`).
   - Tags checked against the matrix words.
   - Bone IDs for multiply loads.
@@ -238,137 +458,17 @@ higher frame rate is chosen.
   jumps); rotation and scale are blended.
 - Multiply (bone) loads take `bone_group_id(last object, index)`.
 
-**FPS counter.** The game sends both rates. The frontend shows
-`60.0 FPS (game 30.0)` while the display shows more frames than the game
-makes.
+**FPS counter.** See [FPS counter](#fps-counter).
 
-## Follow-up after the first in-game test
+## History: overclock and forced one-VI mode (superseded)
 
-**What the owner saw.**
-- With Unlocked, one area showed many frames, but they were RT64's blended
-  frames.
-- In real levels the game itself fell to about 20-26 fps, the N64's own
-  slowdown.
-
-Two follow-ups, each its own PR on top of `rgo/framerate`.
-
-### Part D: no N64 slowdown (`rgo/no-n64-slowdown`)
-
-**Cause.**
-- Builds use the port's *original guest timing*: `generate_from_rom.py` →
-  `original_timing_generation.py` writes `JFG_ORIGINAL_TIMING_GENERATION 1`.
-- Every guest instruction advances the emulated Count by its VR4300 cost,
-  from an ares-derived cost and cache model (`jfg_original_timing_step` in
-  `include/jfg/boot/original_timing_fast.h`, and the native handlers in
-  `src/boot/native_boot.cpp`).
-- VI interrupts follow that Count.
-- When a heavy scene's CPU work costs more than two VIs of emulated time,
-  `viFrameSync` (decomp `gameVi.c`) counts three or more VIs. It switches
-  `gVideoDeltaTime` to `LOGIC_20FPS` and stays there until 30 fast frames
-  in a row.
-- That is what the N64 does, and it is the ~20-26 fps the owner measured.
-  RSP/RDP completion uses small fixed deadlines (1000/4000 Count ticks), so
-  the CPU model alone causes it.
-
-**Fix: an emulated CPU overclock.**
-- `jfg_clock_charge` adds `cost / (2 << shift)` to Count instead of
-  `cost / 2`. The cache model, device timing and VI rate are unchanged.
-- The CPU simply finishes a frame's work in less emulated time, so the game
-  stays at `LOGIC_30FPS`.
-- Video settings → **Original N64 slowdown**:
-  - **Off** (default): 4x;
-  - **On**: 1x, the console's speed.
-- It is stored as `n64_slowdown=` in `video.ini` and applies within a
-  quarter second.
-- Replays and captures always run at 1x so recorded inputs stay
-  deterministic.
-
-### Part E: true 60 fps game logic (`rgo/true-60fps`)
-
-**How the engine steps.** It follows Diddy Kong Racing's design: the main
-loop (`func_80044FAC`, ASM, checked in the disassembly) does
-
-```
-delayDat = viFrameSync(...);   // VIs since the last frame
-if (level just loaded) { viFrameRateReset(); delayDat = 2; }
-else if (delayDat > 6) delayDat = 6;
-```
-
-and passes `delayDat` to every tick function:
-- `joyRead`, `frontUpdate`, `camTick` and `amAudioTick`;
-- `objObjectsTick`, which calls every object's control as `(object, rate)`;
-- `partUpdateParticles`, `trackUpdateFX`, `trackDraw` and `animseqUpdate`.
-
-Timers count in VIs. Physics runs in fixed one-VI substeps
-(`while (ticks--) { pos += vel; vel += g; }`), and damping uses
-`Powerf(k, ticks)`.
-
-**How true 60 is switched on.** The game already has a one-VI-per-frame
-mode:
-- `runInOneFrame` (0x800FECCC) makes `viFrameSync` wait for a single VI.
-- Only the planet map and the multiplayer stats screens use it.
-- `viFrameRateReset` clears it on every level load, FMV, weapon screen and
-  video-mode change.
-
-The hook therefore sets it around *every* `viFrameSync` call and restores
-the game's value afterwards. The emulated CPU runs at 8x (unless Original
-N64 slowdown is on), so a frame's work fits in one VI. A frame that still
-overruns reports 2 VIs, which the engine already handles.
-
-**Audit (decomp plus disassembly; notes in the session scratchpad, not
-committed).**
-- Of 87 decompiled tick, control and update functions, about 76 take the
-  rate. The rest are per-frame bookkeeping: lights, collision snapshots,
-  memory and overlay queues, viewport flip.
-- No gameplay timer, physics step, damage or AI timer in C assumes 2 ticks.
-  Blast damage is damage per tick × rate. Squad AI uses `iDeltaTime`.
-  Animation uses `objAnimDframe(…, rate)`.
-- **Fixed in this PR:**
-  - **Texture scrollers** (overlay 47 `animseqUpdateTextureScrollers`):
-    `(velocity × rate) >> 8` rounds slow scrollers to zero at rate 1. The
-    hook batches ticks and runs the scrollers once per 2 ticks, exactly
-    their original 30 fps inputs.
-  - **Literal 2-tick particle bursts** (`partUpdateTriggers(obj, 2)` in jet
-    flames, droplets, water bubbles and overlays 20/103) would double those
-    particles. A literal 2 on a one-VI frame becomes 1.
-  - **Repeated button presses.** `joyRead` recomputes "pressed" from the
-    last two controller reads every frame. A one-VI frame that receives no
-    new read would report the same press again. Such a frame now reports
-    no presses or releases.
-- **Known, cosmetic, left as is:** these happen once per frame, so twice as
-  often at 60:
-  - eye-blink rolls (`texAnimateTexture`);
-  - camera-shake jitter (the shake duration is scaled);
-  - a few emitters' random spawns (`hoovergemControl`, `bubblerControl`,
-    `treeControl`);
-  - splash, droplet and ripple fade counters;
-  - the lock-on flash phase, light-show trails, the electrocution flicker.
-  - The hovertank section's day-cycle factor also truncates differently at
-    rate 1.
-- **Not audited (still ASM):**
-  - most enemy and boss AI (overlays 50-155);
-  - the bodies of `controlPlayer` and `sidekickControl` (both receive the
-    rate);
-  - cutscene scripts (`animseqUpdate`);
-  - the HUD instruments.
-
-  These are what the owner's test is for.
-- **Unchanged:**
-  - The first frame after a level load is always 2 ticks (the main loop
-    forces it): one double step after each load.
-  - Audio runs every 2 retraces from the scheduler, independent of the
-    logic rate.
-
-**Frame rate options.**
-- **Original:** the game's own 30 fps; 20 only with Original N64 slowdown.
-- **True 60:** logic and drawing at 60.
-- **Display / Unlocked:** true 60, plus RT64 blending up to the display's
-  rate or uncapped, when **Interpolate extra frames** is on (the default).
-  With it off, both behave like True 60.
-
-**Above 60.** Logic above 60 would need fractional ticks, which the
-integer `delayDat` cannot express. Display rates above 60 come from
-blending.
+PR #7 (`rgo/no-n64-slowdown`) overclocked the emulated CPU 4x; PR #8
+(`rgo/true-60fps`) forced `runInOneFrame` with an 8x overclock. Both kept
+the per-instruction cost model, which caused the problems in
+[Why the first attempt did not work](#why-the-first-attempt-did-not-work).
+The fast clock replaces the overclock; True 60 keeps the one-VI mode and the
+fixes for code that assumes two ticks per frame, and adds the scheduler
+release and the governor.
 
 ## Risks and what to look for
 
@@ -382,6 +482,27 @@ blending.
   Original.
 - **Lighting.** RT64 now sees real world matrices instead of MVPs. If any
   material uses RT64 lighting, it can look different above Original.
-- **Pacing.** RT64 spaces the extra frames with a timer. The game's own
-  pacing stays at 60 VIs per second, so a slow PC may show uneven frames
-  rather than a slower game.
+- **Pacing.** RT64 spaces the extra frames with a timer. VIs are paced to
+  the audio clock, which is not the display's refresh: on a 60 Hz display a
+  frame repeats or drops every few seconds. VSync with the counter's frame
+  time range shows it.
+- **Fast clock and timing-sensitive code.** The fast clock changes how much
+  emulated time CPU work takes. Code that relied on the CPU being slow (a
+  DMA finishing before the CPU reads its data, without waiting) would
+  misbehave; none showed up from the title to the second level. Original N64
+  slowdown On keeps the original timing as a fallback.
+- **One-trap MMIO on Windows.** The decoder was measured with GCC's code
+  (every access decoded). MSVC may emit other encodings for some accesses;
+  those keep single-stepping, which is slower but behaves the same. If
+  anything about device timing looks wrong, `JFG_RGO_MMIO_SINGLE_STEP=1`
+  goes back to single-stepping every access.
+- **RDRAM snapshots.** Every graphics task still copies the changed parts of
+  the 4 MB RDRAM image, comparing all of it (and the Windows renderer
+  imports it into RT64's copy again). Heavy cutscenes launch about 500 tasks
+  a second, so this is now the largest single host cost there. Tracking
+  written pages instead would need every native writer (DMA, audio, the
+  renderer's writeback) to report its writes; not done yet.
+- **Not audited at one tick per frame:** most enemy and boss AI, the bodies
+  of `controlPlayer` and `sidekickControl`, the cutscene scripts, the HUD
+  instruments (still ASM in the decomp). Watch for anything that moves at
+  double speed or not at all at True 60.

@@ -1,5 +1,9 @@
 #pragma once
+#if defined(_WIN32)
 #include <windows.h>
+#else
+#include <fstream>
+#endif
 #include <array>
 #include <cstddef>
 #include <chrono>
@@ -37,6 +41,19 @@ public:
   }
 private:
   void refresh() noexcept {
+#if !defined(_WIN32)
+    // Headless Linux build: a plain shared read.
+    try {
+      std::ifstream file(path_, std::ios::binary);
+      if (!file) return;
+      std::vector<char> buffer(maximum_bytes_+1U);
+      file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+      const auto count = static_cast<std::size_t>(file.gcount());
+      if (count>maximum_bytes_) return;
+      auto value=std::make_shared<const std::string>(buffer.data(),count);
+      std::lock_guard lock(mutex_); latest_=std::move(value);
+    } catch (...) {}
+#else
     try {
       const HANDLE file = CreateFileW(path_.c_str(), GENERIC_READ,
           FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
@@ -48,6 +65,7 @@ private:
       auto value=std::make_shared<const std::string>(buffer.data(),count);
       std::lock_guard lock(mutex_); latest_=std::move(value);
     } catch (...) {}
+#endif
   }
   std::size_t maximum_bytes_;
   std::filesystem::path path_;
