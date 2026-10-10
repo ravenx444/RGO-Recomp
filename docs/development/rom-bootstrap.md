@@ -26,8 +26,18 @@ python scripts/build_from_rom.py --rom 'D:\Games\my-copy.z64' --play
 ```
 
 Alternatively, run `launcher/windows/Build-And-Play.ps1` in PowerShell to choose
-the ROM using a file picker. The unified launcher opens the resulting native runtime beneath its in-game
-menu bar on subsequent runs. Compilation can take several minutes.
+the ROM using a file picker. Compilation can take several minutes.
+
+The script also builds the unified frontend (`JFG-Launcher.exe`, via
+`scripts/build_launcher.ps1`) into the short build cache (`...\JFG\b\<key>\f`).
+With `--play` it points the default profile at the fresh game build and starts
+the game through that frontend, so the menu bar, Video settings, controller and
+audio settings work exactly as in a release launcher. Inside a frontend started
+this way, **Set up and build** rebuilds the game from the same checkout
+(`JFG_SOURCE_ROOT`) instead of downloading upstream source. Close any open
+frontend before building; the script refuses to overwrite a running one. Pass
+`--no-frontend` to skip the frontend; with `--play` that starts the bare game
+window without menus, as before.
 The script validates the ROM before downloading dependencies. Other regions,
 modified ROMs, and byte-swapped dumps are rejected.
 

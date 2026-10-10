@@ -26,7 +26,9 @@ adds improvements on top. The roadmap is in `docs/rgo/ROADMAP.md`.
 
 ## Building and testing
 - **On Windows (the owner's PC):** use the launcher, or
-  `python scripts/build_from_rom.py --rom <path-to-rom> --play`. Today that
+  `python scripts/build_from_rom.py --rom <path-to-rom> --play`, which also
+  builds the frontend and plays through it (menu bar and settings; add
+  `--no-frontend` for the bare game window). Today that
   needs Visual Studio 2022 and WSL2 Ubuntu 24.04. Build output goes to
   `%LOCALAPPDATA%\JFG\b\...`, saves to `%LOCALAPPDATA%\JFGRecomp\profiles\default`.
 - **In the cloud (Linux):** you can run the same checks upstream's CI Linux job runs:
