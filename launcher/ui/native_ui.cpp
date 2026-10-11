@@ -27,6 +27,7 @@
 #include <jfg/runtime/gamepad.hpp>
 #include <jfg/platform/sdl_gamepads.hpp>
 #include <jfg/runtime/pc_input.hpp>
+#include <jfg/runtime/pc_twin_stick.hpp>
 #include <jfg/renderer/widescreen.hpp>
 #include <jfg/rgo/persistent_gore.hpp>
 #include <memory>
@@ -216,6 +217,38 @@ struct Ui : Rml::EventListener {
       html+="<option value=\""+std::to_string(b)+"\""+(b==c.gyro_ratchet?" selected=\"selected\"":"")+">"+escape(bindingName(b))+"</option>";
     html+="</select></div><p class=\"muted\">"+std::string(calibrated?"Calibrated.":"Put the controller down for a second to calibrate.")+
       " 100% turns the aim as far as you turn the controller.</p>";
+    return html;
+  }
+  // RGO controller scheme: Original (one stick moves and aims, as on the
+  // N64) or Modern twin-stick. Shown for every controller player, with no
+  // Experimental switch needed.
+  std::string twinStickHtml() {
+    const auto &c=pcInput[static_cast<std::size_t>(player)];
+    const auto &m=mappings[player];
+    const bool twin=jfg::pc_twin_stick(c);
+    std::string html="<div class=\"row\"><div class=\"grow\">Controller scheme<div class=\"muted\">"+
+      std::string(twin?"Modern twin-stick: the left stick moves (and strafes while aiming), the right stick turns the camera and aims.":
+        "Original: one stick moves and aims, as on the N64.")+" Switching sets the matching button layout.</div></div>"+
+      button("twin-scheme",twin?"Modern twin-stick":"Original")+"</div>";
+    if(!twin)return html;
+    const auto name=[&](int i){return escape(bindingName(m.bindings[static_cast<std::size_t>(i)]));};
+    html+="<p class=\"muted\">Aim: "+name(9)+". Fire: "+name(2)+". Jump: "+name(10)+" (Normal) or "+name(0)+" (Expert). "
+      "Movement: "+std::string(m.stick?"right":"left")+" stick; the other stick looks. Rebind below.</p>";
+    html+="<div class=\"row\"><span>Button layout for the game's</span>"+button("twin-layout-normal","Normal controls")+
+      button("twin-layout-expert","Expert controls")+"</div>";
+    const char* labels[]={"Camera speed (%)","Aim speed (%)","Right stick deadzone","Vertical speed (%)"};
+    const int index[]={4,1,2,6};
+    const int values[]={c.camera_sensitivity,c.aim_sensitivity,c.aim_deadzone,c.stick_vertical_sensitivity};
+    for(int i=0;i<4;++i)
+      html+="<div class=\"row\"><span>"+std::string(labels[i])+"</span><input class=\"volume\" type=\"range\" min=\""+(index[i]==2?"0":"10")+
+        "\" max=\""+(index[i]==2?"30000":"300")+"\" value=\""+std::to_string(values[i])+"\" data-action=\"twin-tune"+std::to_string(index[i])+
+        "\"/><span id=\"pc-value"+std::to_string(index[i])+"\">"+std::to_string(values[i])+"</span></div>";
+    html+="<div class=\"row\"><span>Stick response</span>"+button("twin-curve",c.aim_curve==0?"Linear":c.aim_curve==1?"Precise":"Extra precise")+
+      "<span class=\"muted\">Precise slows small movements near the centre.</span></div>";
+    html+="<div class=\"row\">"+button("twin-invert-camera",c.camera_invert_y?"Camera Y: inverted":"Camera Y: normal")+
+      button("twin-invert-aim",c.aim_invert_y?"Aim Y: inverted":"Aim Y: normal")+"</div>";
+    html+="<p class=\"muted\">100% turns the camera 200 degrees and the aim 100 degrees a second at full stick. Gyro aim adds to the right stick. "
+      "Swimming, jetpack, vehicles and split-screen keep the game's own camera.</p>";
     return html;
   }
   std::string pcFile() const { return player ? "pc-input-"+std::to_string(player+1)+".ini" : "pc-input.ini"; }
@@ -1116,9 +1149,13 @@ struct Ui : Rml::EventListener {
         html+="<div id=\"mapping-content\" class=\"muted\">Choose mouse and keyboard or a controller to configure bindings.</div>";
         note="This player port is disconnected.";
       } else {
-      html+="<div id=\"mapping-content\" class=\"gamepad-mapping\"><div class=\"row\"><span>Movement</span>"+
-        button("stick",m.stick?"Right stick":"Left stick")+button("controller-settings",controllerSettings?"Hide settings":"Settings")+"</div>";
-      html+=pcInputHtml();
+      // RGO: in the twin-stick scheme this is "Swap sticks" (left-handed):
+      // the other stick always looks and aims.
+      const bool twinScheme=jfg::pc_twin_stick(pcInput[static_cast<std::size_t>(player)]);
+      html+="<div id=\"mapping-content\" class=\"gamepad-mapping\"><div class=\"row\"><span>"+std::string(twinScheme?"Swap sticks (left-handed)":"Movement")+"</span>"+
+        button("stick",twinScheme?(m.stick?"On: right stick moves":"Off: left stick moves"):(m.stick?"Right stick":"Left stick"))+
+        button("controller-settings",controllerSettings?"Hide settings":"Settings")+"</div>";
+      html+=twinStickHtml();
       const char *names[] = {"A / jump", "B",      "Z / fire", "Start",  "Up",
                              "Down",     "Left",   "Right",    "L",      "R",
                              "C up",     "C down", "C left",   "C right"};
@@ -1337,8 +1374,8 @@ struct Ui : Rml::EventListener {
         if(i<pcInput[0].keys.size()){pcInput[static_cast<std::size_t>(player)].keys[i]=std::clamp(event.GetParameter<int>("value",0),0,257);savePcInput();}
         return;
       }
-      if(a.rfind("pc-tune",0)==0) {
-        const int i=std::stoi(a.substr(7));auto &c=pcInput[static_cast<std::size_t>(player)];
+      if(a.rfind("pc-tune",0)==0 || a.rfind("twin-tune",0)==0) {
+        const int i=std::stoi(a.substr(a[0]=='t'?9:7));auto &c=pcInput[static_cast<std::size_t>(player)];
         if(i<0 || i>7)return;
         int* values[]={&c.mouse_sensitivity,&c.aim_sensitivity,&c.aim_deadzone,&c.mouse_aim_sensitivity,&c.camera_sensitivity,&c.mouse_vertical_sensitivity,&c.stick_vertical_sensitivity,&c.key_aim_speed};
         int* value=values[i];
@@ -1432,6 +1469,28 @@ struct Ui : Rml::EventListener {
       keyLearning=-1;pcInput[static_cast<std::size_t>(player)].keys[static_cast<std::size_t>(index)]=0;
       savePcInput();modal("controllers");return;
     }
+    // RGO twin-stick scheme (no Experimental switch needed).
+    if(a.rfind("twin-",0)==0 && a.rfind("twin-tune",0)!=0) {
+      auto &c=pcInput[static_cast<std::size_t>(player)];
+      auto &m=mappings[player];
+      if(a=="twin-scheme") {
+        c.scheme=jfg::pc_twin_stick(c)?jfg::kPcSchemeOriginal:jfg::kPcSchemeTwinStick;
+        // The right stick looks in the modern scheme, so its buttons move.
+        const int device=m.device,stick=m.stick;
+        if(c.scheme)m=jfg::pc_twin_stick_mapping(false,device);
+        else {m=jfg::ControllerMapping{};m.device=device;}
+        m.stick=stick;saveController();
+      }
+      else if(a=="twin-layout-normal" || a=="twin-layout-expert") {
+        const int stick=m.stick;
+        m=jfg::pc_twin_stick_mapping(a=="twin-layout-expert",m.device);m.stick=stick;saveController();
+      }
+      else if(a=="twin-curve")c.aim_curve=(c.aim_curve+1)%3;
+      else if(a=="twin-invert-camera")c.camera_invert_y=!c.camera_invert_y;
+      else if(a=="twin-invert-aim")c.aim_invert_y=!c.aim_invert_y;
+      else return;
+      savePcInput();modal("controllers");return;
+    }
     if(a=="pc-experimental") {
       if(writeFile("experimental-controls.ini",jfg::serialize_pc_experiments(!pcExperimental())))
         modal("controllers");
@@ -1470,7 +1529,8 @@ struct Ui : Rml::EventListener {
       savePcInput();modal("controllers");return;
     }
     if (a == "device" || a == "input-type" || a == "session" || a == "volume" ||
-        a == "rumble-strength" || a == "gyro-tune" || a == "gyro-ratchet" || a.rfind("tune-", 0) == 0)
+        a == "rumble-strength" || a == "gyro-tune" || a == "gyro-ratchet" || a.rfind("tune-", 0) == 0 ||
+        a.rfind("twin-tune", 0) == 0)
       return;
     if (a.rfind("report-", 0) == 0) {
       selectedSession = a.substr(7);
@@ -1559,7 +1619,7 @@ struct Ui : Rml::EventListener {
       m.invert_y = !m.invert_y;
     else if (a == "reset") {
       int d = m.device;
-      m = jfg::ControllerMapping{};
+      m = jfg::pc_twin_stick(pcInput[static_cast<std::size_t>(player)]) ? jfg::pc_twin_stick_mapping(false, d) : jfg::ControllerMapping{};
       m.device = d;
     } else if (a.rfind("deadzone", 0) == 0)
       m.deadzone =
