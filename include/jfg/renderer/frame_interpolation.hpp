@@ -264,16 +264,161 @@ inline constexpr std::uint32_t kAiPointControl = 0x0030A110U;
 inline constexpr std::uint32_t kAiJunctionControl = 0x00316CB4U;
 inline constexpr std::uint32_t kSquadsModuleTick = 0x00316990U;
 
-// squadsInitialiseAfterObjects (0x80051EA4-0x80052677) runs SquaddieControl
-// once per bug while a level is set up; those calls run as they are.
-[[nodiscard]] constexpr bool squads_setup_call(const std::uint32_t return_address) noexcept {
-    return return_address >= 0x80051EA4U && return_address < 0x80052678U;
+// 5. Other code that counts per call (docs/rgo/framerate.md, "True 60
+//    audit"):
+//    - splashControl (0x80028034, spranim.c) spawns three droplets per call
+//      until its count runs out: the splash came out in half the time.
+//    - wakeUpdateRipple (0x8006B090, fx) moves the ripple's fade by 32 and,
+//      through wakeUpdate, the wake's fade by 64 and pushes one trail segment
+//      per call into a ring sized for one segment per two VIs: wakes behind
+//      wading characters and the hovership were half as long and faded twice
+//      as fast.
+//    Both are void, take the rate in a1 and run at half rate (below).
+inline constexpr std::uint32_t kSplashControl = 0x80028034U;
+inline constexpr std::uint32_t kWakeUpdateRipple = 0x8006B090U;
+
+//    Three more count per call but must run every frame, so on a frame the
+//    half-rate functions skip (an "odd tick") they run with their per-call
+//    step undone:
+//    - controlUpdatePlayerAim (0x80039FCC, a1 = the player's control state)
+//      counts down the aim stance hold (+0x1F4, s8) and the fire spin-up
+//      (+0x1F8, s8) and the lock-on beep nibble (low 4 bits of +0x541) by one
+//      per call: the aim stance dropped after 0.25 s instead of 0.5 s. Its
+//      aim angles must still update at 60, so the counters are raised by one
+//      before the call instead.
+//    - ShirukenControl (overlay 122, 0x07A004EC) spins a flying shuriken by
+//      0x1D6B (state +0x78) and tumbles a bounced one by its spin rates
+//      (state +0x7A..+0x7E into the object's rotation) per call; its motion
+//      does scale by the rate. The spin and tumble steps are taken back.
+//    - camlightVisibilityCheck (0x80024044, from trackDraw, no rate) fades
+//      lens flares by 8 per call and walks point lights round-robin from a
+//      cursor (0x800A110C). The 50 fade bytes and the cursor are restored;
+//      the z-buffer checks it queues still run every frame.
+inline constexpr std::uint32_t kControlUpdatePlayerAim = 0x80039FCCU;
+inline constexpr std::uint32_t kShirukenControl = 0x07A004ECU;
+inline constexpr std::uint32_t kCamlightVisibilityCheck = 0x80024044U;
+inline constexpr std::uint32_t kCamlightCursor = 0x800A110CU;
+inline constexpr std::uint32_t kCamlights = 0x800F5B60U;
+inline constexpr std::uint32_t kCamlightCount = 50U;
+inline constexpr std::uint32_t kCamlightStride = 0x50U;
+inline constexpr std::uint32_t kCamlightFadeOffset = 7U;
+inline constexpr std::uint16_t kShirukenSpinStep = 0x1D6BU;
+
+//    - Two object controls step one counter in their state (*(object+0x68))
+//      by one per call; a step of exactly one is taken back:
+//      hoovertankControl (overlay 106, 0x06A00290) ramps its spin speed
+//      (+0x35, s8) up or down by one per call, so it spun up and down in half
+//      the time; FlowerBoltControl (overlay 149, the slug boss's bolt,
+//      0x09501450) counts its arming delay (+0x10, s16) per call.
+struct StateCounter {
+    std::uint32_t address = 0U;
+    std::uint32_t offset = 0U;  // in the object's state (*(object + 0x68))
+    std::uint8_t bytes = 1U;    // 1 or 2
+};
+inline constexpr std::array<StateCounter, 2> kStateCounters{{
+    {0x06A00290U, 0x35U, 1U},  // hoovertankControl
+    {0x09501450U, 0x10U, 2U},  // FlowerBoltControl
+}};
+
+[[nodiscard]] constexpr const StateCounter* state_counter(const std::uint32_t target) noexcept {
+    for (const StateCounter& entry : kStateCounters)
+        if (entry.address == target)
+            return &entry;
+    return nullptr;
 }
 
-[[nodiscard]] constexpr bool squads_function(const std::uint32_t target) noexcept {
-    return target == kSquaddieControl || target == kSquadronControl ||
-           target == kAiPointControl || target == kAiJunctionControl ||
-           target == kSquadsModuleTick;
+// Whether a counter of `bytes` bytes moved by exactly one (up or down).
+[[nodiscard]] constexpr bool counter_stepped(const std::uint32_t before,
+                                             const std::uint32_t after,
+                                             const std::uint8_t bytes) noexcept {
+    const std::uint32_t mask = bytes == 1U ? 0xFFU : 0xFFFFU;
+    const std::uint32_t delta = (after - before) & mask;
+    return delta == 1U || delta == mask;
+}
+
+[[nodiscard]] constexpr bool odd_tick_compensated(const std::uint32_t target) noexcept {
+    return target == kControlUpdatePlayerAim || target == kShirukenControl ||
+           target == kCamlightVisibilityCheck || state_counter(target) != nullptr;
+}
+
+// controlUpdatePlayerAim's counters, raised so its per-call countdown leaves
+// them unchanged: it decrements the hold and the spin-up (clamped at 0) when
+// the hold is set, and the lock-on nibble when it is set.
+struct AimCounters {
+    std::int8_t hold = 0;
+    std::int8_t spin_up = 0;
+    std::uint8_t lock = 0;  // the byte at +0x541; low nibble counts down
+    friend bool operator==(const AimCounters&, const AimCounters&) = default;
+};
+
+[[nodiscard]] constexpr AimCounters aim_counters_for_odd_tick(AimCounters counters) noexcept {
+    if (counters.hold != 0 && counters.hold < 127) {
+        ++counters.hold;
+        if (counters.spin_up > 0 && counters.spin_up < 127)
+            ++counters.spin_up;
+    }
+    const std::uint8_t nibble = counters.lock & 0x0FU;
+    if (nibble != 0U && nibble < 15U)
+        counters.lock = static_cast<std::uint8_t>((counters.lock & 0xF0U) | (nibble + 1U));
+    return counters;
+}
+
+// Whether a 16-bit angle moved by exactly `step` (mod 65536) in one call.
+[[nodiscard]] constexpr bool angle_stepped(const std::uint16_t before,
+                                           const std::uint16_t after,
+                                           const std::uint16_t step) noexcept {
+    return static_cast<std::uint16_t>(after - before) == step;
+}
+
+// Functions True 60 runs once per 2 ticks with rate 2 ("half rate"): the
+// game code that counts per call. All of them share one cadence, so code
+// that runs together (the squads AI) stays in step. `rate_register` is the
+// argument register holding the frame's rate (4 = a0, 5 = a1); only calls
+// that pass the frame's rate are batched, and calls whose return address lies
+// in [setup_begin, setup_end) (level setup) run as they are.
+struct HalfRateFunction {
+    std::uint32_t address = 0U;
+    std::uint8_t rate_register = 5U;
+    std::uint32_t setup_begin = 0U;
+    std::uint32_t setup_end = 0U;
+};
+
+// squadsInitialiseAfterObjects (0x80051EA4-0x80052677) runs SquaddieControl
+// once per bug while a level is set up.
+inline constexpr std::uint32_t kSquadsSetupBegin = 0x80051EA4U;
+inline constexpr std::uint32_t kSquadsSetupEnd = 0x80052678U;
+
+inline constexpr std::array<HalfRateFunction, 7> kHalfRateFunctions{{
+    {kSquaddieControl, 5U, kSquadsSetupBegin, kSquadsSetupEnd},
+    {kSquadronControl, 5U, kSquadsSetupBegin, kSquadsSetupEnd},
+    {kAiPointControl, 5U, kSquadsSetupBegin, kSquadsSetupEnd},
+    {kAiJunctionControl, 5U, kSquadsSetupBegin, kSquadsSetupEnd},
+    {kSquadsModuleTick, 4U, kSquadsSetupBegin, kSquadsSetupEnd},
+    {kSplashControl, 5U},
+    {kWakeUpdateRipple, 5U},
+}};
+
+// The half-rate entry for a function, or nullptr.
+[[nodiscard]] constexpr const HalfRateFunction* half_rate_function(
+    const std::uint32_t target) noexcept {
+    for (const HalfRateFunction& entry : kHalfRateFunctions)
+        if (entry.address == target)
+            return &entry;
+    return nullptr;
+}
+
+[[nodiscard]] constexpr bool is_half_rate_function(const std::uint32_t target) noexcept {
+    return half_rate_function(target) != nullptr;
+}
+
+// Whether a call to a half-rate function is batched: it passes the frame's
+// rate and does not come from the function's setup caller.
+[[nodiscard]] constexpr bool half_rate_call(const HalfRateFunction& entry,
+                                            const std::uint32_t rate_argument,
+                                            const std::uint32_t frame_rate,
+                                            const std::uint32_t return_address) noexcept {
+    return rate_argument == frame_rate &&
+           !(return_address >= entry.setup_begin && return_address < entry.setup_end);
 }
 
 // The game's logic rate for one game frame: 60 / the VIs it took (2 normally,
