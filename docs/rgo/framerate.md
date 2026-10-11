@@ -303,11 +303,41 @@ the game's code twice as fast as at 30. Profiling the headless build
   VM: emulated seconds per wall second fell from 1.49-1.56 to 0.77-1.08, as
   spinning threads take CPU from the running one. Windows wake-ups may cost
   more; the Detailed counter's `switches`/`woken` figures and the host time
-  will tell. `JFG_RGO_BATON_SPIN_US` and `JFG_RGO_SCHEDULER_SPIN_US` set the
-  spins for measurements.
+  will tell.
 - **The governor starts over in a new scene.** A heavy cutscene that cannot
   hold 60 grows the governor's pause up to 30 s; the gameplay after it used
   to stay at 30 for that long. The pause now resets when the level changes.
+
+- **Snapshot imports** (branch `rgo/host-speed`). Every graphics task copies
+  guest RAM into a private 8 MB snapshot (the 4 MB RDRAM plus the overlay
+  code and data the display lists point into, with patched display-list
+  words), and on Windows the renderer then compared all 8 MB again to
+  update its own RAM copy; every present copied all of RDRAM once more and
+  compared 8 MB again, although only the displayed framebuffer can have
+  changed there. Measured headlessly, a task changes only 20-70 of the 1,024
+  chunks of 4 KB of RDRAM, and the overlay shadows are about 1 MB. Now:
+  - A present refreshes only the displayed framebuffer's window (up to
+    640x480 at 32 bits) in the renderer's copy (`import_rdram_range`).
+  - A task whose snapshot buffer last held the snapshot the renderer
+    imported (the usual case: one task in flight, buffers reused last-in
+    first-out) is imported as a delta (`import_rdram_chunks`): the RDRAM
+    chunks that differed while copying guest RAM into the snapshot, the
+    patched display-list words, the overlay chunks that differ from the
+    overlay half imported last (compared over the shadows only), and the
+    present windows since. Anything else (a new buffer, two tasks in
+    flight, an error) imports all 8 MB as before.
+  - This is sound because the renderer runs with full CPU writeback: it
+    only writes its RAM copy inside the framebuffers it rendered, and those
+    are committed to guest RAM, so the next snapshot sees them as changed.
+  - `JFG_RGO_SNAPSHOT_VERIFY=1` replays every import into a model of the
+    renderer's copy and compares it with the snapshot: 37,334 delta imports
+    over the opening 14,000 VIs, 0 differing chunks. The model cannot see
+    RT64's own writes; the reasoning above covers those.
+    `JFG_RGO_SNAPSHOT_FULL=1` and `JFG_RGO_PRESENT_FULL_IMPORT=1` go back to
+    the full imports. On Windows a task now copies about 0.5 MB (136 chunks
+    on average, present windows included) and compares about 1 MB of
+    overlay data instead of comparing 8 MB; the headless build has no
+    renderer copy, so only the present's 4 MB copy is saved there.
 
 Unpaced throughput (emulated seconds per wall second, `--unpaced`; above 1.0
 is headroom for real time) on this cloud VM, True 60:
@@ -1052,11 +1082,16 @@ Detailed counter at that moment, show which part is wrong.
   anything about device timing looks wrong, `JFG_RGO_MMIO_SINGLE_STEP=1`
   goes back to single-stepping every access.
 - **RDRAM snapshots.** Every graphics task still copies the changed parts of
-  the 4 MB RDRAM image, comparing all of it (and the Windows renderer
-  imports it into RT64's copy again). Heavy cutscenes launch about 500 tasks
-  a second, so this is now the largest single host cost there. Tracking
-  written pages instead would need every native writer (DMA, audio, the
-  renderer's writeback) to report its writes; not done yet.
+  the 4 MB RDRAM image into its snapshot, comparing all of it (about 11 % of
+  CPU time headlessly in heavy cutscenes). The renderer's own copy is now
+  updated by delta ([Host speed](#host-speed)). Tracking written pages
+  instead would need every native writer (DMA, audio, the renderer's
+  writeback) to report its writes; not done.
+- **Snapshot delta imports.** If graphics ever show stale or wrong pixels
+  (a texture from the previous frame, an effect drawn from old data) on
+  `rgo/host-speed`, run with `JFG_RGO_SNAPSHOT_FULL=1` and
+  `JFG_RGO_PRESENT_FULL_IMPORT=1`: if that fixes it, the delta missed a
+  change.
 - **One tick per frame:** see the [True 60 audit](#true-60-audit) for what
   was fixed, what was checked and what was left. Watch for anything that
   moves at double speed or not at all at True 60.
@@ -1071,8 +1106,5 @@ Detailed counter at that moment, show which part is wrong.
   for a frame, renderer work and audio included, minus only the VI waits. A
   frame at 30 carries two VIs of audio work, so it slightly overstates what
   60 would cost; the 15 ms / 20 ms thresholds leave for that.
-- **RDRAM copies per graphics task** are the largest host cost in heavy
-  scenes (above). A cheaper import (only the 4 KB pages the CPU wrote since
-  the last task) needs every native writer to report its writes and the
-  Windows renderer's own writes to RAM tracked; it should be done with the
-  renderer in hand, not blind.
+- **RDRAM copies per graphics task:** the renderer side is now a delta
+  (above); the copy into the snapshot itself still compares 4 MB per task.

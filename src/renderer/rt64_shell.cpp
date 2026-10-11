@@ -533,6 +533,50 @@ Rt64ShellError Rt64Shell::replace_rdram_snapshot(
     return task_copy_error;
 }
 
+Rt64ShellError Rt64Shell::import_rdram_range(
+    const std::span<const std::byte> live, const std::size_t begin,
+    const std::size_t end, const Rt64MemoryLayout layout) noexcept {
+    if (impl_ == nullptr || !impl_->initialized ||
+        impl_->application == nullptr) {
+        return Rt64ShellError::not_initialized;
+    }
+    if (impl_->writeback_pending)
+        return Rt64ShellError::conflicting_cpu_write;
+    // Only the full-writeback path keeps the RAM copy equal to guest RAM at
+    // every task boundary; with it, a range refresh is a plain byte copy.
+    if (!impl_->cpu_writeback || layout != Rt64MemoryLayout::host_word_swapped ||
+        begin >= end || end > live.size() || end > impl_->rdram.size() ||
+        (begin & 3U) != 0U || (end & 3U) != 0U)
+        return Rt64ShellError::invalid_memory;
+    std::memcpy(impl_->rdram.data() + begin, live.data() + begin, end - begin);
+    return Rt64ShellError::none;
+}
+
+Rt64ShellError Rt64Shell::import_rdram_chunks(
+    const std::span<const std::byte> rdram, const std::span<const std::uint32_t> chunks,
+    const Rt64MemoryLayout layout) noexcept {
+    if (impl_ == nullptr || !impl_->initialized ||
+        impl_->application == nullptr) {
+        return Rt64ShellError::not_initialized;
+    }
+    if (impl_->writeback_pending)
+        return Rt64ShellError::conflicting_cpu_write;
+    constexpr std::size_t kChunk = 4096U;
+    if (!impl_->cpu_writeback || layout != Rt64MemoryLayout::host_word_swapped ||
+        rdram.size() != kRt64RequiredRdramBytes || impl_->rdram.size() != rdram.size())
+        return Rt64ShellError::invalid_memory;
+    for (const std::uint32_t chunk : chunks) {
+        if (static_cast<std::size_t>(chunk) >= rdram.size() / kChunk)
+            return Rt64ShellError::invalid_memory;
+        std::memcpy(impl_->rdram.data() + std::size_t{chunk} * kChunk,
+                    rdram.data() + std::size_t{chunk} * kChunk, kChunk);
+    }
+    // As replace_rdram_snapshot: the task reads its display lists from the
+    // snapshot itself.
+    impl_->task_rdram = {reinterpret_cast<const std::uint8_t*>(rdram.data()), rdram.size()};
+    return Rt64ShellError::none;
+}
+
 Rt64ShellError Rt64Shell::copy_private_rdram_snapshot(
     const std::span<std::byte> rdram,
     const Rt64MemoryLayout layout) const noexcept {

@@ -1782,6 +1782,18 @@ struct PendingLiveGraphicsTask final {
   std::array<std::uint32_t, 6U> descriptor{};
   std::vector<std::byte> rdram;
   bool skipped = false;
+  // RGO host speed: this snapshot's id, the id of the snapshot its buffer
+  // held before (0: a new buffer), and the 4 KB chunks that differ from it.
+  std::uint64_t snapshot_id = 0U;
+  std::uint64_t base_id = 0U;
+  jfg::SnapshotChanges changes;
+};
+
+// A graphics snapshot buffer waiting for reuse, with the id of the snapshot
+// it holds.
+struct PooledGraphicsSnapshot final {
+  std::vector<std::byte> rdram;
+  std::uint64_t id = 0U;
 };
 
 struct LiveGraphicsOverlayShadow final {
@@ -2224,6 +2236,7 @@ struct State : JfgOriginalTimingFast {
   std::uint64_t gore_released_low_memory = 0U;
   std::unique_ptr<jfg::Rt64Shell> rt64_shell;
   std::vector<std::byte> rt64_rdram;
+  bool present_full_import = false;  // JFG_RGO_PRESENT_FULL_IMPORT=1
   std::uint32_t graphics_color_image = 0U;
   bool graphics_frame_ready = false;
   std::array<std::uint32_t, 64U> recent_graphics_color_images{};
@@ -2239,7 +2252,21 @@ struct State : JfgOriginalTimingFast {
   // Immutable ROM-derived overlay shadows. Restore these bytes for each task;
   // display-list traversal still patches that task's private snapshot.
   std::vector<std::byte> graphics_overlay_initial_data;
-  std::vector<std::vector<std::byte>> graphics_snapshot_pool;
+  std::vector<PooledGraphicsSnapshot> graphics_snapshot_pool;
+  // RGO host speed (snapshot delta import): the id of the snapshot the
+  // renderer's RAM copy holds (0: unknown), its upper (overlay) half as
+  // imported, chunks changed in the renderer's copy since (present windows),
+  // JFG_RGO_SNAPSHOT_FULL=1 (always import fully) and JFG_RGO_SNAPSHOT_VERIFY=1
+  // (replay every import into a model of the renderer's copy and compare).
+  std::uint64_t next_snapshot_id = 0U;
+  std::uint64_t imported_snapshot_id = 0U;
+  std::vector<std::byte> imported_upper;
+  std::vector<std::uint32_t> import_extra_chunks;
+  bool snapshot_full_import = false;
+  bool snapshot_verify = false;
+  std::vector<std::byte> snapshot_verify_model;
+  std::uint64_t snapshot_delta_imports = 0U, snapshot_full_imports = 0U;
+  std::uint64_t snapshot_delta_chunks = 0U, snapshot_verify_mismatches = 0U;
   HostAudioDevice host_audio;
   std::uint64_t audio_task_microseconds = 0U;
   std::uint64_t graphics_prepare_microseconds = 0U;
@@ -3373,12 +3400,16 @@ void refresh_video_settings(State &state) {
     if (state.counter_log) {
       std::string host = jfg::format_frame_host(details);
       std::replace(host.begin(), host.end(), '\n', ' ');
-      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu | squaddie calls %llu\n",
+      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu | squaddie calls %llu | snapshot imports delta %llu full %llu, chunks %llu, verify mismatches %llu\n",
                    static_cast<unsigned long long>(state.vi_retraces),
                    jfg::format_frame_counter(counter).c_str(), host.c_str(),
                    state.host_audio.queued_milliseconds(),
                    static_cast<unsigned long long>(state.host_audio.underruns()),
-                   static_cast<unsigned long long>(state.squaddie_calls));
+                   static_cast<unsigned long long>(state.squaddie_calls),
+                   static_cast<unsigned long long>(state.snapshot_delta_imports),
+                   static_cast<unsigned long long>(state.snapshot_full_imports),
+                   static_cast<unsigned long long>(state.snapshot_delta_chunks),
+                   static_cast<unsigned long long>(state.snapshot_verify_mismatches));
     }
 #endif
     state.frame_rate_start = now;
@@ -4673,7 +4704,8 @@ std::uint32_t translate_live_graphics_address(
 bool materialize_live_graphics_overlays(
     State &state, std::vector<std::byte> &snapshot,
     const std::uint32_t command_address,
-    const std::uint32_t command_count) {
+    const std::uint32_t command_count,
+    jfg::SnapshotChanges *const changes = nullptr) {
   state.materialize_reject_reason = 0U;
   state.materialize_reject_address = 0U;
   state.materialize_reject_word0 = 0U;
@@ -4905,6 +4937,10 @@ bool materialize_live_graphics_overlays(
           segment >= configured_segments.size() ||
           !configured_segments[segment])
         words[1] = materialized_address;
+      // RGO host speed: a patched display-list word changes the snapshot.
+      if (changes != nullptr &&
+          std::memcmp(snapshot.data() + offset, words, sizeof(words)) != 0)
+        changes->mark(static_cast<std::size_t>(offset), sizeof(words));
       std::memcpy(snapshot.data() + offset, words, sizeof(words));
     }
 
@@ -5129,18 +5165,26 @@ bool execute_live_graphics_task(State &state, hle::GuestMemory &memory) {
   if (!memory.read_u32(command_address, state.last_graphics_command_word))
     return false;
   std::vector<std::byte> snapshot;
+  std::uint64_t base_id = 0U;
   if (!state.graphics_snapshot_pool.empty()) {
-    snapshot = std::move(state.graphics_snapshot_pool.back());
+    snapshot = std::move(state.graphics_snapshot_pool.back().rdram);
+    base_id = state.graphics_snapshot_pool.back().id;
     state.graphics_snapshot_pool.pop_back();
   }
+  if (snapshot.size() != jfg::kRt64RequiredRdramBytes)
+    base_id = 0U;  // a new buffer holds no earlier snapshot
   snapshot.resize(jfg::kRt64RequiredRdramBytes);
-  PendingLiveGraphicsTask pending{
-      {ucode_address, ucode_data_address, command_address},
-      state.last_graphics_descriptor, std::move(snapshot)};
+  PendingLiveGraphicsTask pending;
+  pending.task = {ucode_address, ucode_data_address, command_address};
+  pending.descriptor = state.last_graphics_descriptor;
+  pending.rdram = std::move(snapshot);
+  pending.snapshot_id = ++state.next_snapshot_id;
+  pending.base_id = base_id;
+  pending.changes.reset(jfg::kRt64RequiredRdramBytes);
   jfg::copy_changed_snapshot_bytes(std::span(reinterpret_cast<const std::byte *>(state.rdram), kRdramSize),
-      std::span(pending.rdram).first(kRdramSize));
+      std::span(pending.rdram).first(kRdramSize), &pending.changes);
   if (!materialize_live_graphics_overlays(
-          state, pending.rdram, command_address, command_size)) {
+          state, pending.rdram, command_address, command_size, &pending.changes)) {
     (void)write_private_rdram_capture(state);
     (void)write_private_rt64_snapshot(state, pending.rdram);
     return false;
@@ -6063,6 +6107,84 @@ void complete_guest_sp_status(State &state, const std::uint32_t target) {
   state.mmio_trace->sp_status.acknowledge_interrupt();
 }
 
+// RGO host speed: hand a graphics snapshot to the renderer. Its RAM copy
+// holds the last snapshot it imported (plus present windows since); when
+// this snapshot was built on top of that one, only the 4 KB chunks that
+// differ are copied, instead of comparing all 8 MB. The lower 4 MB changes
+// were found while copying guest RAM into the snapshot (and display-list
+// patches); the overlay half is compared against the copy of it imported
+// last, over the overlay shadows only.
+jfg::Rt64ShellError import_graphics_snapshot(State &state, PendingLiveGraphicsTask &pending) {
+  constexpr std::size_t kChunk = jfg::kSnapshotChunkBytes;
+  constexpr std::size_t kUpper = jfg::kRt64RequiredRdramBytes - kRdramSize;
+  const bool delta = !state.snapshot_full_import && pending.base_id != 0U &&
+      pending.base_id == state.imported_snapshot_id && state.imported_upper.size() == kUpper &&
+      pending.rdram.size() == jfg::kRt64RequiredRdramBytes;
+  jfg::Rt64ShellError error = jfg::Rt64ShellError::invalid_memory;
+  if (delta) {
+    for (const LiveGraphicsOverlayShadow &shadow : state.graphics_overlay_shadows) {
+      if (shadow.physical_base < kRdramSize || shadow.extent == 0U ||
+          shadow.physical_base > jfg::kRt64RequiredRdramBytes ||
+          shadow.extent > jfg::kRt64RequiredRdramBytes - shadow.physical_base)
+        continue;
+      for (std::size_t offset = shadow.physical_base / kChunk * kChunk;
+           offset < shadow.physical_base + shadow.extent; offset += kChunk) {
+        std::byte *const mirror = state.imported_upper.data() + (offset - kRdramSize);
+        if (std::memcmp(pending.rdram.data() + offset, mirror, kChunk) != 0) {
+          std::memcpy(mirror, pending.rdram.data() + offset, kChunk);
+          pending.changes.mark_chunk(offset / kChunk);
+        }
+      }
+    }
+    for (const std::uint32_t chunk : state.import_extra_chunks)
+      pending.changes.mark_chunk(chunk);
+    error = state.rt64_shell->import_rdram_chunks(pending.rdram, pending.changes.chunks(),
+                                                  jfg::Rt64MemoryLayout::host_word_swapped);
+    if (error == jfg::Rt64ShellError::none) {
+      ++state.snapshot_delta_imports;
+      state.snapshot_delta_chunks += pending.changes.chunks().size();
+      if (state.snapshot_verify)
+        for (const std::uint32_t chunk : pending.changes.chunks())
+          std::memcpy(state.snapshot_verify_model.data() + std::size_t{chunk} * kChunk,
+                      pending.rdram.data() + std::size_t{chunk} * kChunk, kChunk);
+    }
+  }
+  if (error == jfg::Rt64ShellError::invalid_memory) {
+    error = state.rt64_shell->replace_rdram_snapshot(
+        pending.rdram, jfg::Rt64MemoryLayout::host_word_swapped);
+    if (error == jfg::Rt64ShellError::none) {
+      ++state.snapshot_full_imports;
+      state.imported_upper.assign(pending.rdram.begin() + kRdramSize, pending.rdram.end());
+      if (state.snapshot_verify)
+        state.snapshot_verify_model = pending.rdram;
+    }
+  }
+  state.import_extra_chunks.clear();
+  state.imported_snapshot_id = error == jfg::Rt64ShellError::none ? pending.snapshot_id : 0U;
+  // JFG_RGO_SNAPSHOT_VERIFY=1: the model of the renderer's copy must equal
+  // the snapshot after every import.
+  if (state.snapshot_verify && error == jfg::Rt64ShellError::none &&
+      state.snapshot_verify_model.size() == pending.rdram.size()) {
+    std::uint64_t mismatches = 0U;
+    std::size_t first = SIZE_MAX;
+    for (std::size_t offset = 0U; offset < pending.rdram.size(); offset += kChunk)
+      if (std::memcmp(state.snapshot_verify_model.data() + offset,
+                      pending.rdram.data() + offset, kChunk) != 0) {
+        ++mismatches;
+        first = (std::min)(first, offset);
+      }
+    if (mismatches != 0U) {
+      if (state.snapshot_verify_mismatches == 0U)
+        std::fprintf(stderr, "snapshot verify: %llu chunk(s) differ, first at 0x%zx (snapshot %llu)\n",
+                     static_cast<unsigned long long>(mismatches), first,
+                     static_cast<unsigned long long>(pending.snapshot_id));
+      state.snapshot_verify_mismatches += mismatches;
+      state.snapshot_verify_model = pending.rdram;  // resynchronise the model
+    }
+  }
+  return error;
+}
+
 void complete_pending_live_graphics_tasks(
     State &state, const std::uint32_t target,
     const bool require_offscreen_target = false) {
@@ -6098,8 +6220,7 @@ void complete_pending_live_graphics_tasks(
       fail_closed_dispatch(state, "renderer", "rt64-rdram-capture", target);
     write_private_progress(state, "graphics-submit-begin");
     const auto submit_start = std::chrono::steady_clock::now();
-    state.last_rt64_error = state.rt64_shell->replace_rdram_snapshot(
-        pending.rdram, jfg::Rt64MemoryLayout::host_word_swapped);
+    state.last_rt64_error = import_graphics_snapshot(state, pending);
     if (state.last_rt64_error == jfg::Rt64ShellError::none)
       state.last_rt64_error = state.rt64_shell->submit(pending.task);
     // Return completed intensity masks before delivering DP/SP completion:
@@ -6193,7 +6314,7 @@ void complete_pending_live_graphics_tasks(
     }
     // Submission and writeback have consumed this snapshot. RT64 owns the
     // resident render targets; keeping a snapshot is not proof of residency.
-    state.graphics_snapshot_pool.push_back(std::move(pending.rdram));
+    state.graphics_snapshot_pool.push_back({std::move(pending.rdram), pending.snapshot_id});
     if (state.guest_os_probe) continue; // device event owns status/IRQ; original OS owns messages
     complete_guest_sp_status(state, target);
     if (state.scheduler->send(sp->second.first, sp->second.second, false) !=
@@ -6426,10 +6547,35 @@ void present_completed_video(State &state, const std::uint32_t target) {
         fail_closed_dispatch(state, "renderer", "vi-field", target);
       // CPU overlays can modify the completed framebuffer between DP and VI.
       // Refresh the displayed pixels before RT64 tests its framebuffer hash.
-      // Preserve the upper RDRAM scratch space used by captured display lists.
-      std::memcpy(state.rt64_rdram.data(), state.rdram, kRdramSize);
-      state.last_rt64_error = state.rt64_shell->replace_rdram_snapshot(
-          state.rt64_rdram, jfg::Rt64MemoryLayout::host_word_swapped);
+      // RGO host speed: every task import already brought the renderer's RAM
+      // copy up to date, so only the displayed framebuffer can be stale here;
+      // import that window (up to 640x480 at 32 bits) instead of copying and
+      // comparing all of RAM (JFG_RGO_PRESENT_FULL_IMPORT=1: the full import).
+      const auto [window_begin, window_end] = jfg::present_import_window(
+          selected_vi_framebuffer, static_cast<std::uint32_t>(kRdramSize));
+      state.last_rt64_error = state.present_full_import
+          ? jfg::Rt64ShellError::invalid_memory
+          : state.rt64_shell->import_rdram_range(
+                std::as_bytes(std::span(state.rdram, kRdramSize)), window_begin, window_end,
+                jfg::Rt64MemoryLayout::host_word_swapped);
+      if (state.last_rt64_error == jfg::Rt64ShellError::none) {
+        // The renderer's copy now differs from the last imported snapshot in
+        // this window: the next task's delta import refreshes it.
+        for (auto chunk = static_cast<std::uint32_t>(window_begin / jfg::kSnapshotChunkBytes);
+             chunk * jfg::kSnapshotChunkBytes < window_end; ++chunk)
+          state.import_extra_chunks.push_back(chunk);
+        if (state.snapshot_verify && state.snapshot_verify_model.size() >= window_end)
+          std::memcpy(state.snapshot_verify_model.data() + window_begin,
+                      state.rdram + window_begin, window_end - window_begin);
+      } else {
+        // Preserve the upper RDRAM scratch space used by captured display lists.
+        std::memcpy(state.rt64_rdram.data(), state.rdram, kRdramSize);
+        state.last_rt64_error = state.rt64_shell->replace_rdram_snapshot(
+            state.rt64_rdram, jfg::Rt64MemoryLayout::host_word_swapped);
+        state.imported_snapshot_id = 0U;  // the copy no longer holds a snapshot
+        if (state.snapshot_verify)
+          state.snapshot_verify_model = state.rt64_rdram;
+      }
       if (state.last_rt64_error != jfg::Rt64ShellError::none)
         fail_closed_dispatch(state, "renderer", "present-cpu-import", target);
       refresh_video_settings(state);
@@ -10853,6 +10999,17 @@ int run_child(const char *path, const unsigned retrace_target,
   jfg::GeneratedOverlayRuntime runtime(std::as_writable_bytes(rdram));
   State state{};
 #if defined(JFG_LIVE_RUNTIME)
+  // RGO host speed switches (docs/rgo/framerate.md, "Host speed"): =1 turns
+  // each on, on Windows and in the headless build.
+  {
+    const auto switch_on = [](const char *name) {
+      char flag[2]{};
+      return GetEnvironmentVariableA(name, flag, 2U) == 1U && flag[0] == '1';
+    };
+    state.present_full_import = switch_on("JFG_RGO_PRESENT_FULL_IMPORT");
+    state.snapshot_full_import = switch_on("JFG_RGO_SNAPSHOT_FULL");
+    state.snapshot_verify = switch_on("JFG_RGO_SNAPSHOT_VERIFY");
+  }
   char mod_flag[2]{};
   if (GetEnvironmentVariableA("JFG_NAVIGATION_MOD",mod_flag,2U)==1U && mod_flag[0]=='1') {
     wchar_t output[32768]{};

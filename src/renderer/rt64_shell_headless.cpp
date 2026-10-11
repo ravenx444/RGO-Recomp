@@ -52,6 +52,16 @@ Rt64ShellError Rt64Shell::replace_rdram_snapshot(
     return Rt64ShellError::none;
 }
 
+Rt64ShellError Rt64Shell::import_rdram_range(
+    std::span<const std::byte>, std::size_t, std::size_t, Rt64MemoryLayout) noexcept {
+    return Rt64ShellError::none;
+}
+
+Rt64ShellError Rt64Shell::import_rdram_chunks(
+    std::span<const std::byte>, std::span<const std::uint32_t>, Rt64MemoryLayout) noexcept {
+    return Rt64ShellError::none;
+}
+
 Rt64ShellError Rt64Shell::copy_private_rdram_snapshot(
     std::span<std::byte>, Rt64MemoryLayout) const noexcept {
     return Rt64ShellError::none;

@@ -204,6 +204,22 @@ public:
     [[nodiscard]] Rt64ShellError replace_rdram_snapshot(
         std::span<const std::byte> rdram,
         Rt64MemoryLayout layout) noexcept;
+    // RGO: refresh only [begin, end) of the renderer's RAM copy from `live`
+    // (the 4 MB guest RDRAM, host_word_swapped). Used before a present, when
+    // only the displayed framebuffer can have changed since the last task
+    // (CPU-drawn pixels). Returns invalid_memory when the range is bad or the
+    // renderer does not run with full CPU writeback; the caller then imports
+    // everything as before.
+    [[nodiscard]] Rt64ShellError import_rdram_range(
+        std::span<const std::byte> live, std::size_t begin, std::size_t end,
+        Rt64MemoryLayout layout) noexcept;
+    // RGO host speed: like replace_rdram_snapshot, but the renderer's RAM copy
+    // already equals the previous snapshot it imported (the caller checks),
+    // so only the listed 4 KB chunks of `rdram` are copied. Full CPU
+    // writeback only (else invalid_memory; the caller then imports fully).
+    [[nodiscard]] Rt64ShellError import_rdram_chunks(
+        std::span<const std::byte> rdram, std::span<const std::uint32_t> chunks,
+        Rt64MemoryLayout layout) noexcept;
     [[nodiscard]] Rt64ShellError copy_private_rdram_snapshot(
         std::span<std::byte> rdram,
         Rt64MemoryLayout layout) const noexcept;

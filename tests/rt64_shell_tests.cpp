@@ -1,5 +1,6 @@
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/rt64_f3ddkr_address.hpp"
+#include "jfg/runtime/snapshot_copy.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,17 @@ void require(const bool condition) {
 
 int main() {
     static_assert(jfg::kRt64RequiredRdramBytes == 8U * 1024U * 1024U);
+    // RGO: the present refreshes the displayed framebuffer's window only.
+    {
+        constexpr std::uint32_t ram = 4U * 1024U * 1024U;
+        const auto window = jfg::present_import_window(0x80123456U, ram);
+        require(window.first == 0x123000U &&
+                window.second == 0x123000U + jfg::kPresentImportBytes);
+        const auto tail = jfg::present_import_window(0x003FF000U, ram);
+        require(tail.first == 0x3FF000U && tail.second == ram);
+        const auto outside = jfg::present_import_window(0x00500000U, ram);
+        require(outside.first == 0U && outside.second == jfg::kPresentImportBytes);
+    }
     require(jfg::kPinnedRt64Revision[0] == '5');
     require(jfg::detail::resolve_f3ddkr_dma_base(
         0x0012'3457U, 0x0000'0100U) == 0x0012'3550U);
