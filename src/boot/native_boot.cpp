@@ -2134,6 +2134,8 @@ struct State : JfgOriginalTimingFast {
   // the camera and the aim, and whether each was aiming at its last aim
   // update (to start a new aim where the camera looks).
   std::array<bool,4> pc_twin{};
+  // The mouse and keyboard player in the Modern scheme (look mode 7).
+  std::array<bool,4> pc_kb_twin{};
   bool pc_twin_any = false;
   std::array<jfg::PcLookDelta,4> pc_twin_rate{};
   std::array<jfg::PcTwinTurn,4> pc_twin_camera{}, pc_twin_aim{};
@@ -2844,25 +2846,46 @@ void reload_controller_ports(State &state) {
 bool pc_key_down(const State &state,int key) {
   return key>=256?state.pc_wheel_key==key:host_key_down(state,key);
 }
+// RGO: the mouse and keyboard player uses the Modern scheme (look mode 7),
+// with no experimental switch. Recordings started without the extended
+// format stay stock.
+bool keyboard_twin(const State &state,std::size_t port) {
+  return jfg::pc_twin_stick(state.pc_input[port]) && (state.input_record_path.empty() || state.pc_record_extended);
+}
 jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port,std::uint16_t *raw_buttons=nullptr) {
   const auto down=[&](int key){return pc_key_down(state,key);};
-  const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[port]);
+  const auto config=jfg::effective_keyboard_input(state.pc_experimental,state.pc_input[port]);
+  const bool twin=keyboard_twin(state,port);
+  const bool modern=state.pc_experimental || twin;
   auto sample=jfg::map_pc_keyboard(config,down);
   // RGO: the first poll runs at boot, before RDRAM is mapped (state.rdram is
   // still null), so game state is only read once it exists.
   const bool ram=state.rdram!=nullptr;
   jfg::mod::Memory memory({state.rdram,ram?kRdramSize:0U});
-  if(ram && state.pc_experimental && (memory.u8(0x800FD7BDU)!=0 ||
+  if(ram && modern && (memory.u8(0x800FD7BDU)!=0 ||
      (memory.u8(0x800A4FC4U)==0 && !jfg::mod::gameplay_active(memory,state.phase9_player_actor))))
     sample=jfg::map_pc_menu(sample,down);
   // RGO: hold or toggle aim (R). Toggle only during gameplay; menus, pauses,
   // cutscenes and blocked input release it.
-  const bool active=ram && state.pc_experimental && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
+  const bool active=ram && modern && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
     jfg::mod::gameplay_active(memory,state.phase9_player_actor) &&
     !jfg::mod::scripted_camera_active(memory,state.phase9_player_actor);
   if(raw_buttons)*raw_buttons=sample.buttons;
   const bool aim=state.pc_aim_latch[port].apply((sample.buttons&0x10U)!=0U,config.aim_toggle!=0,active);
   sample.buttons=static_cast<std::uint16_t>((sample.buttons&~0x10U)|(aim?0x10U:0U));
+  // RGO Modern scheme: in the aim stance the move keys hold the game's own
+  // walk/strafe keys, as the controller's move stick does (pc_twin_aim_walk).
+  // `active` implies RDRAM is mapped and the player actor is valid.
+  if(twin && aim && active && !state.pc_scoped[port]) {
+    const auto control=memory.u32(state.phase9_player_actor+0x68U);
+    const auto keys=memory.u32(0x800A18B0U); // controlModeKeys: Normal or Expert
+    if(memory.valid(control,0x5C4U) && memory.u8(control)==port &&
+       jfg::pc_twin_aim_state(memory.u8(control+0x568U)) && (keys==0x800A18B4U || keys==0x800A18D8U)) {
+      const jfg::PcAimWalkKeys walk{memory.u32(keys+0x1CU),memory.u32(keys+0x20U),
+                                    memory.u32(keys+0x14U),memory.u32(keys+0x18U)};
+      sample.buttons=static_cast<std::uint16_t>(sample.buttons|jfg::pc_twin_aim_walk({sample.x,sample.y},walk));
+    }
+  }
   return sample;
 }
 void sample_controller_ports(State &state) {
@@ -2886,9 +2909,17 @@ void sample_controller_ports(State &state) {
       available[p] = read_xinput_device(static_cast<int>(p), hardware[p]);
 #if defined(JFG_HEADLESS_LIVE)
   if (state.pad_script_active) {
+    // The step's keys are the held keyboard keys and mouse buttons; its
+    // mouse motion arrives like raw input while the game captures the mouse.
+    const auto &step = state.pad_script->next();
     available[0] = true;
     identities[0] = "script";
-    hardware[0] = state.pad_script->next();
+    hardware[0] = step.pad;
+    state.host_keys.fill(false);
+    for (const int key : step.keys)
+      state.host_keys[static_cast<std::size_t>(key)] = true;
+    if (state.pc_mouse_captured.load())
+      state.pc_mouse.add(step.mouse_x, step.mouse_y);
   }
 #endif
   const auto devices = state.controller_ports.devices(available, identities);
@@ -3005,7 +3036,10 @@ void sample_controller_ports(State &state) {
       (void)state.pc_aim_latch[p].apply(false,false,false); // release a toggled aim
   }
   state.pc_twin_any=false;
-  for(std::size_t p=0;p<4;++p)state.pc_twin_any=state.pc_twin_any || (state.pc_twin[p] && state.pc_pad_active[p]);
+  for(std::size_t p=0;p<4;++p) {
+    state.pc_kb_twin[p]=state.pc_keyboard_active[p] && keyboard_twin(state,p);
+    state.pc_twin_any=state.pc_twin_any || (state.pc_twin[p] && state.pc_pad_active[p]) || state.pc_kb_twin[p];
+  }
   state.controller_mapping = state.controller_ports.mappings[0];
   state.controller_mapping.device = devices[0];
 }
@@ -3073,7 +3107,7 @@ void sample_live_controller(State &state) noexcept {
             ? state.input_replay.sample_by_poll(state.controller_samples)
             : state.input_replay.sample_at(state.vi_retraces);
     // RGO: twin-stick recordings (look mode 6) replay without the switch.
-    state.pc_twin_any=replay.pc_mode==jfg::kPcTwinStickMode;
+    state.pc_twin_any=jfg::pc_twin_mode(replay.pc_mode);
     if(state.pc_experimental || state.pc_twin_any)state.pc_frames[0]=replay;
     connected = replay.connected;
     buttons = replay.buttons;
@@ -3160,15 +3194,25 @@ void sample_live_controller(State &state) noexcept {
   state.rumble_blocked = block_physical;
   jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
   bool want_mouse=false;
-  for(std::size_t p=0;p<4;++p)
-    want_mouse|=state.pc_keyboard_active[p] && state.pc_input[p].mouse_aim && state.controller_ports.samples[p].connected &&
-      (state.pc_input[p].modern || (state.controller_ports.samples[p].buttons&0x10)!=0);
-  want_mouse=want_mouse && state.pc_experimental && state.pc_raw_available && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
+  for(std::size_t p=0;p<4;++p) {
+    // RGO: the Modern scheme captures the mouse without the experimental switch.
+    const auto config=jfg::effective_keyboard_input(state.pc_experimental,state.pc_input[p]);
+    want_mouse|=(state.pc_experimental || state.pc_kb_twin[p]) && state.pc_keyboard_active[p] && config.mouse_aim &&
+      state.controller_ports.samples[p].connected && (config.modern || (state.controller_ports.samples[p].buttons&0x10)!=0);
+  }
+  bool raw_mouse=state.pc_raw_available;
+#if defined(JFG_HEADLESS_LIVE)
+  raw_mouse=raw_mouse || state.pad_script_active; // the scripted mouse (headless_pad_script.hpp)
+#endif
+  want_mouse=want_mouse && raw_mouse && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
-  if(want_mouse && state.native_window) {
-    const HWND window=static_cast<HWND>(state.native_window);RECT rect{};GetClientRect(window,&rect);
-    MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&rect),2);ClipCursor(&rect);SetCursor(nullptr);
+  if(want_mouse) {
+    // No window: headless, where the pad script supplies the mouse motion.
+    if(state.native_window) {
+      const HWND window=static_cast<HWND>(state.native_window);RECT rect{};GetClientRect(window,&rect);
+      MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&rect),2);ClipCursor(&rect);SetCursor(nullptr);
+    }
   } else {
     if(state.pc_mouse_captured){ClipCursor(nullptr);SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)));}
     state.pc_mouse.clear();
@@ -3184,14 +3228,16 @@ void sample_live_controller(State &state) noexcept {
   if((state.pc_experimental || state.pc_twin_any) && !state.input_replay_loaded && !block_physical &&
      (state.input_record_path.empty() || state.pc_record_extended)) {
     for(std::size_t p=0;p<4;++p) {
-      auto &frame=state.pc_frames[p];const auto &config=state.pc_input[p];
+      auto &frame=state.pc_frames[p];
+      const auto config=jfg::effective_keyboard_input(state.pc_experimental,state.pc_input[p]);
       const bool aiming=(state.controller_ports.samples[p].buttons&0x10)!=0;
       // RGO: the mouse and the aim keys turn the aim (and the modern camera)
       // by angle deltas, never as a fake stick: nothing springs back when
       // input stops. Without the modern camera they only work while aiming.
       const auto key_down=[&](int key){return pc_key_down(state,key);};
       const bool mouse=state.pc_keyboard_active[p] && config.mouse_aim && state.pc_mouse_captured;
-      const bool keys=state.pc_experimental && state.pc_keyboard_active[p] && (config.modern || aiming) && jfg::PcKeyAim::held(config,key_down);
+      const bool keys=(state.pc_experimental || state.pc_kb_twin[p]) && state.pc_keyboard_active[p] && (config.modern || aiming) &&
+        jfg::PcKeyAim::held(config,key_down);
       jfg::PcLookDelta motion{};
       if(mouse || keys) {
         motion=state.pc_key_aim.take(config,key_down,key_aim_seconds);
@@ -3208,7 +3254,7 @@ void sample_live_controller(State &state) noexcept {
         // RGO dual input: mouse/key angles join the stick as direct deltas.
         if(mouse || keys)state.pc_direct[p]=jfg::pc_add_look(state.pc_direct[p],motion);
       } else if(mouse || keys) {
-        frame.pc_mode=config.modern?3:5;
+        frame.pc_mode=state.pc_kb_twin[p]?jfg::kPcTwinMouseMode:config.modern?3:5;
         frame.look_x=static_cast<std::int16_t>(motion.x);frame.look_y=static_cast<std::int16_t>(motion.y);
       }
     }
@@ -7870,7 +7916,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
         // camera looks). Moving, the left stick steers relative to the
         // camera as in the original game.
         const auto &move=state.controller_ports.samples[port];
-        if(state.pc_frames[port].pc_mode==jfg::kPcTwinStickMode && state.pc_camera_look.x!=0 &&
+        if(jfg::pc_twin_mode(state.pc_frames[port].pc_mode) && state.pc_camera_look.x!=0 &&
            jfg::pc_twin_turn_in_place(ram.u8(control+0x568U),move.x,move.y) && ram.valid(control+0x11CU,2U))
           ram.put16(control+0x11CU,static_cast<std::uint16_t>(jfg::pc_camera_heading(orbit.yaw)));
         const auto point=jfg::pc_orbit_point(orbit.yaw,orbit.pitch,radius);
@@ -7925,20 +7971,22 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       const auto port=ram.u8(control);
       if(port<4 && state.controller_ports.samples[port].connected) {
         const auto &frame=state.pc_frames[port];
-        const bool twin=frame.pc_mode==jfg::kPcTwinStickMode;
+        const bool twin=jfg::pc_twin_mode(frame.pc_mode);
         if((frame.pc_mode==3 || frame.pc_mode==4 || (twin && jfg::pc_twin_camera_state(ram.u8(control+0x568U),ram.u8(control+1U)))) &&
            !(state.controller_ports.samples[port].buttons&0x10)) {
           auto* original=jfg_generated_lookup_function(static_cast<std::int32_t>(target));
           if(original) {
             auto look=jfg::PcLookDelta{frame.look_x,frame.look_y};
-            if(frame.pc_mode==3) {
+            if(frame.pc_mode==3 || frame.pc_mode==jfg::kPcTwinMouseMode) {
               if(state.pc_mouse_used[port])look={};
               state.pc_mouse_used[port]=true;
             }
             const float ticks=std::bit_cast<float>(static_cast<std::uint32_t>(context->r6));
             // RGO twin-stick: the right stick's rate times the ticks this
             // camera update covers, so it turns as fast at True 60 as at 30.
-            look=twin?state.pc_twin_camera[port].apply(look,ticks):jfg::pc_camera_delta(frame.pc_mode,look,ticks);
+            // Modern mouse (mode 7): angle deltas, as mode 3.
+            if(frame.pc_mode==jfg::kPcTwinStickMode)look=state.pc_twin_camera[port].apply(look,ticks);
+            else if(frame.pc_mode!=jfg::kPcTwinMouseMode)look=jfg::pc_camera_delta(frame.pc_mode,look,ticks);
             state.pc_camera_actor=actor;state.pc_camera_control=control;
             state.pc_camera_stack=static_cast<std::uint32_t>(context->r29)-0xF0U;
             state.pc_camera_look=jfg::pc_add_look(look,take_direct(state,port));
@@ -7966,8 +8014,8 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       const auto port=pc_memory.u8(control);
       if(port<4U && state.controller_ports.samples[port].connected) {
         const auto &frame=state.pc_frames[port];
-        const bool mouse=frame.pc_mode==1 || frame.pc_mode==3 || frame.pc_mode==5;
-        const bool twin=frame.pc_mode==jfg::kPcTwinStickMode;
+        const bool mouse=frame.pc_mode==1 || frame.pc_mode==3 || frame.pc_mode==5 || frame.pc_mode==jfg::kPcTwinMouseMode;
+        const bool twin=jfg::pc_twin_mode(frame.pc_mode);
         const bool direct=frame.pc_mode==3 || frame.pc_mode==4 || frame.pc_mode==5 || twin;
         const auto extra=take_direct(state,port); // RGO: gyro
         if(frame.pc_mode!=0 || extra.x || extra.y) {
@@ -7979,7 +8027,8 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
           if(frame.pc_mode==4)look=jfg::pc_camera_delta(frame.pc_mode,look,
             valid_limits?std::bit_cast<float>(pc_memory.u32(stack+0x20U)):0.0F);
           // RGO twin-stick: rate times this update's ticks (True 60 safe).
-          if(twin)look=state.pc_twin_aim[port].apply(look,valid_limits?std::bit_cast<float>(pc_memory.u32(stack+0x20U)):0.0F);
+          if(frame.pc_mode==jfg::kPcTwinStickMode)
+            look=state.pc_twin_aim[port].apply(look,valid_limits?std::bit_cast<float>(pc_memory.u32(stack+0x20U)):0.0F);
           const int minimum=valid_limits?static_cast<std::int32_t>(pc_memory.u32(stack+0x10U)):0;
           const int maximum=valid_limits?static_cast<std::int32_t>(pc_memory.u32(stack+0x14U)):0;
           auto before=jfg::PcLookDelta{pc_memory.s16(control+0x11CU),pc_memory.s16(control+0x1E2U)};

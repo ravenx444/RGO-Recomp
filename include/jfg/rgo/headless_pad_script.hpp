@@ -13,6 +13,10 @@
 // Axes are SDL values (-32768..32767, Y down), buttons a comma-separated
 // list of SDL button indices (0 A/Cross ... 14 D-pad right) or `-` for none.
 // `#` starts a comment. The last step holds once the script ends.
+// Optional extra fields drive the mouse and keyboard player: `k:<keys>`
+// holds Windows virtual keys (comma-separated, e.g. k:87,65 for W and A;
+// 1 and 2 are the left and right mouse buttons) and `m:<dx>,<dy>` moves the
+// mouse that many counts every poll (only while the game captures it).
 
 #include "jfg/runtime/controller_mapping.hpp"
 #include <charconv>
@@ -27,6 +31,8 @@ namespace jfg::rgo {
 struct PadScriptStep {
     std::uint32_t polls = 0U;
     StandardControllerSample pad{};
+    std::vector<int> keys;
+    int mouse_x = 0, mouse_y = 0;
 };
 
 [[nodiscard]] inline std::optional<std::vector<PadScriptStep>> parse_pad_script(std::string_view text) {
@@ -50,7 +56,7 @@ struct PadScriptStep {
             line = end == std::string_view::npos ? std::string_view{} : line.substr(end);
         }
         if (fields.empty()) continue;
-        if (fields.size() != 8U) return std::nullopt;
+        if (fields.size() < 8U) return std::nullopt;
         PadScriptStep step;
         int polls = 0;
         if (!number(fields[0], polls) || polls <= 0) return std::nullopt;
@@ -70,6 +76,28 @@ struct PadScriptStep {
                 buttons = comma == std::string_view::npos ? std::string_view{} : buttons.substr(comma + 1U);
             }
         }
+        for (std::size_t extra = 8U; extra < fields.size(); ++extra) {
+            const auto field = fields[extra];
+            std::vector<int> values;
+            auto list = field.size() > 2U ? field.substr(2U) : std::string_view{};
+            while (!list.empty()) {
+                const auto comma = list.find(',');
+                int value = 0;
+                if (!number(list.substr(0U, comma), value)) return std::nullopt;
+                values.push_back(value);
+                list = comma == std::string_view::npos ? std::string_view{} : list.substr(comma + 1U);
+            }
+            if (field.starts_with("k:") && !values.empty()) {
+                for (const int key : values)
+                    if (key <= 0 || key > 255) return std::nullopt;
+                step.keys = values;
+            } else if (field.starts_with("m:") && values.size() == 2U &&
+                       values[0] >= -1000 && values[0] <= 1000 && values[1] >= -1000 && values[1] <= 1000) {
+                step.mouse_x = values[0];
+                step.mouse_y = values[1];
+            } else
+                return std::nullopt;
+        }
         steps.push_back(step);
     }
     if (steps.empty()) return std::nullopt;
@@ -83,16 +111,17 @@ class PadScript {
     std::uint32_t used_ = 0U;
 
 public:
+    // A parsed script is never empty (parse_pad_script).
     explicit PadScript(std::vector<PadScriptStep> steps) : steps_(std::move(steps)) {}
     [[nodiscard]] std::size_t step() const noexcept { return index_; }
-    [[nodiscard]] StandardControllerSample next() noexcept {
-        if (steps_.empty()) return {};
+    // Advances one poll and returns that poll's step.
+    [[nodiscard]] const PadScriptStep &next() noexcept {
         if (used_ >= steps_[index_].polls && index_ + 1U < steps_.size()) {
             ++index_;
             used_ = 0U;
         }
         ++used_;
-        return steps_[index_].pad;
+        return steps_[index_];
     }
 };
 

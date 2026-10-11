@@ -23,6 +23,14 @@ inline PcInputConfig effective_pad_input(bool experimental, const PcInputConfig 
   return active;
 }
 
+// The same for the mouse and keyboard player: the Modern scheme turns on
+// mouse look and aim and the modern camera, with no Experimental switch.
+inline PcInputConfig effective_keyboard_input(bool experimental, const PcInputConfig &saved) {
+  auto active = effective_pc_input(experimental, saved);
+  if (pc_twin_stick(saved)) active.modern = active.mouse_aim = 1;
+  return active;
+}
+
 // Turn speed at full right-stick deflection and 100% sensitivity, in degrees
 // per second. Typical of modern console shooters: a quick camera, and a
 // slower, precise aim.
@@ -35,6 +43,12 @@ inline constexpr double kPcTicksPerSecond = 60.0;
 // tick, so it fits the recorded int16 look channel up to ~1100 degrees/s.
 inline constexpr int kPcTwinStickMode = 6;
 inline constexpr double kPcTwinRateScale = 16.0;
+
+// Look mode 7: the mouse (and aim keys) in the Modern scheme. Angle deltas
+// like mode 3, with the twin-stick rules (camera on foot only, turning in
+// place, a new aim facing the camera, the game's own aim walking).
+inline constexpr int kPcTwinMouseMode = 7;
+inline bool pc_twin_mode(int mode) { return mode == kPcTwinStickMode || mode == kPcTwinMouseMode; }
 
 struct PcStickLook {
   double x = 0, y = 0; // -1..1, right and up positive
@@ -117,7 +131,7 @@ inline constexpr std::uint64_t kPcNewAimGap = 15U;
 
 // Aim states (control block +0x568): 5 is the standing aim stance, 11 aim
 // walking. The game walks forward/back in aim while its zoom-in/zoom-out keys
-// are held and strafes with C-left/C-right (ControlModeNormal/Expert masks at
+// are held and strafes with C-left/C-right (control tables at 0x800A18B4/D8, masks at
 // +0x1C/+0x20 and +0x14/+0x18). In the twin-stick scheme the left stick holds
 // those keys for the game, so it enters aim walking with its own animations;
 // the aim hook then sets the walking speed from the stick (pc_aim_movement).
@@ -148,12 +162,14 @@ inline PcMoveVelocity pc_twin_aim_movement(int x, int y) {
   return {v.side, v.forward / 3.0F * 2.0F};
 }
 
-// Controller bindings for the twin-stick scheme, by the game's control
-// scheme (ControlModeNormal / ControlModeExpert at 0x800A18B4 / 0x800A18D8):
-// L2 aims (the game's R), R2 fires (Z), Cross jumps, Square is the other face
-// action, Circle is B, L3 is C-down, L1/R1 are C-left/C-right (they were on
-// the right stick, which now looks), and Back (Create/Share, View, Minus) is
-// the game's L. SDL bindings: buttons 0..14, 23 left trigger, 25 right trigger.
+// Controller bindings for the twin-stick scheme, by the game's own control
+// option (game_actions.hpp): Cross jumps in both (C-up in Normal, A in
+// Expert), Square and Circle are the weapon buttons (Normal: A previous,
+// B next) or Square next weapon and Circle crouch (Expert), L3 is C-down
+// (crouch in Normal, previous weapon in Expert), L2 aims (the game's R), R2
+// fires (Z), L1/R1 sidestep (C-left/C-right, which were on the right stick,
+// now the look stick), and Back (Create/Share, View, Minus) is the game's L.
+// SDL bindings: buttons 0..14, 23 left trigger, 25 right trigger.
 inline ControllerMapping pc_twin_stick_mapping(bool expert, int device) {
   ControllerMapping m;
   m.device = device;

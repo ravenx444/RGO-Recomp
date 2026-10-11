@@ -1,5 +1,7 @@
 // RGO: modern twin-stick controller scheme (pc_twin_stick.hpp).
 #include "jfg/runtime/pc_twin_stick.hpp"
+#include "jfg/rgo/headless_pad_script.hpp"
+#include "jfg/runtime/game_actions.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -32,6 +34,14 @@ int main() {
   check(active.modern==0 && active.dual_stick==0,"original scheme keeps experimental options gated");
   check(jfg::effective_pad_input(true,original).dual_stick==1,"experimental switch unchanged for original");
 
+  // Mouse and keyboard: the same scheme turns on mouse look and aim.
+  jfg::PcInputConfig keyboard;keyboard.scheme=1;
+  active=jfg::effective_keyboard_input(false,keyboard);
+  check(active.modern==1 && active.mouse_aim==1,"Modern mouse look works without the experimental switch");
+  keyboard.scheme=0;keyboard.modern=keyboard.mouse_aim=1;
+  active=jfg::effective_keyboard_input(false,keyboard);
+  check(active.modern==0 && active.mouse_aim==0,"Original keyboard scheme keeps experimental mouse options gated");
+  check(jfg::pc_twin_mode(6) && jfg::pc_twin_mode(7) && !jfg::pc_twin_mode(3) && !jfg::pc_twin_mode(5),"twin look modes");
   // Look stick: radial deadzone, full travel, curves, independent of movement.
   jfg::PcInputConfig look;
   check(jfg::pc_look_stick(look,right(0,0),0)==jfg::PcStickLook{},"neutral");
@@ -119,6 +129,27 @@ int main() {
     check(jfg::pc_twin_aim_walk({-80,0},normal)==(0x8000|0x2),"strafe left");
     check(jfg::pc_twin_aim_walk({80,-60},normal)==(0x4000|0x1),"back and right");
     check(jfg::pc_twin_aim_state(5) && jfg::pc_twin_aim_state(11) && !jfg::pc_twin_aim_state(0) && !jfg::pc_twin_aim_state(1),"aim states");
+  }
+  // Controllers page labels: the action, then the N64 button.
+  check(jfg::game_action_label(10,false)=="Jump / zoom in (C-up)" && jfg::game_action_label(0,true)=="Jump / zoom in (A)","jump label per game option");
+  check(jfg::game_action_label(11,false)=="Crouch / zoom out (C-down)" && jfg::game_action_label(1,true)=="Crouch / zoom out (B)","crouch label");
+  check(jfg::game_action_label(0,false)=="Previous weapon (A)" && jfg::game_action_label(10,true)=="Next weapon (C-up)","weapon labels");
+  check(jfg::game_action_label(2,true)=="Fire (Z)" && jfg::game_action_label(9,false)=="Aim (R)" && jfg::game_action_label(12,false)=="Sidestep left (C-left)","shared labels");
+  check(jfg::game_action_label(4,false)=="D-pad up" && jfg::game_action_label(8,true)=="L" && jfg::game_action_label(14,false).empty(),"no action, no guess");
+  {
+    jfg::PcInputConfig labels;labels.game_controls=1;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(labels),roundtrip) && roundtrip.game_controls==1,"game control option roundtrips");
+  }
+  // Headless scripted controller, mouse and keyboard.
+  {
+    const auto script=jfg::rgo::parse_pad_script("# test\n2 0 -32767 0 0 32767 0 0,10 # run\n1 0 0 0 0 0 0 - k:87,2 m:12,-3\n");
+    check(script && script->size()==2,"pad script parses");
+    check((*script)[0].pad.axes[1]==-32767 && (*script)[0].pad.axes[4]==32767 && (*script)[0].pad.buttons[10] && (*script)[0].pad.buttons[0],"pad script axes and buttons");
+    check((*script)[1].keys==std::vector<int>{87,2} && (*script)[1].mouse_x==12 && (*script)[1].mouse_y==-3,"pad script keys and mouse");
+    jfg::rgo::PadScript run(*script);
+    check(run.next().polls==2 && run.next().polls==2 && run.next().polls==1 && run.next().polls==1 && run.step()==1,"pad script steps hold");
+    for(const char* bad:{"","0 0 0 0 0 0 0 -\n","1 0 0 0 0 0 0\n","1 0 0 0 0 0 0 17\n","1 0 0 0 0 0 40000 -\n","1 0 0 0 0 0 0 - k:300\n","1 0 0 0 0 0 0 - m:1\n","1 0 0 0 0 0 0 - x:1\n"})
+      check(!jfg::rgo::parse_pad_script(bad),"bad pad script rejected");
   }
   std::cout<<checks<<" twin-stick checks passed\n";
 }

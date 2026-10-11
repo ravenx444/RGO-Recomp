@@ -150,7 +150,11 @@ void test_independent_look() {
     check(jfg::DeterministicInputReplay::load(twin.path(),replay)==jfg::InputReplayError::none &&
           replay.sample_at(105).pc_mode==6 && replay.sample_at(105).look_x==1820 && replay.sample_at(105).stick_x==40,"mode 6 twin-stick rate loads");
     check(jfg::DeterministicInputReplay::load(valid.path(),replay)==jfg::InputReplayError::none,"v3 independent look reloads");
-    for(const auto* row:{"1,2,1,0,0,0,7,0,0","1,2,1,0,0,0,0,1,0",
+    const TemporaryReplay mouse("jfg-phase8-input-v3\n100,120,1,10,0,80,7,2400,-600\n");
+    check(jfg::DeterministicInputReplay::load(mouse.path(),replay)==jfg::InputReplayError::none &&
+          replay.sample_at(105).pc_mode==7 && replay.sample_at(105).look_x==2400,"mode 7 Modern mouse angles load");
+    check(jfg::DeterministicInputReplay::load(valid.path(),replay)==jfg::InputReplayError::none,"v3 reloads after mode 7");
+    for(const auto* row:{"1,2,1,0,0,0,8,0,0","1,2,1,0,0,0,0,1,0",
         "1,2,0,0,0,0,3,1,0","1,2,1,0,0,0,2,128,0","1,2,1,0,0,0,3,32768,0",
         "1,2,1,0,0,0,3,2","1,2,1,0,0,0,3,1,2,3"}) {
       const TemporaryReplay bad(std::string("jfg-phase8-input-v3\n")+row+"\n");

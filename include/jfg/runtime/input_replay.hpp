@@ -24,7 +24,8 @@ struct ControllerReplaySample {
 
     // 0: stock, 1/2: legacy mouse/stick aim, 3/4: modern mouse/stick look,
     // 5 (RGO): direct mouse/key aim angles with the stock camera,
-    // 6 (RGO): twin-stick look rate, 1/16 angle units per game tick.
+    // 6 (RGO): twin-stick look rate, 1/16 angle units per game tick,
+    // 7 (RGO): Modern-scheme mouse/key angles (twin-stick rules).
     std::uint8_t pc_mode = 0;
     std::int16_t look_x = 0, look_y = 0;
 

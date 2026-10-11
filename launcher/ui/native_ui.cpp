@@ -28,6 +28,7 @@
 #include <jfg/platform/sdl_gamepads.hpp>
 #include <jfg/runtime/pc_input.hpp>
 #include <jfg/runtime/pc_twin_stick.hpp>
+#include <jfg/runtime/game_actions.hpp>
 #include <jfg/renderer/widescreen.hpp>
 #include <jfg/rgo/persistent_gore.hpp>
 #include <memory>
@@ -219,6 +220,13 @@ struct Ui : Rml::EventListener {
       " 100% turns the aim as far as you turn the controller.</p>";
     return html;
   }
+  // RGO: binding labels name each button's action for the game's own Normal
+  // or Expert control option (game_actions.hpp), which the player picks here.
+  std::string gameControlsHtml(const jfg::PcInputConfig &c) {
+    return "<div class=\"row\"><span>Labels for the game's</span>"+
+      button("game-controls",c.game_controls?"Expert controls":"Normal controls")+
+      "<span class=\"muted\">Match Options > Controls in the game. Rebinding still sets the N64 button in brackets.</span></div>";
+  }
   // RGO controller scheme: Original (one stick moves and aims, as on the
   // N64) or Modern twin-stick. Shown for every controller player, with no
   // Experimental switch needed.
@@ -232,7 +240,7 @@ struct Ui : Rml::EventListener {
       button("twin-scheme",twin?"Modern twin-stick":"Original")+"</div>";
     if(!twin)return html;
     const auto name=[&](int i){return escape(bindingName(m.bindings[static_cast<std::size_t>(i)]));};
-    html+="<p class=\"muted\">Aim: "+name(9)+". Fire: "+name(2)+". Jump: "+name(10)+" (Normal) or "+name(0)+" (Expert). "
+    html+="<p class=\"muted\">Aim: "+name(9)+". Fire: "+name(2)+". Jump: "+name(c.game_controls?0:10)+". "
       "Movement: "+std::string(m.stick?"right":"left")+" stick; the other stick looks. Rebind below.</p>";
     html+="<div class=\"row\"><span>Button layout for the game's</span>"+button("twin-layout-normal","Normal controls")+
       button("twin-layout-expert","Expert controls")+"</div>";
@@ -272,21 +280,34 @@ struct Ui : Rml::EventListener {
     if(GetKeyNameTextW(static_cast<LONG>(scan<<16),text,64)>0)return u8(text);
     return "Key "+std::to_string(key);
   }
+  // RGO: the same Controls scheme for the mouse and keyboard player. Modern
+  // turns on mouse look and aim with no Experimental switch.
+  std::string keyboardSchemeHtml(const jfg::PcInputConfig &c) {
+    const bool twin=jfg::pc_twin_stick(c);
+    return "<div class=\"row\"><div class=\"grow\">Controls scheme<div class=\"muted\">"+
+      std::string(twin?"Modern: the move keys only move (and walk and strafe while aiming); the mouse turns the camera, and aims while you hold the aim button.":
+        "Original: as on the N64. Mouse look and aim need Modern (or the Experimental switch below).")+"</div></div>"+
+      button("twin-scheme",twin?"Modern":"Original")+"</div>";
+  }
   std::string pcInputHtml() {
     auto &c=pcInput[static_cast<std::size_t>(player)];
     const bool keyboard=pcKeyboard(), enabled=pcExperimental();
-    std::string html=pcExperimentalHtml();
+    const bool twin=keyboard && jfg::pc_twin_stick(c);
+    std::string html=keyboard?keyboardSchemeHtml(c):std::string{};
+    if(!twin)html+=pcExperimentalHtml();
     if(!keyboard && !enabled)return html;
     html+="<div class=\"row\">"+
       button(keyboard?"pc-normal":"pc-pad-normal","Normal preset",!keyboard && !enabled)+
       button(keyboard?"pc-expert":"pc-pad-expert","Expert preset",!keyboard && !enabled)+
       button("pc-reset",keyboard?"Reset keyboard and mouse":"Reset aim settings",!keyboard && !enabled)+
-      (keyboard?button("controller-settings",controllerSettings?"Hide settings":"Settings",!enabled):std::string{})+"</div>";
-    if(enabled && controllerSettings) {
-      html+="<div class=\"row\">"+
+      (keyboard && !twin?button("controller-settings",controllerSettings?"Hide settings":"Settings",!enabled):std::string{})+"</div>";
+    if(twin)html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Aim: "+escape(pcKeyName(c.keys[9]))+
+      ". Fire: "+escape(pcKeyName(c.keys[2]))+".</p>";
+    if(twin || (enabled && controllerSettings)) {
+      if(!twin)html+="<div class=\"row\">"+
         button(keyboard?"pc-mouse":"pc-dual",keyboard?(c.mouse_aim?"Mouse look and aim: on":"Mouse look and aim: off"):(c.dual_stick?"Dual-stick aim: on":"Dual-stick aim: off"))+
         button("pc-modern",c.modern?"Modern camera + movement: on":"Modern camera + movement: off")+"</div>";
-      html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Modern camera and aim movement currently support single-player.</p>";
+      if(!twin)html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Modern camera and aim movement currently support single-player.</p>";
       const char* labels[]={"Mouse look sensitivity (camera)","Aim stick sensitivity","Aim stick deadzone","Mouse aim sensitivity","Camera stick sensitivity","Mouse vertical scale","Stick vertical scale","Aim key speed (degrees/s)"};
       const int values[]={c.mouse_sensitivity,c.aim_sensitivity,c.aim_deadzone,c.mouse_aim_sensitivity,c.camera_sensitivity,c.mouse_vertical_sensitivity,c.stick_vertical_sensitivity,c.key_aim_speed};
       const int maxima[]={500,300,30000,500,300,300,300,360};
@@ -300,12 +321,14 @@ struct Ui : Rml::EventListener {
       html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
     }
     if(!keyboard)return html;
-    html+="<div class=\"label\">KEYBOARD AND MOUSE BINDINGS</div>";
-    if(!enabled)html+="<p class=\"muted\">Bindings are always active. Experimental controls add mouse look and modern movement.</p>";
+    html+="<div class=\"label\">KEYBOARD AND MOUSE BINDINGS</div>"+gameControlsHtml(c);
+    if(!enabled && !twin)html+="<p class=\"muted\">Bindings are always active. Mouse look and aim need the Modern scheme above (or the Experimental switch).</p>";
     const auto &shown=c;
     const char* names[]={"A / confirm","B / weapon","Z / fire","Start","D-pad up","D-pad down","D-pad left","D-pad right","L","R / aim","C up / Normal jump","C down","C left","C right","Move forward","Move back","Move left","Move right","Full movement","Alternate A","Aim up","Aim down","Aim left","Aim right"};
     for(std::size_t i=0;i<shown.keys.size();++i) {
-      html+="<div class=\"key-binding-row\"><span>"+std::string(names[i])+"</span>"+
+      // RGO: N64 buttons are named by their action (game_actions.hpp).
+      const std::string label=i<jfg::kN64ButtonNames.size()?jfg::game_action_label(static_cast<int>(i),c.game_controls!=0):std::string(names[i]);
+      html+="<div class=\"key-binding-row\"><span>"+escape(label)+"</span>"+
         button("pc-bind"+std::to_string(i),pcKeyName(shown.keys[i]))+
         button("pc-unbind"+std::to_string(i),"Clear")+"</div>";
     }
@@ -1156,9 +1179,8 @@ struct Ui : Rml::EventListener {
         button("stick",twinScheme?(m.stick?"On: right stick moves":"Off: left stick moves"):(m.stick?"Right stick":"Left stick"))+
         button("controller-settings",controllerSettings?"Hide settings":"Settings")+"</div>";
       html+=twinStickHtml();
-      const char *names[] = {"A / jump", "B",      "Z / fire", "Start",  "Up",
-                             "Down",     "Left",   "Right",    "L",      "R",
-                             "C up",     "C down", "C left",   "C right"};
+      html+=gameControlsHtml(pcInput[static_cast<std::size_t>(player)]);
+      const bool expertLabels=pcInput[static_cast<std::size_t>(player)].game_controls!=0;
       const int groups[3][6] = {
           {0, 1, 2, 9, 8, 3}, {10, 11, 12, 13, -1, -1}, {4, 5, 6, 7, -1, -1}};
       const char *titles[] = {"BUTTONS", "C BUTTONS", "D-PAD"};
@@ -1171,7 +1193,7 @@ struct Ui : Rml::EventListener {
             continue;
           html += "<div class=\"binding-row\" id=\"binding-" +
                   std::to_string(i) + "\"><span class=\"binding-label\">" +
-                  names[i] + "</span>" +
+                  escape(jfg::game_action_label(i, expertLabels)) + "</span>" +
                   button("learn" + std::to_string(i), bindingName(m.bindings[i]),
                          devices[player] < 0) +
                   button("clear" + std::to_string(i), "x") + "</div>";
@@ -1350,7 +1372,8 @@ struct Ui : Rml::EventListener {
     const bool keyboardBinding=pcKeyboard() && (a.rfind("pc-bind",0)==0 ||
       a.rfind("pc-unbind",0)==0 || a.rfind("pc-key",0)==0 ||
       a=="pc-normal" || a=="pc-expert" || a=="pc-reset");
-    if(a.rfind("pc-",0)==0 && a!="pc-experimental" && !keyboardBinding && !pcExperimental())return;
+    const bool twinKeyboard=pcKeyboard() && jfg::pc_twin_stick(pcInput[static_cast<std::size_t>(player)]);
+    if(a.rfind("pc-",0)==0 && a!="pc-experimental" && !keyboardBinding && !twinKeyboard && !pcExperimental())return;
     if (event.GetType() == "change") {
       if(a=="rumble-strength") {
         auto &c=pcInput[static_cast<std::size_t>(player)];
@@ -1469,11 +1492,21 @@ struct Ui : Rml::EventListener {
       keyLearning=-1;pcInput[static_cast<std::size_t>(player)].keys[static_cast<std::size_t>(index)]=0;
       savePcInput();modal("controllers");return;
     }
+    if(a=="game-controls") {
+      auto &c=pcInput[static_cast<std::size_t>(player)];
+      c.game_controls=!c.game_controls;savePcInput();modal("controllers");return;
+    }
     // RGO twin-stick scheme (no Experimental switch needed).
     if(a.rfind("twin-",0)==0 && a.rfind("twin-tune",0)!=0) {
       auto &c=pcInput[static_cast<std::size_t>(player)];
       auto &m=mappings[player];
-      if(a=="twin-scheme") {
+      if(a=="twin-scheme" && pcKeyboard()) {
+        // Modern for the mouse and keyboard: the preset's mouse buttons
+        // (left fire, right aim) unless keys are already bound that way.
+        c.scheme=jfg::pc_twin_stick(c)?jfg::kPcSchemeOriginal:jfg::kPcSchemeTwinStick;
+        if(c.scheme && c.keys[9]!=2){const auto preset=jfg::pc_keyboard_preset(false);c.keys=preset.keys;}
+      }
+      else if(a=="twin-scheme") {
         c.scheme=jfg::pc_twin_stick(c)?jfg::kPcSchemeOriginal:jfg::kPcSchemeTwinStick;
         // The right stick looks in the modern scheme, so its buttons move.
         const int device=m.device,stick=m.stick;
@@ -1484,6 +1517,7 @@ struct Ui : Rml::EventListener {
       else if(a=="twin-layout-normal" || a=="twin-layout-expert") {
         const int stick=m.stick;
         m=jfg::pc_twin_stick_mapping(a=="twin-layout-expert",m.device);m.stick=stick;saveController();
+        c.game_controls=a=="twin-layout-expert";
       }
       else if(a=="twin-curve")c.aim_curve=(c.aim_curve+1)%3;
       else if(a=="twin-invert-camera")c.camera_invert_y=!c.camera_invert_y;
@@ -1496,7 +1530,7 @@ struct Ui : Rml::EventListener {
         modal("controllers");
       return;
     }
-    if(a.rfind("pc-",0)==0 && !keyboardBinding && !pcExperimental())return;
+    if(a.rfind("pc-",0)==0 && !keyboardBinding && !twinKeyboard && !pcExperimental())return;
     if(a.rfind("pc-key",0)==0 || a.rfind("pc-tune",0)==0)return;
     if(a=="pc-input") {if(controllerWindow)modal("controllers");else {close();action("controllers");}return;}
     if(a.rfind("pc-player",0)==0) {player=std::clamp(a.back()-'0',0,3);loadPcInput();modal("pc-input");return;}
@@ -1506,15 +1540,22 @@ struct Ui : Rml::EventListener {
         const int device=mappings[player].device;mappings[player]=jfg::ControllerMapping{};mappings[player].device=device;
         auto &m=mappings[player];m.bindings[0]=a=="pc-pad-expert"?0:2;m.bindings[10]=a=="pc-pad-expert"?2:0;
         m.bindings[2]=25;m.bindings[9]=23;m.bindings[11]=7;m.bindings[12]=-1;m.bindings[13]=-1;
-        c.modern=1;c.dual_stick=1;saveController();
+        c.modern=1;c.dual_stick=1;c.game_controls=a=="pc-pad-expert";saveController();
       }
       else if(a=="pc-normal" || a=="pc-expert" || (a=="pc-reset" && pcKeyboard())) {
-        auto next=a=="pc-reset"?jfg::PcInputConfig{}:jfg::pc_keyboard_preset(a=="pc-expert");
+        // RGO: in the Modern scheme a reset keeps the mouse buttons (left
+        // fire, right aim); presets and resets keep the controller's
+        // settings, the scheme, gyro and dual input.
+        auto next=a!="pc-reset"?jfg::pc_keyboard_preset(a=="pc-expert"):
+          jfg::pc_twin_stick(c)?jfg::pc_keyboard_preset(false):jfg::PcInputConfig{};
         next.dual_stick=c.dual_stick;next.aim_sensitivity=c.aim_sensitivity;
         next.aim_deadzone=c.aim_deadzone;next.aim_invert_y=c.aim_invert_y;
         next.camera_sensitivity=c.camera_sensitivity;next.aim_curve=c.aim_curve;next.stick_vertical_sensitivity=c.stick_vertical_sensitivity;
-        next.rumble=c.rumble;
+        next.rumble=c.rumble;next.scheme=c.scheme;next.camera_invert_y=c.camera_invert_y;next.dual_input=c.dual_input;
+        next.gyro=c.gyro;next.gyro_sensitivity=c.gyro_sensitivity;next.gyro_mode=c.gyro_mode;
+        next.gyro_ratchet=c.gyro_ratchet;next.gyro_invert_y=c.gyro_invert_y;
         if(a!="pc-reset"){next.aim_toggle=c.aim_toggle;next.key_aim_speed=c.key_aim_speed;}
+        next.game_controls=a=="pc-reset"?c.game_controls:a=="pc-expert";
         c=next;
       }
       else if(a=="pc-reset"){c.dual_stick=0;c.aim_sensitivity=100;c.camera_sensitivity=100;c.aim_curve=0;c.stick_vertical_sensitivity=100;c.aim_deadzone=7849;c.aim_invert_y=0;c.modern=0;}
