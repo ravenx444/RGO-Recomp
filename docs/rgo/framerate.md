@@ -570,8 +570,18 @@ to 2 % fast or slow until the queue is back; the sound's pitch does not
 change. It only runs ahead when that VI would wait anyway, so a PC that is
 behind does not build up time it later races through. `JFG_RGO_AUDIO_TRIM=0`
 turns it off. Same run with the trim: the queue holds at the cushion between
-stalls, and the only dropouts left are stalls longer than the cushion
-(measurements below).
+stalls, and the only dropouts left are stalls longer than the cushion.
+
+| Headless, True 60, first level, real time | Dropouts | Queue |
+|---|---|---|
+| 30 min, without the trim | 12 | steps down after every stall until it cuts out; emulated time ends 1.9 s behind |
+| 30 min, with the trim | 5 | holds at the cushion (about 200 ms after two early dropouts); each dropout left is a stall longer than that (253-860 ms) |
+| 7 min, sound card 0.1 % fast, without the trim | 44 | drains 1 ms per second |
+| 7 min, sound card 0.1 % fast, with the trim | 2 | holds at 100 ms (the game runs 0.1 % fast) |
+
+The two 30 minute runs overlapped on a 4-core VM, so some stalls come from
+that. The sound card case uses `JFG_RGO_WALL_AUDIO_PPM` (headless only), which
+runs the exact wall-clock sink that many parts per million fast or slow.
 
 **5. Does the input stack cost host time?** No measurable cost. The SDL
 thread polls at about 500 Hz and used 2 % of one core on Linux without a
@@ -1072,9 +1082,18 @@ before the first level; the old crash came about 1 min 50 s in.
      it reads 20s, `host` will be above about 37 ms: note `host` and `gfx`
      (tasks per frame and ms). A large `gfx` ms means the renderer (the
      RDRAM copies and GPU waits per shadow mask) is the cost.
-7. **Audio:** play 10 minutes including the cutscenes. Note when it
-   crackles and what the counter shows then (a long `host` time or a
-   `holding 30` switch). If the game crashes, send `crash.log`.
+7. **Audio over a long session:** play 20-30 minutes, levels and cutscenes
+   included, FPS counter Detailed. The last line's `audio 96/100 ms, 0
+   dropouts` is the queue level / cushion and the dropouts so far.
+   - The level must stay near the cushion all session (within about 10 ms
+     between loads), not creep down. Photograph the line at the start and
+     after 10 and 20 minutes.
+   - A dropout should come only with a visible hitch (a load, a long
+     `host` time). Note when crackles happen and what the counter shows.
+   - For comparison, set `JFG_RGO_AUDIO_TRIM=0` before starting the game:
+     that is the old behaviour (the level creeps down and dropouts grow
+     over time).
+   - If the game crashes, send `crash.log`.
 
 8. **Optional A/B, only if runs still differ:** build `main` and this
    branch from the same checkout (`git checkout main`, build, play;
