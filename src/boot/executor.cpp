@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdlib>
 #include <utility>
 
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
@@ -29,24 +28,6 @@ thread_local int t_self = kSchedulerParticipant;
 // spinning takes it without the futex wake-up and context switch a sleeping
 // one needs (docs/rgo/framerate.md, "Host speed").
 constexpr std::chrono::microseconds kBatonSpin{50};
-
-// JFG_RGO_BATON_SPIN_US / JFG_RGO_SCHEDULER_SPIN_US override the spins
-// (measurements).
-std::chrono::microseconds spin_from_environment(const char* name,
-                                                const std::chrono::microseconds fallback) {
-    const char* value = std::getenv(name);
-    if (value == nullptr || *value == '\0')
-        return fallback;
-    return std::chrono::microseconds(std::strtoul(value, nullptr, 10));
-}
-std::chrono::microseconds baton_spin() {
-    static const auto spin = spin_from_environment("JFG_RGO_BATON_SPIN_US", kBatonSpin);
-    return spin;
-}
-std::chrono::microseconds scheduler_spin() {
-    static const auto spin = spin_from_environment("JFG_RGO_SCHEDULER_SPIN_US", kBatonSpin);
-    return spin;
-}
 
 std::atomic<std::uint64_t> g_handoffs{0U};
 std::atomic<std::uint64_t> g_sleeps{0U};
@@ -132,8 +113,7 @@ void BatonExecutor::hand_off(const int to) {
 }
 
 void BatonExecutor::wait_until_holder(const int self) {
-    const auto spin_until = std::chrono::steady_clock::now() +
-        (self == kSchedulerParticipant ? scheduler_spin() : baton_spin());
+    const auto spin_until = std::chrono::steady_clock::now() + kBatonSpin;
     for (unsigned spin = 1U; holder_.load(std::memory_order_acquire) != self; ++spin) {
         if ((spin & 63U) == 0U && std::chrono::steady_clock::now() >= spin_until)
             break;
