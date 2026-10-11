@@ -76,45 +76,83 @@ int main() {
         require(!fast_clock(slow), "slowdown applies at the Original frame rate");
     }
     // The true 60 governor: occasional late frames (a level load) keep 60;
-    // a host that keeps missing VIs gets the game's steady 30 for a while,
-    // longer after each failed try, and 60 again once it held.
+    // a host that keeps missing VIs gets the game's steady 30 until its busy
+    // time per frame shows it can hold 60 again.
     {
-        True60Governor governor;
+        using G = True60Governor;
+        constexpr std::uint32_t fast = 9000U, borderline = 17000U, slow = 25000U;
+        // Frames of `vis` VIs and `busy` microseconds; returns the frames run.
+        const auto run = [](G& governor, std::uint64_t& vi, int frames, std::uint32_t vis,
+                            std::uint32_t busy) {
+            for (int frame = 0; frame < frames; ++frame, vi += vis)
+                governor.frame(vis, vi, busy);
+        };
+        G governor;
         std::uint64_t vi = 1000U;
         for (int frame = 0; frame < 120; ++frame, ++vi)
-            governor.frame(frame % 20 == 0 ? 6U : 1U, vi);
-        require(governor.active(vi), "a few late frames keep true 60");
-        for (int frame = 0; frame < 60; ++frame, vi += 2U)
-            governor.frame(frame % 4 == 0 ? 1U : 2U, vi);
-        require(!governor.active(vi) && governor.active(vi + True60Governor::kFirstPause),
-            "too many late frames pause true 60 for the first pause");
-        vi += True60Governor::kFirstPause;
-        for (int frame = 0; frame < 60; ++frame, vi += 2U)
-            governor.frame(2U, vi);
-        require(!governor.active(vi + True60Governor::kFirstPause) &&
-                    governor.active(vi + 2U * True60Governor::kFirstPause),
-            "a second failure pauses twice as long");
-        vi += 2U * True60Governor::kFirstPause;
-        for (std::uint64_t frame = 0; frame < True60Governor::kSettled + 60U; ++frame, ++vi)
-            governor.frame(1U, vi);
-        for (int frame = 0; frame < 60; ++frame, vi += 2U)
-            governor.frame(2U, vi);
-        require(governor.active(vi + True60Governor::kFirstPause),
-            "after holding 60 the next pause is short again");
-        // Two failures in a row: the pause is long, until the scene changes.
-        for (std::uint64_t pause = True60Governor::kFirstPause;
-             pause <= 2U * True60Governor::kFirstPause; pause *= 2U) {
-            vi += pause;  // resume at the end of each pause, fail again
-            for (int frame = 0; frame < 60; ++frame, vi += 2U)
-                governor.frame(2U, vi);
+            governor.frame(frame % 20 == 0 ? 6U : 1U, vi, fast);
+        require(governor.active(vi) && !governor.holding_30(), "a few late frames keep true 60");
+        run(governor, vi, 60, 1U, fast);  // a clean window
+        run(governor, vi, 6, 2U, slow);
+        require(governor.active(vi), "six late frames keep 60");
+        run(governor, vi, 1, 2U, slow);
+        require(!governor.active(vi) && governor.holding_30(),
+            "the seventh late frame holds 30 at once");
+        // A heavy scene: it stays at a steady 30, with no tries in between.
+        run(governor, vi, 900, 2U, slow);
+        require(!governor.active(vi), "a host that is still too slow stays at 30");
+        require(governor.busy_p90() == slow, "busy time of the slowest tenth");
+        // The scene gets lighter: 60 resumes once 90 % of the last 60 frames
+        // at 30 were fast enough for 60.
+        run(governor, vi, 53, 2U, fast);
+        require(!governor.active(vi), "not before 90 % of the window is fast");
+        run(governor, vi, 1, 2U, fast);
+        require(governor.active(vi), "60 resumes on evidence");
+        // A try that fails at once doubles the minimum time at 30 (4 s).
+        run(governor, vi, 7, 2U, fast);
+        require(!governor.active(vi), "failed again");
+        run(governor, vi, 119, 2U, fast);
+        require(!governor.active(vi), "the minimum time at 30 doubled");
+        run(governor, vi, 1, 2U, fast);
+        require(governor.active(vi), "and 60 resumes after it");
+        // Holding 60 for 10 s makes the next minimum short again.
+        run(governor, vi, static_cast<int>(G::kSettled) + 60, 1U, fast);
+        run(governor, vi, 7, 2U, slow);
+        require(!governor.active(vi), "paused");
+        run(governor, vi, 59, 2U, fast);
+        require(!governor.active(vi), "not before the 2 s minimum and a fast window");
+        run(governor, vi, 1, 2U, fast);
+        require(governor.active(vi), "after holding 60 the minimum is 2 s again");
+        // Borderline busy times: tried again at twice the minimum time.
+        {
+            G edge;
+            std::uint64_t at = 0U;
+            run(edge, at, 7, 2U, borderline);
+            require(!edge.active(at), "borderline: paused");
+            run(edge, at, 65, 2U, borderline);
+            require(!edge.active(at), "borderline: not at the minimum time");
+            run(edge, at, 55, 2U, borderline);
+            require(edge.active(at), "borderline: tried at twice the minimum");
         }
-        require(!governor.active(vi + 2U * True60Governor::kFirstPause), "a long pause");
-        governor.new_scene(vi);
-        require(governor.active(vi), "a new scene tries 60 at once");
-        for (int frame = 0; frame < 60; ++frame, vi += 2U)
-            governor.frame(2U, vi);
-        require(!governor.active(vi) && governor.active(vi + True60Governor::kFirstPause),
-            "and a failure there starts with the first pause again");
+        // Without busy times it retries when the minimum time has passed.
+        G timed;
+        vi = 0U;
+        run(timed, vi, 7, 2U, 0U);
+        require(!timed.active(vi), "timed: paused");
+        run(timed, vi, 60, 2U, 0U);
+        require(timed.active(vi), "timed: retries after the minimum");
+        // A new scene tries 60 at once.
+        run(timed, vi, 7, 2U, 0U);
+        require(!timed.active(vi), "timed: paused again");
+        timed.new_scene(vi);
+        require(timed.active(vi), "a new scene tries 60 at once");
+    }
+    // The governor's busy percentile with few frames.
+    {
+        True60Governor governor;
+        require(governor.busy_p90() == 0U, "no frames, no busy time");
+        governor.frame(1U, 1U, 5000U);
+        require(governor.busy_p90() == 5000U, "one frame");
     }
     // The scheduler's frame-done message is released at once at true 60.
     require(true60_frame_count(0U) == 2U && true60_frame_count(1U) == 2U &&
@@ -138,6 +176,12 @@ int main() {
         }
         require(total + pending == ticks, "no ticks lost");
     }
+    require(squads_function(kSquaddieControl) && squads_function(kSquadsModuleTick) &&
+                squads_function(kSquadronControl) && !squads_function(kJoyRead),
+        "the squads AI runs together at half rate");
+    require(squads_setup_call(0x80051F00U) && !squads_setup_call(0x80008FF8U) &&
+                !squads_setup_call(0x80052678U),
+        "the level setup's SquaddieControl calls are left alone");
     require(trigger_ticks(2U, 1U) == 1U, "literal 2 at one VI per frame");
     require(trigger_ticks(2U, 2U) == 2U, "unchanged at 30 fps");
     require(trigger_ticks(1U, 1U) == 1U && trigger_ticks(3U, 1U) == 3U,
@@ -151,13 +195,23 @@ int main() {
 
     // FPS counter "Detailed": message encoding, content tracking, gaps.
     {
-        FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U};
+        FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U,
+                         98U, 142U, 60U, 31U, 2U, 7U, 183U};
         const auto words = encode_frame_stats(stats);
         FrameStats decoded{};
         for (unsigned index = 0U; index < kFrameDetailMessageCount; ++index)
             decode_frame_stats(decoded, index, words[index * 2U], words[index * 2U + 1U]);
         stats.display_max = 0xFFFFU;  // Clamped to 16 bits.
         require(decoded == stats, "frame stats round trip");
+        require(format_frame_host(stats) ==
+                    "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms\n"
+                    "True 60: holding 30, busy 18.3 ms",
+            "host line, holding 30");
+        stats.true60 = 1U;
+        require(format_frame_host(stats).ends_with("True 60: 60, late 7/60, busy 18.3 ms"),
+            "host line at 60");
+        stats.true60 = 0U;
+        require(format_frame_host(stats).ends_with("True 60: off"), "host line, Original");
     }
     {
         FrameContentTracker tracker;

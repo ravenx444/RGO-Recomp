@@ -16,8 +16,8 @@
 // Rates are in tenths of a frame per second, frame times in tenths of a
 // millisecond (both saturating).
 //
-// FPS counter "Detailed" (FrameStats) adds, in five more messages
-// (WM_APP + 25 to 29), what the game actually does each second:
+// FPS counter "Detailed" (FrameStats) adds, in six more messages
+// (WM_APP + 25 to 30), what the game actually does each second:
 // - logic updates: viFrameSync calls (one per game frame), and the VI ticks
 //   they hand to the game logic (60 per second at full speed in any mode);
 // - drawn: game frames presented with a freshly drawn picture;
@@ -27,7 +27,12 @@
 // - input: controller samples the game received (JFG starts the next read
 //   only after the previous one completed);
 // - frame times: the shortest and longest gap between game presents and
-//   between swap-chain presents.
+//   between swap-chain presents;
+// - host: how long the PC was busy with each game frame (average and
+//   longest, VI waits excluded), the graphics tasks per frame and the time
+//   their submission took (the renderer's GPU syncs included);
+// - True 60: whether the governor runs 60 or holds 30, its late frames and
+//   the busy time 90 % of recent frames stayed within.
 // See docs/rgo/framerate.md ("Diagnostics").
 
 #include <algorithm>
@@ -44,7 +49,7 @@ namespace jfg {
 // packed), WM_APP + 25 to WM_APP + 29 carry FrameStats, two 32-bit values each.
 inline constexpr unsigned kFrameStatsMessageOffset = 24U;
 inline constexpr unsigned kFrameDetailMessageOffset = 25U;
-inline constexpr unsigned kFrameDetailMessageCount = 5U;
+inline constexpr unsigned kFrameDetailMessageCount = 6U;
 
 struct FrameCounter {
     std::uint32_t game_tenths = 0U;
@@ -121,8 +126,30 @@ struct FrameStats {
     std::uint32_t frame_max = 0U;
     std::uint32_t display_min = 0U;
     std::uint32_t display_max = 0U;
+    // Host time per game frame without the VI waits, in tenths of a
+    // millisecond: average and longest in the last half second.
+    std::uint32_t busy_avg = 0U;
+    std::uint32_t busy_max = 0U;
+    // Graphics tasks per game frame (tenths) and their submission time per
+    // game frame (tenths of a millisecond).
+    std::uint32_t tasks_per_frame = 0U;
+    std::uint32_t submit_per_frame = 0U;
+    // True 60 governor: 0 off (Original), 1 running 60, 2 holding 30; late
+    // frames of the last 60; busy time of the slowest tenth of the last 60
+    // frames (tenths of a millisecond).
+    std::uint32_t true60 = 0U;
+    std::uint32_t late = 0U;
+    std::uint32_t busy_p90 = 0U;
     friend bool operator==(const FrameStats&, const FrameStats&) = default;
 };
+
+// True 60 governor state, busy p90 and late frames in one message word.
+[[nodiscard]] constexpr std::uint32_t pack_true60(const std::uint32_t state,
+                                                  const std::uint32_t late,
+                                                  const std::uint32_t busy_p90) noexcept {
+    return (std::min)(state, 3U) | ((std::min)(late, 63U) << 2U) |
+           ((std::min)(busy_p90, 0xFFFFU) << 8U);
+}
 
 // Two 16-bit values in one 32-bit message word (milliseconds in tenths).
 [[nodiscard]] constexpr std::uint32_t pack_pair(const std::uint32_t low,
@@ -136,7 +163,10 @@ encode_frame_stats(const FrameStats& stats) noexcept {
     return {stats.logic_tenths, stats.ticks_tenths, stats.drawn_tenths,
             stats.new_tenths, stats.camera_tenths, stats.repeat_tenths,
             pack_pair(stats.frame_min, stats.frame_max),
-            pack_pair(stats.display_min, stats.display_max), stats.input_tenths, 0U};
+            pack_pair(stats.display_min, stats.display_max), stats.input_tenths,
+            pack_pair(stats.busy_avg, stats.busy_max),
+            pack_pair(stats.tasks_per_frame, stats.submit_per_frame),
+            pack_true60(stats.true60, stats.late, stats.busy_p90)};
 }
 
 // Applies message `index` (0 to 4) to `stats`.
@@ -153,9 +183,38 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
         stats.display_min = second & 0xFFFFU;
         stats.display_max = second >> 16U;
         break;
-    case 4U: stats.input_tenths = first; break;
+    case 4U:
+        stats.input_tenths = first;
+        stats.busy_avg = second & 0xFFFFU;
+        stats.busy_max = second >> 16U;
+        break;
+    case 5U:
+        stats.tasks_per_frame = first & 0xFFFFU;
+        stats.submit_per_frame = first >> 16U;
+        stats.true60 = second & 3U;
+        stats.late = (second >> 2U) & 63U;
+        stats.busy_p90 = (second >> 8U) & 0xFFFFU;
+        break;
     default: break;
     }
+}
+
+// The Detailed counter's last two lines:
+// "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms"
+// "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off").
+[[nodiscard]] inline std::string format_frame_host(const FrameStats& stats) {
+    const auto t = [](std::uint32_t tenths) {
+        return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
+    };
+    std::string text = "host " + t(stats.busy_avg) + " ms, longest " + t(stats.busy_max) +
+                       " ms | gfx " + t(stats.tasks_per_frame) + " tasks, " +
+                       t(stats.submit_per_frame) + " ms";
+    text += "\nTrue 60: ";
+    if (stats.true60 == 0U)
+        return text + "off";
+    text += stats.true60 == 1U ? "60, late " + std::to_string(stats.late) + "/60"
+                               : std::string("holding 30");
+    return text + ", busy " + t(stats.busy_p90) + " ms";
 }
 
 // FNV-1a over 32-bit words: the content hash of the matrices a frame loads.

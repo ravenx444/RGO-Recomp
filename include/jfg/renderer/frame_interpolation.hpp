@@ -69,36 +69,80 @@ inline constexpr std::uint32_t kSchedFrameCountOffset = 0x300U;
 // True 60 needs the host to finish every frame within one VI. When it cannot
 // (a slow PC, a heavy scene), frames take one, two, three VIs in turn, which
 // plays at the right speed but judders. Like the game's own 30/20 fps
-// switch, the governor then hands the game back its steady 30 for a while
-// and tries 60 again later, waiting longer after each failed try.
+// switch, the governor then hands the game back its steady 30.
+//
+// It decides when to go back to 60 from evidence: every frame reports how
+// long the host was busy with it (wall time minus the time spent waiting for
+// the next VI). A frame at 30 runs the same game step and draws the same
+// picture as a frame at 60, so its busy time is about what a 60 frame costs
+// (a little more: it also carries a second VI's audio work). After a
+// minimum time at 30 (2 s, doubling after each try that fails within 10 s,
+// up to 30 s), it looks at the busy time 90 % of the last 60 frames stayed
+// within:
+// - at most 15 ms: 60 fits, resume now;
+// - at most 20 ms: borderline (a frame at 60 misses its VI after about
+//   21 ms), try 60 again at twice the minimum time;
+// - more: a 60 frame cannot fit, stay at a steady 30. The old governor tried
+//   60 every 4-30 s here, and each failed try was one to two seconds of
+//   frames of one, two and three VIs, which read as 20-something on the
+//   counter.
+// Without busy times (0) it retries when the minimum time has passed.
 class True60Governor {
 public:
     static constexpr std::uint32_t kWindow = 60U;       // frames
-    static constexpr std::uint32_t kLateLimit = 6U;     // late frames per window
-    static constexpr std::uint64_t kFirstPause = 240U;  // VIs (4 s)
+    static constexpr std::uint32_t kLateLimit = 6U;     // late frames in the last 60
+    static constexpr std::uint64_t kFirstPause = 120U;  // VIs (2 s) at 30, at least
     static constexpr std::uint64_t kLongestPause = 1800U;
     static constexpr std::uint64_t kSettled = 600U;     // VIs at 60 that reset the wait
+    // Busy time of the slowest tenth of the last 60 frames at 30: up to
+    // kResumeBusyUs 60 resumes after the minimum time, up to kRetryBusyUs it
+    // is tried again at twice the minimum time, above it stays at 30.
+    static constexpr std::uint32_t kResumeBusyUs = 15000U;
+    static constexpr std::uint32_t kRetryBusyUs = 20000U;
 
     // true: run this frame at true 60.
     [[nodiscard]] constexpr bool active(const std::uint64_t vi) const noexcept {
-        return vi >= resume_vi_;
+        static_cast<void>(vi);
+        return !paused_;
     }
 
-    // A true 60 frame took this many VIs (viFrameSync's return value).
-    constexpr void frame(const std::uint32_t vis, const std::uint64_t vi) noexcept {
-        if (!active(vi))
-            return;  // paused: the game runs its own 30
+    // A frame took this many VIs (viFrameSync's return value) and kept the
+    // host busy for busy_us microseconds (0: not measured). Report every
+    // frame, at 60 and while holding 30.
+    constexpr void frame(const std::uint32_t vis, const std::uint64_t vi,
+                         const std::uint32_t busy_us = 0U) noexcept {
+        busy_[busy_next_] = busy_us;
+        busy_next_ = (busy_next_ + 1U) % kWindow;
+        if (busy_count_ < kWindow)
+            ++busy_count_;
+        if (paused_) {
+            const std::uint64_t waited = vi - pause_vi_;
+            if (waited < pause_)
+                return;
+            const bool measured = busy_count_ >= kWindow && busy_us != 0U;
+            const std::uint32_t busy = measured ? busy_p90() : 0U;
+            const bool resume = !measured || busy <= kResumeBusyUs ||
+                                (busy <= kRetryBusyUs && waited >= 2U * pause_);
+            if (resume) {
+                paused_ = false;
+                resume_vi_ = vi;
+                late_ = 0U;
+            }
+            return;
+        }
         late_ = (late_ << 1U) | (vis > 1U ? 1U : 0U);
-        if (frames_ < kWindow)
-            ++frames_;
         if (pause_ != 0U && vi >= resume_vi_ + kSettled)
             pause_ = 0U;  // held 60 long enough: the next pause is short again
-        if (frames_ < kWindow || late_frames() <= kLateLimit)
+        // Seven late frames are enough to give up, without waiting for a
+        // full window: on a slow PC a heavy scene would otherwise judder at
+        // 10-20 fps for several seconds before falling back.
+        if (late_frames() <= kLateLimit)
             return;
         pause_ = pause_ == 0U ? kFirstPause : std::min(pause_ * 2U, kLongestPause);
-        resume_vi_ = vi + pause_;
+        paused_ = true;
+        pause_vi_ = vi;
+        busy_count_ = 0U;  // judge resuming on frames at 30 only
         late_ = 0U;
-        frames_ = 0U;
     }
 
     // A new level or cutscene shot: forget the back-off and try 60 at once.
@@ -106,9 +150,10 @@ public:
     // light gameplay after it at 30 for most of that time.
     constexpr void new_scene(const std::uint64_t vi) noexcept {
         late_ = 0U;
-        frames_ = 0U;
         pause_ = 0U;
+        paused_ = false;
         resume_vi_ = vi;
+        busy_count_ = 0U;
     }
 
     [[nodiscard]] constexpr std::uint32_t late_frames() const noexcept {
@@ -118,11 +163,30 @@ public:
         return count;
     }
 
+    // The busy time 90 % of the last frames (up to 60) stayed within, in
+    // microseconds (0: none measured).
+    [[nodiscard]] constexpr std::uint32_t busy_p90() const noexcept {
+        std::array<std::uint32_t, kWindow> sorted{};
+        for (std::uint32_t index = 0U; index < busy_count_; ++index)
+            sorted[index] = busy_[(busy_next_ + kWindow - 1U - index) % kWindow];
+        if (busy_count_ == 0U)
+            return 0U;
+        std::sort(sorted.begin(), sorted.begin() + busy_count_);
+        return sorted[(busy_count_ * 9U) / 10U - (busy_count_ >= 10U ? 1U : 0U)];
+    }
+
+    // Holding 30 (for the FPS counter's Detailed view).
+    [[nodiscard]] constexpr bool holding_30() const noexcept { return paused_; }
+
 private:
     std::uint64_t late_ = 0U;
-    std::uint32_t frames_ = 0U;
-    std::uint64_t pause_ = 0U;
-    std::uint64_t resume_vi_ = 0U;
+    std::uint64_t pause_ = 0U;      // minimum time at 30 for the current pause
+    std::uint64_t pause_vi_ = 0U;   // the VI the current pause started at
+    std::uint64_t resume_vi_ = 0U;  // the VI 60 last resumed at
+    bool paused_ = false;
+    std::array<std::uint32_t, kWindow> busy_{};
+    std::uint32_t busy_next_ = 0U;
+    std::uint32_t busy_count_ = 0U;
 };
 
 // The level being played (a cutscene is a level too); the governor starts
@@ -130,8 +194,8 @@ private:
 inline constexpr std::uint32_t kCurrentLevel = 0x800FB114U;
 
 // The engine passes the VIs per frame (delayDat, 0x800A3374) to its tick
-// functions, so almost all logic is already rate-independent. Three places
-// assume at least 2 ticks per frame (docs/rgo/framerate.md, Part E):
+// functions, so almost all logic is already rate-independent. These places
+// assume at least 2 ticks per frame (docs/rgo/framerate.md, "True 60"):
 inline constexpr std::uint32_t kDelayDat = 0x800A3374U;
 
 // 1. Overlay 47 animseqUpdateTextureScrollers(rate) computes
@@ -180,6 +244,36 @@ inline constexpr std::size_t kControllerPadBytes = 24U;            // 4 x 6
         if (before[index] != after[index])
             return true;
     return false;
+}
+
+// 4. The bug enemies ("squaddies", overlay 3, the squads AI) count in calls,
+//    not ticks: SquaddieControl moves by its velocity, accelerates, applies
+//    drag and gravity, and counts its fire delay and other timers by one per
+//    call; SquadronControl counts its reinforcement timer per call;
+//    squadsModuleTick ages the AI's remembered noises per call and flips an
+//    every-other-update flag. At one VI per frame bugs ran, fired, tumbled
+//    and spawned twice as fast, while their walk animation (which does use
+//    the rate) stayed at normal speed. True 60 runs the whole squads AI
+//    together once per 2 ticks with rate 2, exactly its 30 fps inputs; bug
+//    positions then update 30 times a second, as on the console. The rate
+//    argument is register a1 (a0 for squadsModuleTick); only calls that pass
+//    the frame's rate (delayDat) are batched.
+inline constexpr std::uint32_t kSquaddieControl = 0x00310600U;
+inline constexpr std::uint32_t kSquadronControl = 0x00314D4CU;
+inline constexpr std::uint32_t kAiPointControl = 0x0030A110U;
+inline constexpr std::uint32_t kAiJunctionControl = 0x00316CB4U;
+inline constexpr std::uint32_t kSquadsModuleTick = 0x00316990U;
+
+// squadsInitialiseAfterObjects (0x80051EA4-0x80052677) runs SquaddieControl
+// once per bug while a level is set up; those calls run as they are.
+[[nodiscard]] constexpr bool squads_setup_call(const std::uint32_t return_address) noexcept {
+    return return_address >= 0x80051EA4U && return_address < 0x80052678U;
+}
+
+[[nodiscard]] constexpr bool squads_function(const std::uint32_t target) noexcept {
+    return target == kSquaddieControl || target == kSquadronControl ||
+           target == kAiPointControl || target == kAiJunctionControl ||
+           target == kSquadsModuleTick;
 }
 
 // The game's logic rate for one game frame: 60 / the VIs it took (2 normally,

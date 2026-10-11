@@ -43,7 +43,7 @@ def summarize(rows: list[dict[str, int]]) -> dict:
     frame_wall_ms = [(b["wall_us"] - a["wall_us"]) / 1000 for a, b in zip(rows, rows[1:])]
     frame_vis = [b["vi"] - a["vi"] for a, b in zip(rows, rows[1:])]
     emulated = vis / 60
-    return {
+    summary = {
         "frames": len(rows) - 1,
         "vis": vis,
         "emulated_seconds": round(emulated, 3),
@@ -63,6 +63,20 @@ def summarize(rows: list[dict[str, int]]) -> dict:
         "guest_instructions_per_emulated_second": round(
             (last["instructions"] - first["instructions"]) / emulated) if vis else None,
     }
+    # Newer traces: host busy time per frame (VI waits excluded), the True 60
+    # governor's state and audio underruns.
+    busy = sorted(row["busy_us"] / 1000 for row in rows[1:] if row.get("busy_us"))
+    if busy:
+        summary["busy_ms"] = {
+            "median": round(statistics.median(busy), 2),
+            "p90": round(busy[int(len(busy) * 0.9)], 2),
+            "max": round(busy[-1], 2),
+        }
+    if "true60" in first:
+        summary["holding_30_frames"] = sum(1 for row in rows[1:] if row["true60"] == 2)
+    if "audio_underruns" in first:
+        summary["audio_underruns"] = last["audio_underruns"] - first["audio_underruns"]
+    return summary
 
 
 def segments(rows: list[dict[str, int]]) -> list[tuple[str, list[dict[str, int]]]]:

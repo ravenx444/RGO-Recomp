@@ -29,6 +29,19 @@ def trace(rows: list[tuple[int, int, int, int]]) -> list[dict[str, int]]:
 
 
 class FrameRateSummaryTests(unittest.TestCase):
+    def test_busy_governor_and_underrun_columns(self) -> None:
+        header = HEADER.rstrip("\n") + "\tbusy_us\ttrue60\taudio_underruns\n"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "frames.tsv"
+            path.write_text(header + "".join(
+                f"{vi}\t1\t1\t{vi * 781250}\t{vi * 1000}\t{vi * 16667}\t16\t93\t"
+                f"{10000 + vi}\t{2 if vi >= 90 else 1}\t{vi // 50}\n"
+                for vi in range(0, 101)))
+            summary = FRAME_RATE.summarize(FRAME_RATE.load(path))
+        self.assertEqual(summary["busy_ms"]["max"], 10.1)
+        self.assertEqual(summary["holding_30_frames"], 11)
+        self.assertEqual(summary["audio_underruns"], 2)
+
     def test_sixty_logic_frames_per_emulated_second(self) -> None:
         rows = trace([(vi, 1, vi * 16667, 93) for vi in range(0, 601)])
         summary = FRAME_RATE.summarize(rows)

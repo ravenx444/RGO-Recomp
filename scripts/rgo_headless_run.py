@@ -79,7 +79,10 @@ def main() -> int:
                    "JFG_RGO_AUTOPILOT": "newgame",
                    "JFG_RGO_EXIT_AFTER_VI": str(args.vis),
                    "JFG_RGO_FRAME_TRACE": str(out / "frames.tsv"),
-                   "JFG_RGO_COUNTER_LOG": "1"}
+                   "JFG_RGO_COUNTER_LOG": "1",
+                   # Exact real-time audio sink: SDL's dummy driver plays a few
+                   # percent too fast or slow, which shows as false underruns.
+                   "JFG_RGO_WALL_AUDIO": os.environ.get("JFG_RGO_WALL_AUDIO", "1")}
     if args.deterministic:
         environment["JFG_RGO_DETERMINISTIC_CLOCK"] = "1"
     if args.unpaced:
