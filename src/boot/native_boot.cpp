@@ -2144,6 +2144,7 @@ struct State : JfgOriginalTimingFast {
   std::chrono::steady_clock::time_point busy_frame_start{};
   std::uint64_t frame_busy_us = 0U, frame_busy_max_us = 0U, frame_busy_frames = 0U;
   std::uint32_t frame_busy_last_us = 0U;  // the frame that just ended
+  std::uint64_t vi_wake_late_max_us = 0U;  // latest VI pacing wake-up, this report
   std::uint64_t frame_graphics_start = 0U, frame_submit_us_start = 0U;
   // RGO fast clock real-time floor: the Count of the last paced VI and the
   // wall time it was due, so Count can follow the wall clock when the host
@@ -3097,6 +3098,52 @@ bool service_host_audio(State &state, const bool pace) {
   return true;
 }
 
+#if defined(_WIN32)
+// RGO: a high-resolution waitable timer (Windows 10 1803 and later) wakes
+// within about half a millisecond whatever the process timer resolution is.
+struct HighResolutionTimer {
+  HANDLE handle = CreateWaitableTimerExW(nullptr, nullptr,
+      0x00000002U /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */, TIMER_ALL_ACCESS);
+  HighResolutionTimer() = default;
+  HighResolutionTimer(const HighResolutionTimer &) = delete;
+  HighResolutionTimer &operator=(const HighResolutionTimer &) = delete;
+  ~HighResolutionTimer() {
+    if (handle != nullptr)
+      CloseHandle(handle);
+  }
+};
+#endif
+
+// RGO frame pacing: sleep until a VI is due. Counts the time slept (the busy
+// time excludes it) and how late the thread woke (the Detailed counter's
+// "VI wake" figure: a plain sleep can wake up to 15.6 ms late on Windows when
+// the timer resolution is not raised, which makes frames miss their VI).
+void paced_sleep_until(State &state, const std::chrono::steady_clock::time_point deadline) {
+  const auto start = std::chrono::steady_clock::now();
+#if defined(_WIN32)
+  // Each guest thread is a host thread, so each gets its own timer.
+  thread_local HighResolutionTimer timer;
+  jfg::precise_sleep_until(deadline, [](const std::chrono::nanoseconds wait) {
+    LARGE_INTEGER due{};
+    due.QuadPart = -static_cast<LONGLONG>(wait.count() / 100);  // relative, 100 ns units
+    const auto timeout = static_cast<DWORD>(wait.count() / 1000000 + 20);
+    if (timer.handle == nullptr || due.QuadPart >= 0 ||
+        !SetWaitableTimer(timer.handle, &due, 0, nullptr, nullptr, FALSE) ||
+        WaitForSingleObject(timer.handle, timeout) != WAIT_OBJECT_0)
+      std::this_thread::sleep_for(wait);
+  });
+#else
+  jfg::precise_sleep_until(deadline);
+#endif
+  const auto end = std::chrono::steady_clock::now();
+  state.pacing_wait_us += static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+  if (end > deadline)
+    state.vi_wake_late_max_us = (std::max)(state.vi_wake_late_max_us,
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(end - deadline).count()));
+}
+
 // RGO display settings: follow the launcher's video settings while playing.
 void refresh_video_settings(State &state) {
   if (!state.video_settings_checked) {
@@ -3167,6 +3214,7 @@ void refresh_video_settings(State &state) {
     state.frame_gaps = {};
     state.frame_input_start = state.controller_samples;
     state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
+    state.vi_wake_late_max_us = 0U;
     state.frame_graphics_start = state.graphics_tasks;
     state.frame_submit_us_start = state.graphics_submit_microseconds;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
@@ -3217,6 +3265,7 @@ void refresh_video_settings(State &state) {
       details.late = state.true60_governor.late_frames();
       details.busy_p90 = tenths_ms(state.true60_governor.busy_p90());
     }
+    details.wake_late = tenths_ms(state.vi_wake_late_max_us);
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -3250,6 +3299,7 @@ void refresh_video_settings(State &state) {
     state.frame_gaps = {};
     state.frame_input_start = state.controller_samples;
     state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
+    state.vi_wake_late_max_us = 0U;
     state.frame_graphics_start = state.graphics_tasks;
     state.frame_submit_us_start = state.graphics_submit_microseconds;
   }
@@ -3333,10 +3383,7 @@ void service_live_window(State &state) {
   state.host_frame_deadline += std::chrono::microseconds(16667);
   const auto deadline_now = std::chrono::steady_clock::now();
   if (state.host_frame_deadline > deadline_now) {
-    jfg::precise_sleep_until(state.host_frame_deadline);
-    state.pacing_wait_us += static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - deadline_now).count());
+    paced_sleep_until(state, state.host_frame_deadline);
   } else if (deadline_now - state.host_frame_deadline >
              std::chrono::microseconds(66668)) {
     // Do not run an unbounded catch-up burst after shader compilation, window
@@ -10186,13 +10233,8 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
             const auto target_time = state.original_os_host_clock.deadline(
                 mmio.vi_next, std::chrono::steady_clock::now(),
                 state.host_audio.underruns());
-            if (!state.unpaced && std::chrono::steady_clock::now() < target_time) {
-              const auto sleep_start = std::chrono::steady_clock::now();
-              jfg::precise_sleep_until(target_time);
-              state.pacing_wait_us += static_cast<std::uint64_t>(
-                  std::chrono::duration_cast<std::chrono::microseconds>(
-                      std::chrono::steady_clock::now() - sleep_start).count());
-            }
+            if (!state.unpaced && std::chrono::steady_clock::now() < target_time)
+              paced_sleep_until(state, target_time);
             // RGO fast clock: this VI's Count is due at this wall time.
             state.wall_anchor_count = mmio.vi_next;
             state.wall_anchor_time = target_time;

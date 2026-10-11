@@ -191,7 +191,7 @@ drawn 60.0 | new 60.0 | camera 60.0 | repeats 0.0
 input 60.0
 game frame 16.6-16.8 ms
 display frame 16.5-16.9 ms
-host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms
+host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms
 True 60: 60, late 0/60, busy 11.0 ms
 ```
 
@@ -228,6 +228,10 @@ True 60: 60, late 0/60, busy 11.0 ms
   renderer's GPU syncs for shadow masks included. If host is high and gfx
   ms is a large part of it, the renderer is the bottleneck; if gfx ms is
   small, the game's code and the runtime are.
+- **VI wake**: how late the emulation thread woke from its wait for a VI,
+  at worst in the last half second. A few tenths of a millisecond is
+  normal; several milliseconds mean the operating system wakes it late,
+  which makes frames miss their VI however fast the PC is.
 - **True 60**: `60` with the late frames of the last 60 (7 or more make it
   fall back), or `holding 30`, or `off` (Frame rate Original). **busy** is
   the busy time 90 % of the last 60 frames stayed within, which decides when
@@ -329,23 +333,45 @@ its measurements include the input stack. Nothing in the input code touches
 the True 60 decision (the setting, `video_managed`, the governor), the VI
 clock or the scheduler.
 
-**1. True 60 on some runs and not others.** True 60 itself engages from
-the setting every frame; what then decides between 60 and 30 is only the
-governor, and the old governor decided from late frames alone: 7 late
-frames out of 60 meant 30 for 4 s, then a try, doubling to 30 s pauses after
-failed tries, reset only by a new level or shot. Anything that makes a run's
-host slower for a while (the first run after a build compiles RT64's
-shaders on the CPU; Windows can put the emulation thread on an efficiency
-core; background load) made it back off to long pauses and spend most of a
-level at 30, while the next run, without that, held 60. That fits the
-report, but it can't be confirmed without numbers from the PC. Two changes:
+**1. True 60 on some runs and not others.** The owner confirmed both runs
+used the same build of `main`, nothing rebuilt, so it varies from run to
+run in one binary. True 60 itself engages from the setting every frame;
+what then decides between 60 and 30 is only the governor, and the old
+governor decided from late frames alone: 7 late frames out of 60 meant 30
+for 4 s, then a try, doubling to 30 s pauses after failed tries, reset only
+by a new level or shot. So anything that makes frames late for a whole run
+keeps it at 30 in every level. Two run-to-run causes fit:
+- **Imprecise VI waits.** Each VI waits with a sleep until 2 ms before it,
+  then spins. On Windows that sleep is only as precise as the process's
+  timer resolution. SDL asks for 1 ms, but Windows 11 does not always grant
+  it, for example to a process it considers occluded or inaudible, and
+  without it a sleep can wake up to 15.6 ms late. Every frame then misses
+  its VI no matter how fast the PC is, and whether it happens depends on
+  the state of the windows and audio when the game starts. The wait now
+  uses a high-resolution waitable timer (Windows 10 1803 and later), which
+  wakes within about half a millisecond whatever the timer resolution, as
+  the SDL input thread already did. The Detailed counter's new `VI wake`
+  figure shows how late the waits woke (a few tenths of a ms normally).
+- **A slower host for that run:** the first run after a build compiles
+  RT64's shaders on the CPU, Windows can put the emulation thread on an
+  efficiency core, background load.
+
+Neither can be confirmed without numbers from the PC; the counter now shows
+them. The input code is not involved in the decision: it does not touch
+the setting, the governor, the VI clock or the scheduler, and its thread
+costs no measurable time (item 5). Three changes:
 - The governor resumes on evidence: each frame's host busy time (wall time
   minus the VI wait) shows whether 60 fits, so 60 comes back within 2 s
   once the host is fast enough, instead of after up to 30 s
   ([True 60](#true-60)).
+- VI waits use a high-resolution waitable timer on Windows
+  (`paced_sleep_until`).
 - The Detailed counter now shows the host time per frame, the graphics
-  tasks and their submission time per frame, and the governor's state, so a
-  photo of it tells which case it is ([Detailed](#diagnostics-fps-counter-detailed)).
+  tasks and their submission time per frame, how late the VI waits woke,
+  and the governor's state, so a photo of it tells which case it is
+  ([Detailed](#diagnostics-fps-counter-detailed)): `holding 30` with a low
+  `host` and a `VI wake` of several ms is the timer; a `host` above about
+  15 ms is the PC being slow there.
 
 **2. Things faster than normal at 60: the bug enemies.** The engine's object
 loop, physics, animation, particles, explosions, projectiles, weather and
@@ -866,9 +892,10 @@ before the first level; the old crash came about 1 min 50 s in.
      new shot or level starts at 60. Detailed `ticks` stays at 60 either
      way.
    - The opening cutscene plays through to the first level without a crash.
-   - Quit and start the game again three times: every run must reach 60 in
-     the menus and the first level. If a run stays at 30, photograph the
-     Detailed counter (the `host` and `True 60` lines say why).
+   - Quit and start the game again five times, once with the window in the
+     background while it starts: every run must reach 60 in the menus and
+     the first level. If a run stays at 30, photograph the Detailed counter
+     (the `host`, `VI wake` and `True 60` figures say why).
    - **Bugs:** in the first level, fight a group of bugs (ants) at True 60,
      then switch Frame rate to Original and fight again. They must run,
      strafe, fire, fly back when hit and send reinforcements at the same
@@ -896,6 +923,13 @@ before the first level; the old crash came about 1 min 50 s in.
 7. **Audio:** play 10 minutes including the cutscenes. Note when it
    crackles and what the counter shows then (a long `host` time or a
    `holding 30` switch). If the game crashes, send `crash.log`.
+
+8. **Optional A/B, only if runs still differ:** build `main` and this
+   branch from the same checkout (`git checkout main`, build, play;
+   `git checkout rgo/framerate-fixes`, build, play), five starts each,
+   and count the runs that stay at 30. To test whether the input stack is
+   involved at all, also build `3b75cfb` (the 60 fps work before the input
+   merge; it has no Detailed host line) and count the same way.
 
 If something is off, the support ZIP and `crash.log`, plus a photo of the
 Detailed counter at that moment, show which part is wrong.

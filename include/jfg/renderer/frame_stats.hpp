@@ -31,6 +31,8 @@
 // - host: how long the PC was busy with each game frame (average and
 //   longest, VI waits excluded), the graphics tasks per frame and the time
 //   their submission took (the renderer's GPU syncs included);
+// - VI wake: how late the emulation thread woke from its wait for a VI at
+//   worst (a few tenths normally; milliseconds mean the OS sleeps imprecisely);
 // - True 60: whether the governor runs 60 or holds 30, its late frames and
 //   the busy time 90 % of recent frames stayed within.
 // See docs/rgo/framerate.md ("Diagnostics").
@@ -140,15 +142,20 @@ struct FrameStats {
     std::uint32_t true60 = 0U;
     std::uint32_t late = 0U;
     std::uint32_t busy_p90 = 0U;
+    // How late the emulation thread woke from its VI pacing sleep at worst,
+    // in tenths of a millisecond (up to 25.5 ms).
+    std::uint32_t wake_late = 0U;
     friend bool operator==(const FrameStats&, const FrameStats&) = default;
 };
 
-// True 60 governor state, busy p90 and late frames in one message word.
+// True 60 governor state, late frames, busy p90 and the VI wake lateness in
+// one message word.
 [[nodiscard]] constexpr std::uint32_t pack_true60(const std::uint32_t state,
                                                   const std::uint32_t late,
-                                                  const std::uint32_t busy_p90) noexcept {
+                                                  const std::uint32_t busy_p90,
+                                                  const std::uint32_t wake_late) noexcept {
     return (std::min)(state, 3U) | ((std::min)(late, 63U) << 2U) |
-           ((std::min)(busy_p90, 0xFFFFU) << 8U);
+           ((std::min)(busy_p90, 0xFFFFU) << 8U) | ((std::min)(wake_late, 0xFFU) << 24U);
 }
 
 // Two 16-bit values in one 32-bit message word (milliseconds in tenths).
@@ -166,7 +173,7 @@ encode_frame_stats(const FrameStats& stats) noexcept {
             pack_pair(stats.display_min, stats.display_max), stats.input_tenths,
             pack_pair(stats.busy_avg, stats.busy_max),
             pack_pair(stats.tasks_per_frame, stats.submit_per_frame),
-            pack_true60(stats.true60, stats.late, stats.busy_p90)};
+            pack_true60(stats.true60, stats.late, stats.busy_p90, stats.wake_late)};
 }
 
 // Applies message `index` (0 to 4) to `stats`.
@@ -194,13 +201,14 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
         stats.true60 = second & 3U;
         stats.late = (second >> 2U) & 63U;
         stats.busy_p90 = (second >> 8U) & 0xFFFFU;
+        stats.wake_late = second >> 24U;
         break;
     default: break;
     }
 }
 
 // The Detailed counter's last two lines:
-// "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms"
+// "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms"
 // "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off").
 [[nodiscard]] inline std::string format_frame_host(const FrameStats& stats) {
     const auto t = [](std::uint32_t tenths) {
@@ -208,7 +216,8 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
     };
     std::string text = "host " + t(stats.busy_avg) + " ms, longest " + t(stats.busy_max) +
                        " ms | gfx " + t(stats.tasks_per_frame) + " tasks, " +
-                       t(stats.submit_per_frame) + " ms";
+                       t(stats.submit_per_frame) + " ms | VI wake +" + t(stats.wake_late) +
+                       " ms";
     text += "\nTrue 60: ";
     if (stats.true60 == 0U)
         return text + "off";

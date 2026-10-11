@@ -196,7 +196,7 @@ int main() {
     // FPS counter "Detailed": message encoding, content tracking, gaps.
     {
         FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U,
-                         98U, 142U, 60U, 31U, 2U, 7U, 183U};
+                         98U, 142U, 60U, 31U, 2U, 7U, 183U, 4U};
         const auto words = encode_frame_stats(stats);
         FrameStats decoded{};
         for (unsigned index = 0U; index < kFrameDetailMessageCount; ++index)
@@ -204,7 +204,7 @@ int main() {
         stats.display_max = 0xFFFFU;  // Clamped to 16 bits.
         require(decoded == stats, "frame stats round trip");
         require(format_frame_host(stats) ==
-                    "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms\n"
+                    "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.4 ms\n"
                     "True 60: holding 30, busy 18.3 ms",
             "host line, holding 30");
         stats.true60 = 1U;
