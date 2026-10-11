@@ -1012,6 +1012,22 @@ public:
     return frequency_ == 0U ? 0U : static_cast<std::uint32_t>(
         static_cast<std::uint64_t>(current_queued_bytes_) * 1000U / (frequency_ * 4U));
   }
+  // RGO: how many nanoseconds earlier (positive) or later (negative) this
+  // VI's deadline should be to hold the queue at the cushion over a long
+  // session (jfg::audio::QueueLevelTrim). Zero while the device is not playing.
+  [[nodiscard]] std::int64_t level_trim(const std::int64_t vi_nanoseconds) noexcept {
+    if (!device_playing_ || frequency_ == 0U || (device_ == 0U && !wall_sink_)) {
+      level_trim_.reset();
+      return 0;
+    }
+    return level_trim_.update(current_queued_bytes_, resume_bytes_, frequency_ * 4U,
+                              vi_nanoseconds);
+  }
+  // The queue level the trim works from (smoothed over about half a second).
+  [[nodiscard]] std::uint32_t smoothed_queue_milliseconds() const noexcept {
+    return frequency_ == 0U || !device_playing_ ? 0U : static_cast<std::uint32_t>(
+        level_trim_.smoothed_bytes() * 1000.0 / (static_cast<double>(frequency_) * 4.0));
+  }
   [[nodiscard]] std::uint64_t consumed_milliseconds() const noexcept {
     return frequency_ == 0U
                ? 0U
@@ -1065,6 +1081,10 @@ private:
     if (const char *wall = std::getenv("JFG_RGO_WALL_AUDIO"); wall != nullptr && wall[0] == '1') {
       wall_sink_ = true;
       obtained = desired;
+      // JFG_RGO_WALL_AUDIO_PPM: the sink's clock runs this many parts per
+      // million fast (negative: slow), like a sound card's crystal.
+      if (const char *ppm = std::getenv("JFG_RGO_WALL_AUDIO_PPM"); ppm != nullptr)
+        wall_rate_ = 1.0 + std::strtod(ppm, nullptr) / 1e6;
     } else
 #endif
     device_ = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
@@ -1112,7 +1132,7 @@ private:
       const auto now = std::chrono::steady_clock::now();
       if (device_playing_ && wall_mark_ != std::chrono::steady_clock::time_point{})
         wall_consumed_ += std::chrono::duration<double>(now - wall_mark_).count() *
-                          static_cast<double>(frequency_) * 4.0;
+                          static_cast<double>(frequency_) * 4.0 * wall_rate_;
       wall_mark_ = now;
       if (wall_consumed_ > static_cast<double>(queued_bytes_))
         wall_consumed_ = static_cast<double>(queued_bytes_);
@@ -1247,9 +1267,11 @@ private:
   std::uint64_t emulated_byte_accumulator_ = 0U;
   std::uint32_t frequency_ = 0U;
   std::uint64_t throttled_us_ = 0U;
+  jfg::audio::QueueLevelTrim level_trim_;
   // RGO headless wall-clock sink (JFG_RGO_WALL_AUDIO).
   bool wall_sink_ = false;
   double wall_consumed_ = 0.0;
+  double wall_rate_ = 1.0;
   std::chrono::steady_clock::time_point wall_mark_{};
   std::uint32_t prebuffer_bytes_ = 0U;
   std::uint32_t resume_bytes_ = 0U;
@@ -2256,6 +2278,10 @@ struct State : JfgOriginalTimingFast {
   std::unique_ptr<jfg::Rt64Shell> rt64_shell;
   std::vector<std::byte> rt64_rdram;
   bool present_full_import = false;  // JFG_RGO_PRESENT_FULL_IMPORT=1
+  // RGO audio queue-level trim of the VI deadlines (JFG_RGO_AUDIO_TRIM=0
+  // turns it off) and the net trim so far (positive: ran ahead).
+  bool audio_level_trim = true;
+  std::int64_t audio_trim_ns = 0;
   std::uint32_t graphics_color_image = 0U;
   bool graphics_frame_ready = false;
   std::array<std::uint32_t, 64U> recent_graphics_color_images{};
@@ -3482,6 +3508,8 @@ void refresh_video_settings(State &state) {
     details.switches = per_second(jfg::boot::baton_handoffs() - state.frame_switch_start);
     details.wakes = per_second(jfg::boot::baton_sleeps() - state.frame_wake_start);
     details.audio_cushion = state.host_audio.cushion_milliseconds();
+    details.audio_queued = state.host_audio.smoothed_queue_milliseconds();
+    details.audio_underruns = static_cast<std::uint32_t>(state.host_audio.underruns());
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -3498,11 +3526,12 @@ void refresh_video_settings(State &state) {
     if (state.counter_log) {
       std::string host = jfg::format_frame_host(details);
       std::replace(host.begin(), host.end(), '\n', ' ');
-      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu | squaddie calls %llu | snapshot imports delta %llu full %llu, chunks %llu, verify mismatches %llu\n",
+      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu, trim %+.1f ms | squaddie calls %llu | snapshot imports delta %llu full %llu, chunks %llu, verify mismatches %llu\n",
                    static_cast<unsigned long long>(state.vi_retraces),
                    jfg::format_frame_counter(counter).c_str(), host.c_str(),
                    state.host_audio.queued_milliseconds(),
                    static_cast<unsigned long long>(state.host_audio.underruns()),
+                   static_cast<double>(state.audio_trim_ns) / 1e6,
                    static_cast<unsigned long long>(state.squaddie_calls),
                    static_cast<unsigned long long>(state.snapshot_delta_imports),
                    static_cast<unsigned long long>(state.snapshot_full_imports),
@@ -6929,7 +6958,7 @@ void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
   // 60, 2 the governor holds 30.
   const unsigned true60 = !jfg::true_logic_60(state.video) || !state.video_managed ? 0U
       : state.true60_governor.holding_30() ? 2U : 1U;
-  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\t%u\t%u\t%llu\t%u\t%llu\t%llu\n",
+  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\t%u\t%u\t%llu\t%u\t%llu\t%llu\t%lld\n",
                static_cast<unsigned long long>(state.vi_retraces), delay, delta,
                static_cast<unsigned long long>(state.cpu_count),
                static_cast<unsigned long long>(state.observed_guest_instructions),
@@ -6937,7 +6966,8 @@ void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
                static_cast<unsigned long long>(state.host_audio.underruns()),
                state.host_audio.queued_milliseconds(),
                static_cast<unsigned long long>(state.wall_floor_jumps),
-               static_cast<unsigned long long>(state.wall_floor_resets));
+               static_cast<unsigned long long>(state.wall_floor_resets),
+               static_cast<long long>(state.audio_trim_ns / 1000));
 }
 
 // RGO fast clock: a guest thread that keeps polling an empty queue in a loop
@@ -10850,9 +10880,22 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
             // the window/renderer owner thread. Never catch up a stale clock
             // after the audio device has run dry.
             state.host_audio.service(false, false);
-            const auto target_time = state.original_os_host_clock.deadline(
+            auto target_time = state.original_os_host_clock.deadline(
                 mmio.vi_next, std::chrono::steady_clock::now(),
                 state.host_audio.underruns());
+            // RGO: hold the audio queue at its cushion (QueueLevelTrim). Only
+            // run ahead when this VI would wait anyway, so a host that is
+            // behind does not build up a debt it later races through.
+            if (state.audio_level_trim) {
+              const std::int64_t trim = state.host_audio.level_trim(
+                  static_cast<std::int64_t>(mmio.vi_period) * 64 / 3);
+              const auto earlier = std::chrono::nanoseconds(trim);
+              if (trim < 0 || target_time - std::chrono::steady_clock::now() > earlier) {
+                state.original_os_host_clock.trim(earlier);
+                target_time -= earlier;
+                state.audio_trim_ns += trim;
+              }
+            }
             if (!state.unpaced && std::chrono::steady_clock::now() < target_time)
               paced_sleep_until(state, target_time);
             // RGO fast clock: this VI's Count is due at this wall time.
@@ -11132,6 +11175,11 @@ int run_child(const char *path, const unsigned retrace_target,
     state.present_full_import = switch_on("JFG_RGO_PRESENT_FULL_IMPORT");
     state.snapshot_full_import = switch_on("JFG_RGO_SNAPSHOT_FULL");
     state.snapshot_verify = switch_on("JFG_RGO_SNAPSHOT_VERIFY");
+    {
+      char flag[2]{};
+      state.audio_level_trim = !(GetEnvironmentVariableA("JFG_RGO_AUDIO_TRIM", flag, 2U) == 1U &&
+                                 flag[0] == '0');
+    }
   }
   char mod_flag[2]{};
   if (GetEnvironmentVariableA("JFG_NAVIGATION_MOD",mod_flag,2U)==1U && mod_flag[0]=='1') {
@@ -11210,7 +11258,7 @@ int run_child(const char *path, const unsigned retrace_target,
       return 3;
     }
     std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\t"
-               "busy_us\ttrue60\taudio_underruns\taudio_queued_ms\tfloor_jumps\tfloor_resets\n",
+               "busy_us\ttrue60\taudio_underruns\taudio_queued_ms\tfloor_jumps\tfloor_resets\taudio_trim_us\n",
                state.rgo_frame_trace);
   }
   state.counter_log = std::getenv("JFG_RGO_COUNTER_LOG") != nullptr;

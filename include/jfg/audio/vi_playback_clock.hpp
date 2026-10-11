@@ -31,6 +31,10 @@ public:
     return target;
   }
 
+  // RGO: move the origin, and so every later deadline, earlier (positive)
+  // or later (negative); the audio queue-level trim paces this way.
+  void trim(std::chrono::nanoseconds earlier) noexcept { wall_ -= earlier; }
+
 private:
   std::uint64_t count_ = 0;
   std::uint64_t underruns_ = 0;

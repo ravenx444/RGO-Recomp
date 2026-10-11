@@ -150,12 +150,15 @@ struct FrameStats {
     // in tenths of a millisecond (up to 25.5 ms).
     std::uint32_t wake_late = 0U;
     // Per second: device register accesses, those single-stepped, guest
-    // thread switches, those that needed a wake-up. Audio cushion in ms.
+    // thread switches, those that needed a wake-up (16 bits each in the
+    // message). Audio: cushion and queue level in ms, underruns so far.
     std::uint32_t mmio = 0U;
     std::uint32_t mmio_stepped = 0U;
     std::uint32_t switches = 0U;
     std::uint32_t wakes = 0U;
     std::uint32_t audio_cushion = 0U;
+    std::uint32_t audio_queued = 0U;
+    std::uint32_t audio_underruns = 0U;
     friend bool operator==(const FrameStats&, const FrameStats&) = default;
 };
 
@@ -186,7 +189,8 @@ encode_frame_stats(const FrameStats& stats) noexcept {
             pack_pair(stats.tasks_per_frame, stats.submit_per_frame),
             pack_true60(stats.true60, stats.late, stats.busy_p90, stats.wake_late),
             stats.mmio, pack_pair(stats.mmio_stepped, stats.audio_cushion),
-            stats.switches, stats.wakes};
+            pack_pair(stats.switches, stats.audio_underruns),
+            pack_pair(stats.wakes, stats.audio_queued)};
 }
 
 // Applies message `index` (0 to 4) to `stats`.
@@ -222,8 +226,10 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
         stats.audio_cushion = second >> 16U;
         break;
     case 7U:
-        stats.switches = first;
-        stats.wakes = second;
+        stats.switches = first & 0xFFFFU;
+        stats.audio_underruns = first >> 16U;
+        stats.wakes = second & 0xFFFFU;
+        stats.audio_queued = second >> 16U;
         break;
     default: break;
     }
@@ -232,7 +238,8 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
 // The Detailed counter's last two lines:
 // "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms"
 // "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off")
-// "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000 | audio 100 ms"
+// "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000 | audio 96/100 ms, 0 dropouts"
+// (audio: queue level / cushion; dropouts: underruns since the game started)
 [[nodiscard]] inline std::string format_frame_host(const FrameStats& stats) {
     const auto t = [](std::uint32_t tenths) {
         return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
@@ -252,7 +259,9 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
     text += "\nMMIO " + std::to_string(stats.mmio) + "/s, stepped " +
             std::to_string(stats.mmio_stepped) + " | switches " +
             std::to_string(stats.switches) + "/s, woken " + std::to_string(stats.wakes) +
-            " | audio " + std::to_string(stats.audio_cushion) + " ms";
+            " | audio " + std::to_string(stats.audio_queued) + "/" +
+            std::to_string(stats.audio_cushion) + " ms, " +
+            std::to_string(stats.audio_underruns) + " dropouts";
     return text;
 }
 
