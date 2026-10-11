@@ -2610,13 +2610,16 @@ jfg::ControllerPortSample sample_keyboard_port(State &state,std::size_t port,std
   const auto down=[&](int key){return pc_key_down(state,key);};
   const auto config=jfg::effective_pc_input(state.pc_experimental,state.pc_input[port]);
   auto sample=jfg::map_pc_keyboard(config,down);
-  jfg::mod::Memory memory({state.rdram,kRdramSize});
-  if(state.pc_experimental && (memory.u8(0x800FD7BDU)!=0 ||
+  // RGO: the first poll runs at boot, before RDRAM is mapped (state.rdram is
+  // still null), so game state is only read once it exists.
+  const bool ram=state.rdram!=nullptr;
+  jfg::mod::Memory memory({state.rdram,ram?kRdramSize:0U});
+  if(ram && state.pc_experimental && (memory.u8(0x800FD7BDU)!=0 ||
      (memory.u8(0x800A4FC4U)==0 && !jfg::mod::gameplay_active(memory,state.phase9_player_actor))))
     sample=jfg::map_pc_menu(sample,down);
   // RGO: hold or toggle aim (R). Toggle only during gameplay; menus, pauses,
   // cutscenes and blocked input release it.
-  const bool active=state.pc_experimental && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
+  const bool active=ram && state.pc_experimental && !state.pc_input_blocked && memory.u8(0x800FD7BDU)==0 &&
     jfg::mod::gameplay_active(memory,state.phase9_player_actor) &&
     !jfg::mod::scripted_camera_active(memory,state.phase9_player_actor);
   if(raw_buttons)*raw_buttons=sample.buttons;
@@ -2650,8 +2653,10 @@ void sample_controller_ports(State &state) {
     for (std::size_t p = 0; p < 4; ++p)
       if (state.pc_pad_slot[p] >= 0)
         state.gamepads->light(state.pc_pad_slot[p], jfg::player_light(static_cast<int>(p)));
-  jfg::mod::Memory pc_memory({state.rdram,kRdramSize});
-  const bool gameplay_look=jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
+  // Not before RDRAM is mapped (the first poll runs at boot).
+  const bool pc_ram=state.rdram!=nullptr;
+  jfg::mod::Memory pc_memory({state.rdram,pc_ram?kRdramSize:0U});
+  const bool gameplay_look=pc_ram && jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
   const bool look_active=state.pc_experimental && gameplay_look;
   state.pc_gyro_on=false;
