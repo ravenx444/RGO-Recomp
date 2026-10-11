@@ -19,4 +19,15 @@ enum class PlaybackBufferAction { none, start, pause_empty, resume };
   return queued_bytes >= resume_bytes ? PlaybackBufferAction::resume
                                       : PlaybackBufferAction::none;
 }
+// RGO: the cushion to rebuffer after an underrun. A PC whose emulation
+// thread stalls longer than the audio queue (a slow frame, a shader compile)
+// runs it dry; each time that happens the queue is refilled to one step
+// (50 ms) more before playing again, up to a maximum (200 ms), so the next
+// stall of the same length no longer cuts out. The cost is latency: sound
+// then plays that much later than the picture, for the rest of the session.
+[[nodiscard]] constexpr std::uint32_t grown_cushion(const std::uint32_t current,
+                                                    const std::uint32_t step,
+                                                    const std::uint32_t maximum) noexcept {
+  return current >= maximum || maximum - current <= step ? maximum : current + step;
+}
 } // namespace jfg::audio

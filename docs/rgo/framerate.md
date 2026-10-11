@@ -196,6 +196,7 @@ game frame 16.6-16.8 ms
 display frame 16.5-16.9 ms
 host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms
 True 60: 60, late 0/60, busy 11.0 ms
+MMIO 12000/s, stepped 0 | switches 2500/s, woken 2500 | audio 100 ms
 ```
 
 - **logic**: `viFrameSync` calls, one per game frame. **ticks**: the VIs
@@ -231,6 +232,14 @@ True 60: 60, late 0/60, busy 11.0 ms
   renderer's GPU syncs for shadow masks included. If host is high and gfx
   ms is a large part of it, the renderer is the bottleneck; if gfx ms is
   small, the game's code and the runtime are.
+- **MMIO**: device register accesses per second; **stepped**: how many of
+  them the one-trap decoder could not handle and single-stepped (slow; 0 in
+  the GCC build, the MSVC build may differ). **switches**: guest thread
+  switches per second (each is a hand-off between host threads);
+  **woken**: how many needed an operating-system wake-up because the
+  receiving thread had stopped spinning (on this VM practically all of
+  them; a wake-up costs tens of microseconds on Linux and can cost more on
+  Windows). **audio**: the audio cushion (100 ms, more after underruns).
 - **VI wake**: how late the emulation thread woke from its wait for a VI,
   at worst in the last half second. A few tenths of a millisecond is
   normal; several milliseconds mean the operating system wakes it late,
@@ -287,6 +296,15 @@ the game's code twice as fast as at 30. Profiling the headless build
   thread and exactly one runs at a time. A thread waiting for the baton now
   spins for up to 50 microseconds before it sleeps, so quick hand-offs skip
   the futex wake-up. The order of execution is unchanged.
+- **Longer spins do not help here.** Guest thread switches run at 2,000-
+  5,000 a second and practically every one needs a wake-up (the 50 µs spin
+  rarely catches the baton). Spinning longer (300 µs to 3 ms, all threads or
+  only the scheduler thread) made the headless run slower on this 4-vCPU
+  VM: emulated seconds per wall second fell from 1.49-1.56 to 0.77-1.08, as
+  spinning threads take CPU from the running one. Windows wake-ups may cost
+  more; the Detailed counter's `switches`/`woken` figures and the host time
+  will tell. `JFG_RGO_BATON_SPIN_US` and `JFG_RGO_SCHEDULER_SPIN_US` set the
+  spins for measurements.
 - **The governor starts over in a new scene.** A heavy cutscene that cannot
   hold 60 grows the governor's pause up to 30 s; the gameplay after it used
   to stay at 30 for that long. The pause now resets when the level changes.
@@ -477,6 +495,22 @@ specific to True 60, it is host speed and hitches. An underrun is not a
 crash: no audio path fails closed on one (the AI submission ring holds 2048
 buffers). The crash after the crackle needs its `crash.log` to say what it
 was.
+
+*Owner's first `rgo/next` build:* the first level could not hold 60, the
+governor held a steady 30, and the audio still crackled and cut out at 30.
+Measured with the frame trace's new audio columns on a half-speed host: the
+real-time floor loses no time (no resets), but the queue, filled to 100 ms,
+sits at 40-70 ms under load (emulated time trails the wall clock by the
+floor's slack and late VIs), and every stall of the emulation thread longer
+than that (frames of 50-170 ms: a slow frame, a shader compile, the OS
+taking the thread away) runs it dry. The device then pauses until 100 ms is
+queued again: the cut-out. It happens at Original too. Fix: **the audio
+cushion grows after underruns** (`grown_cushion`,
+`jfg/audio/playback_buffer.hpp`): each underrun refills the queue to 50 ms
+more before playing again, up to 200 ms, so stalls of the same length stop
+cutting out. Cost: sound plays up to 100 ms later than the picture on a PC
+that needed it, for the rest of the session; a PC without underruns keeps
+100 ms. The Detailed counter shows the current cushion (`audio 100 ms`).
 
 **5. Does the input stack cost host time?** No measurable cost. The SDL
 thread polls at about 500 Hz and used 2 % of one core on Linux without a
