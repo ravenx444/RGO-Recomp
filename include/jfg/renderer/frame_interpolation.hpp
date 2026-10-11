@@ -99,6 +99,11 @@ public:
     // is tried again at twice the minimum time, above it stays at 30.
     static constexpr std::uint32_t kResumeBusyUs = 15000U;
     static constexpr std::uint32_t kRetryBusyUs = 20000U;
+    // A scene that has become light (busy up to kLightBusyUs at 30) resumes
+    // after kFirstPause however long the back-off has grown: the back-off
+    // is for heavy scenes, and holding 30 for up to 30 s after one is what
+    // reads as "locked at 30".
+    static constexpr std::uint32_t kLightBusyUs = 12000U;
 
     // true: run this frame at true 60.
     [[nodiscard]] constexpr bool active(const std::uint64_t vi) const noexcept {
@@ -117,9 +122,10 @@ public:
             ++busy_count_;
         if (paused_) {
             const std::uint64_t waited = vi - pause_vi_;
-            if (waited < pause_)
-                return;
             const bool measured = busy_count_ >= kWindow && busy_us != 0U;
+            if (waited < pause_ &&
+                !(waited >= kFirstPause && measured && busy_p90() <= kLightBusyUs))
+                return;
             const std::uint32_t busy = measured ? busy_p90() : 0U;
             const bool resume = !measured || busy <= kResumeBusyUs ||
                                 (busy <= kRetryBusyUs && waited >= 2U * pause_);

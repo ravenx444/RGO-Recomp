@@ -111,5 +111,49 @@ int main() {
     check(flooded.update(kTarget * 10U, kTarget, static_cast<std::uint32_t>(kBytesPerSecond),
                          16'715'000) == -static_cast<std::int64_t>(0.02 * 16'715'000));
   }
+  {
+    // RGO queue bound: drop above cushion + 100 ms until back at the
+    // cushion, clear above cushion + 1 s; nothing while paused.
+    using jfg::audio::QueueBoundAction;
+    using jfg::audio::queue_bound_action;
+    constexpr std::uint32_t bps = 22047U * 4U, cushion = bps * 150U / 1000U;
+    constexpr std::uint32_t ms = bps / 1000U;
+    check(queue_bound_action(true, false, cushion + 50U * ms, cushion, bps) == QueueBoundAction::keep);
+    check(queue_bound_action(true, false, cushion + 120U * ms, cushion, bps) == QueueBoundAction::drop);
+    check(queue_bound_action(true, true, cushion + 20U * ms, cushion, bps) == QueueBoundAction::drop);
+    check(queue_bound_action(true, true, cushion - 1U, cushion, bps) == QueueBoundAction::keep);
+    check(queue_bound_action(true, false, cushion + 1100U * ms, cushion, bps) == QueueBoundAction::clear);
+    check(queue_bound_action(false, true, cushion * 20U, cushion, bps) == QueueBoundAction::keep);
+    // A device playing 5 % slow, more than the trim can absorb: with the
+    // bound the queue never gets more than about a buffer past cushion + 100 ms.
+    jfg::audio::QueueLevelTrim trim;
+    double level = cushion, highest = level;
+    bool dropping = false;
+    constexpr double kVi = 783520.0 / 46875000.0;
+    for (int vi = 0; vi < 60 * 600; ++vi) {
+      const double step = kVi - static_cast<double>(trim.update(static_cast<std::uint32_t>(level),
+          cushion, bps, static_cast<std::int64_t>(kVi * 1e9))) / 1e9;
+      level = std::max(0.0, level - step * bps * 0.95);
+      if (vi % 2 == 1) {
+        const auto action = queue_bound_action(true, dropping, static_cast<std::uint32_t>(level),
+                                               cushion, bps);
+        dropping = action == QueueBoundAction::drop;
+        if (action == QueueBoundAction::keep) level += 2.0 * kVi * bps;
+      }
+      highest = std::max(highest, level);
+    }
+    check(highest < cushion + 140.0 * ms);
+    // The rate meter: 10 s windows of uninterrupted playback.
+    jfg::audio::PlaybackRateMeter meter;
+    meter.sample(0U, 1'000'000U, bps);
+    meter.sample(bps * 5U, 6'000'000U, bps);
+    check(meter.rate_tenths() == 0U);  // not 10 s yet
+    meter.sample(static_cast<std::uint64_t>(bps) * 97U / 10U, 11'000'000U, bps);
+    check(meter.rate_tenths() == 970U);  // 97.0 %: the device plays 3 % slow
+    meter.restart();
+    meter.sample(0U, 20'000'000U, bps);  // a cleared queue starts a new window
+    meter.sample(static_cast<std::uint64_t>(bps) * 10U, 30'000'000U, bps);
+    check(meter.rate_tenths() == 1000U);
+  }
   std::cout << "playback buffer continuity and starvation recovery passed\n";
 }

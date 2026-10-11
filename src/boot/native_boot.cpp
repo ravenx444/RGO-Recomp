@@ -865,6 +865,7 @@ public:
   void set_gameplay_trace(GameplayTrace *trace) noexcept { gameplay_trace_ = trace; }
   void frontend_pause(bool paused) noexcept {
     if (device_ != 0U && device_playing_) SDL_PauseAudioDevice(device_, paused ? 1 : 0);
+    rate_meter_.restart();  // the device does not play while paused
   }
   void set_vi_counter(const std::uint64_t *vi) noexcept { capture_vi_ = vi; }
   void renderer_ready() noexcept { renderer_ready_ = true; update_playback_state(); }
@@ -914,6 +915,27 @@ public:
         return false;
     }
     master_volume_.apply(converted_);
+    // RGO: hard upper bound on the queue (jfg::audio::queue_bound_action):
+    // skip the game's audio while the queue is far above the cushion, clear
+    // it when it is more than a second above.
+    if (device_ != 0U || wall_sink_) {
+      const auto bound = jfg::audio::queue_bound_action(
+          device_playing_, dropping_, current_queued_bytes_, resume_bytes_, frequency_ * 4U);
+      if (bound == jfg::audio::QueueBoundAction::clear) {
+        clear_queue();
+        ++resyncs_;
+      } else if (bound == jfg::audio::QueueBoundAction::drop) {
+        if (!dropping_) {
+          ++resyncs_;
+          capture_event("resync-drop");
+        }
+        dropping_ = true;
+        dropped_bytes_ += length;
+        emulated_dma_lengths_.push_back(length);
+        return true;
+      }
+      dropping_ = false;
+    }
     if (device_ != 0U &&
         SDL_QueueAudio(device_, converted_.data(), length) != 0)
       return false;
@@ -933,7 +955,16 @@ public:
     if (!device_playing_ || (device_ == 0U && !wall_sink_)) return;
     update_metrics();
     capture_event("anchor-drain-begin");
+    // RGO: a device that does not play (stopped, or far too slow) would keep
+    // this loop, and the game, waiting for good: give up after a second and
+    // clear the queue instead (queue bound).
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(1);
     while (device_playing_ && current_queued_bytes_ > prebuffer_bytes_) {
+      if (std::chrono::steady_clock::now() > give_up) {
+        clear_queue();
+        ++resyncs_;
+        break;
+      }
       SDL_Delay(1U);
       update_metrics();
       update_playback_state();
@@ -1019,6 +1050,12 @@ public:
     }
     return level_trim_.update(current_queued_bytes_, resume_bytes_, frequency_ * 4U,
                               vi_nanoseconds);
+  }
+  // RGO: times the queue bound skipped or cleared audio; the device's
+  // measured playback rate in tenths of a percent (0: not measured yet).
+  [[nodiscard]] std::uint64_t resyncs() const noexcept { return resyncs_; }
+  [[nodiscard]] std::uint32_t playback_rate_tenths() const noexcept {
+    return rate_meter_.rate_tenths();
   }
   // The queue level the trim works from (smoothed over about half a second).
   [[nodiscard]] std::uint32_t smoothed_queue_milliseconds() const noexcept {
@@ -1123,7 +1160,33 @@ private:
     return requested;
   }
 
+  // RGO: drop everything queued and refill to the cushion before playing
+  // again (queue bound). Not an underrun: the cushion does not grow.
+  void clear_queue() noexcept {
+    if (device_ != 0U) {
+      SDL_PauseAudioDevice(device_, 1);
+      SDL_ClearQueuedAudio(device_);
+    } else {
+      wall_consumed_ = static_cast<double>(queued_bytes_);
+    }
+    device_playing_ = false;
+    level_trim_.reset();
+    rate_meter_.restart();
+    update_metrics();
+    capture_event("resync-clear");
+  }
+
   void update_metrics() noexcept {
+    update_device_metrics();
+    if (device_playing_ && current_queued_bytes_ != 0U && frequency_ != 0U)
+      rate_meter_.sample(consumed_bytes_, static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now().time_since_epoch()).count()), frequency_ * 4U);
+    else
+      rate_meter_.restart();
+  }
+
+  void update_device_metrics() noexcept {
     if (wall_sink_) {
       // Consume at exactly the output rate while playing.
       const auto now = std::chrono::steady_clock::now();
@@ -1265,6 +1328,10 @@ private:
   std::uint32_t frequency_ = 0U;
   std::uint64_t throttled_us_ = 0U;
   jfg::audio::QueueLevelTrim level_trim_;
+  jfg::audio::PlaybackRateMeter rate_meter_;
+  bool dropping_ = false;
+  std::uint64_t resyncs_ = 0U;
+  std::uint64_t dropped_bytes_ = 0U;
   // RGO headless wall-clock sink (JFG_RGO_WALL_AUDIO).
   bool wall_sink_ = false;
   double wall_consumed_ = 0.0;
@@ -3358,6 +3425,8 @@ void refresh_video_settings(State &state) {
     details.audio_cushion = state.host_audio.cushion_milliseconds();
     details.audio_queued = state.host_audio.smoothed_queue_milliseconds();
     details.audio_underruns = static_cast<std::uint32_t>(state.host_audio.underruns());
+    details.audio_resyncs = static_cast<std::uint32_t>(state.host_audio.resyncs());
+    details.audio_rate = state.host_audio.playback_rate_tenths();
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -3374,11 +3443,12 @@ void refresh_video_settings(State &state) {
     if (state.counter_log) {
       std::string host = jfg::format_frame_host(details);
       std::replace(host.begin(), host.end(), '\n', ' ');
-      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu, trim %+.1f ms | squaddie calls %llu | snapshot imports delta %llu full %llu, chunks %llu, verify mismatches %llu\n",
+      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu, resyncs %llu, trim %+.1f ms | squaddie calls %llu | snapshot imports delta %llu full %llu, chunks %llu, verify mismatches %llu\n",
                    static_cast<unsigned long long>(state.vi_retraces),
                    jfg::format_frame_counter(counter).c_str(), host.c_str(),
                    state.host_audio.queued_milliseconds(),
                    static_cast<unsigned long long>(state.host_audio.underruns()),
+                   static_cast<unsigned long long>(state.host_audio.resyncs()),
                    static_cast<double>(state.audio_trim_ns) / 1e6,
                    static_cast<unsigned long long>(state.squaddie_calls),
                    static_cast<unsigned long long>(state.snapshot_delta_imports),
