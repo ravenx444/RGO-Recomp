@@ -16,8 +16,8 @@
 // Rates are in tenths of a frame per second, frame times in tenths of a
 // millisecond (both saturating).
 //
-// FPS counter "Detailed" (FrameStats) adds, in six more messages
-// (WM_APP + 25 to 30), what the game actually does each second:
+// FPS counter "Detailed" (FrameStats) adds, in eight more messages
+// (WM_APP + 25 to 32), what the game actually does each second:
 // - logic updates: viFrameSync calls (one per game frame), and the VI ticks
 //   they hand to the game logic (60 per second at full speed in any mode);
 // - drawn: game frames presented with a freshly drawn picture;
@@ -34,7 +34,11 @@
 // - VI wake: how late the emulation thread woke from its wait for a VI at
 //   worst (a few tenths normally; milliseconds mean the OS sleeps imprecisely);
 // - True 60: whether the governor runs 60 or holds 30, its late frames and
-//   the busy time 90 % of recent frames stayed within.
+//   the busy time 90 % of recent frames stayed within;
+// - runtime: device register accesses per second and how many of them
+//   needed the slow single-step trap, guest thread switches per second and
+//   how many of them needed an operating-system wake-up, and the audio
+//   cushion (the queue refilled after an underrun).
 // See docs/rgo/framerate.md ("Diagnostics").
 
 #include <algorithm>
@@ -48,10 +52,10 @@
 namespace jfg {
 
 // Windows messages: WM_APP + 24 carries the plain counter (FrameCounter,
-// packed), WM_APP + 25 to WM_APP + 29 carry FrameStats, two 32-bit values each.
+// packed), WM_APP + 25 to WM_APP + 32 carry FrameStats, two 32-bit values each.
 inline constexpr unsigned kFrameStatsMessageOffset = 24U;
 inline constexpr unsigned kFrameDetailMessageOffset = 25U;
-inline constexpr unsigned kFrameDetailMessageCount = 6U;
+inline constexpr unsigned kFrameDetailMessageCount = 8U;
 
 struct FrameCounter {
     std::uint32_t game_tenths = 0U;
@@ -145,6 +149,13 @@ struct FrameStats {
     // How late the emulation thread woke from its VI pacing sleep at worst,
     // in tenths of a millisecond (up to 25.5 ms).
     std::uint32_t wake_late = 0U;
+    // Per second: device register accesses, those single-stepped, guest
+    // thread switches, those that needed a wake-up. Audio cushion in ms.
+    std::uint32_t mmio = 0U;
+    std::uint32_t mmio_stepped = 0U;
+    std::uint32_t switches = 0U;
+    std::uint32_t wakes = 0U;
+    std::uint32_t audio_cushion = 0U;
     friend bool operator==(const FrameStats&, const FrameStats&) = default;
 };
 
@@ -173,7 +184,9 @@ encode_frame_stats(const FrameStats& stats) noexcept {
             pack_pair(stats.display_min, stats.display_max), stats.input_tenths,
             pack_pair(stats.busy_avg, stats.busy_max),
             pack_pair(stats.tasks_per_frame, stats.submit_per_frame),
-            pack_true60(stats.true60, stats.late, stats.busy_p90, stats.wake_late)};
+            pack_true60(stats.true60, stats.late, stats.busy_p90, stats.wake_late),
+            stats.mmio, pack_pair(stats.mmio_stepped, stats.audio_cushion),
+            stats.switches, stats.wakes};
 }
 
 // Applies message `index` (0 to 4) to `stats`.
@@ -203,13 +216,23 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
         stats.busy_p90 = (second >> 8U) & 0xFFFFU;
         stats.wake_late = second >> 24U;
         break;
+    case 6U:
+        stats.mmio = first;
+        stats.mmio_stepped = second & 0xFFFFU;
+        stats.audio_cushion = second >> 16U;
+        break;
+    case 7U:
+        stats.switches = first;
+        stats.wakes = second;
+        break;
     default: break;
     }
 }
 
 // The Detailed counter's last two lines:
 // "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms"
-// "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off").
+// "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off")
+// "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000 | audio 100 ms"
 [[nodiscard]] inline std::string format_frame_host(const FrameStats& stats) {
     const auto t = [](std::uint32_t tenths) {
         return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
@@ -219,11 +242,18 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
                        t(stats.submit_per_frame) + " ms | VI wake +" + t(stats.wake_late) +
                        " ms";
     text += "\nTrue 60: ";
-    if (stats.true60 == 0U)
-        return text + "off";
-    text += stats.true60 == 1U ? "60, late " + std::to_string(stats.late) + "/60"
-                               : std::string("holding 30");
-    return text + ", busy " + t(stats.busy_p90) + " ms";
+    if (stats.true60 == 0U) {
+        text += "off";
+    } else {
+        text += stats.true60 == 1U ? "60, late " + std::to_string(stats.late) + "/60"
+                                   : std::string("holding 30");
+        text += ", busy " + t(stats.busy_p90) + " ms";
+    }
+    text += "\nMMIO " + std::to_string(stats.mmio) + "/s, stepped " +
+            std::to_string(stats.mmio_stepped) + " | switches " +
+            std::to_string(stats.switches) + "/s, woken " + std::to_string(stats.wakes) +
+            " | audio " + std::to_string(stats.audio_cushion) + " ms";
+    return text;
 }
 
 // FNV-1a over 32-bit words: the content hash of the matrices a frame loads.

@@ -1,6 +1,8 @@
 #include "jfg/boot/executor.hpp"
 
+#include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <utility>
 
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
@@ -28,7 +30,36 @@ thread_local int t_self = kSchedulerParticipant;
 // one needs (docs/rgo/framerate.md, "Host speed").
 constexpr std::chrono::microseconds kBatonSpin{50};
 
+// JFG_RGO_BATON_SPIN_US / JFG_RGO_SCHEDULER_SPIN_US override the spins
+// (measurements).
+std::chrono::microseconds spin_from_environment(const char* name,
+                                                const std::chrono::microseconds fallback) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || *value == '\0')
+        return fallback;
+    return std::chrono::microseconds(std::strtoul(value, nullptr, 10));
+}
+std::chrono::microseconds baton_spin() {
+    static const auto spin = spin_from_environment("JFG_RGO_BATON_SPIN_US", kBatonSpin);
+    return spin;
+}
+std::chrono::microseconds scheduler_spin() {
+    static const auto spin = spin_from_environment("JFG_RGO_SCHEDULER_SPIN_US", kBatonSpin);
+    return spin;
+}
+
+std::atomic<std::uint64_t> g_handoffs{0U};
+std::atomic<std::uint64_t> g_sleeps{0U};
+
 } // namespace
+
+std::uint64_t baton_handoffs() noexcept {
+    return g_handoffs.load(std::memory_order_relaxed);
+}
+
+std::uint64_t baton_sleeps() noexcept {
+    return g_sleeps.load(std::memory_order_relaxed);
+}
 
 BatonExecutor::~BatonExecutor() {
     shutdown();
@@ -87,6 +118,7 @@ void BatonExecutor::yield_to_scheduler() {
 }
 
 void BatonExecutor::hand_off(const int to) {
+    g_handoffs.fetch_add(1U, std::memory_order_relaxed);
     std::condition_variable *ready = nullptr;
     {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -100,7 +132,8 @@ void BatonExecutor::hand_off(const int to) {
 }
 
 void BatonExecutor::wait_until_holder(const int self) {
-    const auto spin_until = std::chrono::steady_clock::now() + kBatonSpin;
+    const auto spin_until = std::chrono::steady_clock::now() +
+        (self == kSchedulerParticipant ? scheduler_spin() : baton_spin());
     for (unsigned spin = 1U; holder_.load(std::memory_order_acquire) != self; ++spin) {
         if ((spin & 63U) == 0U && std::chrono::steady_clock::now() >= spin_until)
             break;
@@ -109,6 +142,8 @@ void BatonExecutor::wait_until_holder(const int self) {
     std::unique_lock<std::mutex> lock(mutex_);
     auto &ready = self == kSchedulerParticipant ? cv_
         : *participants_[static_cast<std::size_t>(self)].ready;
+    if (holder_ != self)
+        g_sleeps.fetch_add(1U, std::memory_order_relaxed);
     ready.wait(lock, [&]() { return holder_ == self; });
 }
 

@@ -6,6 +6,11 @@
 static void check(bool value) { if (!value) std::abort(); }
 
 int main() {
+  // RGO: the rebuffer cushion grows by a step per underrun, up to a maximum.
+  check(jfg::audio::grown_cushion(100U, 50U, 200U) == 150U);
+  check(jfg::audio::grown_cushion(150U, 50U, 200U) == 200U);
+  check(jfg::audio::grown_cushion(200U, 50U, 200U) == 200U);
+  check(jfg::audio::grown_cushion(180U, 50U, 200U) == 200U);
   using jfg::audio::PlaybackBufferAction;
   using jfg::audio::playback_buffer_action;
   constexpr std::uint32_t frequency = 22018U;

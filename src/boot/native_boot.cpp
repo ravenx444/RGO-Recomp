@@ -999,6 +999,12 @@ public:
   [[nodiscard]] std::uint64_t overruns() const noexcept { return overruns_; }
   // Time spent waiting for a too-full queue to play down (RGO busy time).
   [[nodiscard]] std::uint64_t throttled_microseconds() const noexcept { return throttled_us_; }
+  // The cushion the queue is refilled to after an underrun, in milliseconds
+  // (100 at first, more after underruns; the Detailed counter shows it).
+  [[nodiscard]] std::uint32_t cushion_milliseconds() const noexcept {
+    return frequency_ == 0U ? 0U : static_cast<std::uint32_t>(
+        static_cast<std::uint64_t>(resume_bytes_) * 1000U / (frequency_ * 4U));
+  }
   // Audio waiting to play, in milliseconds (headless counter log).
   [[nodiscard]] std::uint32_t queued_milliseconds() const noexcept {
     return frequency_ == 0U ? 0U : static_cast<std::uint32_t>(
@@ -1169,6 +1175,11 @@ private:
     case jfg::audio::PlaybackBufferAction::pause_empty:
       if (device_ != 0U) SDL_PauseAudioDevice(device_, 1);
       device_playing_ = false;
+      // RGO: the queue ran dry; rebuffer a larger cushion so a stall of the
+      // same length does not cut out again (playback_buffer.hpp).
+      resume_bytes_ = jfg::audio::grown_cushion(resume_bytes_, frequency_ * 4U / 20U,
+                                                frequency_ * 4U / 5U);
+      prebuffer_bytes_ = resume_bytes_;
       capture_event("pause-empty");
       break;
     case jfg::audio::PlaybackBufferAction::resume:
@@ -2150,6 +2161,9 @@ struct State : JfgOriginalTimingFast {
   std::uint64_t frame_busy_us = 0U, frame_busy_max_us = 0U, frame_busy_frames = 0U;
   std::uint32_t frame_busy_last_us = 0U;  // the frame that just ended
   std::uint64_t vi_wake_late_max_us = 0U;  // latest VI pacing wake-up, this report
+  // The runtime counters at the start of this report (Detailed counter).
+  std::uint64_t frame_mmio_start = 0U, frame_mmio_stepped_start = 0U;
+  std::uint64_t frame_switch_start = 0U, frame_wake_start = 0U;
   std::uint64_t frame_graphics_start = 0U, frame_submit_us_start = 0U;
   // RGO fast clock real-time floor: the Count of the last paced VI and the
   // wall time it was due, so Count can follow the wall clock when the host
@@ -3270,6 +3284,13 @@ void refresh_video_settings(State &state) {
     state.frame_input_start = state.controller_samples;
     state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
     state.vi_wake_late_max_us = 0U;
+    if (state.mmio_trace != nullptr) {
+      state.frame_mmio_start = state.mmio_trace->accesses;
+      state.frame_mmio_stepped_start =
+          state.mmio_trace->accesses - state.mmio_trace->emulated_accesses;
+    }
+    state.frame_switch_start = jfg::boot::baton_handoffs();
+    state.frame_wake_start = jfg::boot::baton_sleeps();
     state.frame_graphics_start = state.graphics_tasks;
     state.frame_submit_us_start = state.graphics_submit_microseconds;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
@@ -3321,6 +3342,21 @@ void refresh_video_settings(State &state) {
       details.busy_p90 = tenths_ms(state.true60_governor.busy_p90());
     }
     details.wake_late = tenths_ms(state.vi_wake_late_max_us);
+    // Runtime costs: device register traps (one-trap emulated or the slow
+    // single step), guest thread switches and their wake-ups, audio cushion.
+    const auto per_second = [elapsed_us](const std::uint64_t count) {
+      return static_cast<std::uint32_t>((std::min<std::uint64_t>)(
+          (count * 1000000U + elapsed_us / 2U) / elapsed_us, UINT32_MAX));
+    };
+    if (state.mmio_trace != nullptr) {
+      const std::uint64_t accesses = state.mmio_trace->accesses;
+      const std::uint64_t stepped = accesses - state.mmio_trace->emulated_accesses;
+      details.mmio = per_second(accesses - state.frame_mmio_start);
+      details.mmio_stepped = (std::min)(per_second(stepped - state.frame_mmio_stepped_start), 0xFFFFU);
+    }
+    details.switches = per_second(jfg::boot::baton_handoffs() - state.frame_switch_start);
+    details.wakes = per_second(jfg::boot::baton_sleeps() - state.frame_wake_start);
+    details.audio_cushion = state.host_audio.cushion_milliseconds();
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -3355,6 +3391,13 @@ void refresh_video_settings(State &state) {
     state.frame_input_start = state.controller_samples;
     state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
     state.vi_wake_late_max_us = 0U;
+    if (state.mmio_trace != nullptr) {
+      state.frame_mmio_start = state.mmio_trace->accesses;
+      state.frame_mmio_stepped_start =
+          state.mmio_trace->accesses - state.mmio_trace->emulated_accesses;
+    }
+    state.frame_switch_start = jfg::boot::baton_handoffs();
+    state.frame_wake_start = jfg::boot::baton_sleeps();
     state.frame_graphics_start = state.graphics_tasks;
     state.frame_submit_us_start = state.graphics_submit_microseconds;
   }
@@ -6642,12 +6685,15 @@ void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
   // 60, 2 the governor holds 30.
   const unsigned true60 = !jfg::true_logic_60(state.video) || !state.video_managed ? 0U
       : state.true60_governor.holding_30() ? 2U : 1U;
-  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\t%u\t%u\t%llu\n",
+  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\t%u\t%u\t%llu\t%u\t%llu\t%llu\n",
                static_cast<unsigned long long>(state.vi_retraces), delay, delta,
                static_cast<unsigned long long>(state.cpu_count),
                static_cast<unsigned long long>(state.observed_guest_instructions),
                static_cast<long long>(wall_us), mode, level, state.frame_busy_last_us, true60,
-               static_cast<unsigned long long>(state.host_audio.underruns()));
+               static_cast<unsigned long long>(state.host_audio.underruns()),
+               state.host_audio.queued_milliseconds(),
+               static_cast<unsigned long long>(state.wall_floor_jumps),
+               static_cast<unsigned long long>(state.wall_floor_resets));
 }
 
 // RGO fast clock: a guest thread that keeps polling an empty queue in a loop
@@ -10884,7 +10930,7 @@ int run_child(const char *path, const unsigned retrace_target,
       return 3;
     }
     std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\t"
-               "busy_us\ttrue60\taudio_underruns\n",
+               "busy_us\ttrue60\taudio_underruns\taudio_queued_ms\tfloor_jumps\tfloor_resets\n",
                state.rgo_frame_trace);
   }
   state.counter_log = std::getenv("JFG_RGO_COUNTER_LOG") != nullptr;

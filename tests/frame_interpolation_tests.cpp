@@ -244,7 +244,8 @@ int main() {
     // FPS counter "Detailed": message encoding, content tracking, gaps.
     {
         FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U,
-                         98U, 142U, 60U, 31U, 2U, 7U, 183U, 4U};
+                         98U, 142U, 60U, 31U, 2U, 7U, 183U, 4U,
+                         11000U, 12U, 9000U, 2000U, 150U};
         const auto words = encode_frame_stats(stats);
         FrameStats decoded{};
         for (unsigned index = 0U; index < kFrameDetailMessageCount; ++index)
@@ -253,13 +254,16 @@ int main() {
         require(decoded == stats, "frame stats round trip");
         require(format_frame_host(stats) ==
                     "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.4 ms\n"
-                    "True 60: holding 30, busy 18.3 ms",
+                    "True 60: holding 30, busy 18.3 ms\n"
+                    "MMIO 11000/s, stepped 12 | switches 9000/s, woken 2000 | audio 150 ms",
             "host line, holding 30");
         stats.true60 = 1U;
-        require(format_frame_host(stats).ends_with("True 60: 60, late 7/60, busy 18.3 ms"),
+        require(format_frame_host(stats).find("True 60: 60, late 7/60, busy 18.3 ms\n") !=
+                    std::string::npos,
             "host line at 60");
         stats.true60 = 0U;
-        require(format_frame_host(stats).ends_with("True 60: off"), "host line, Original");
+        require(format_frame_host(stats).find("True 60: off\n") != std::string::npos,
+            "host line, Original");
     }
     {
         FrameContentTracker tracker;

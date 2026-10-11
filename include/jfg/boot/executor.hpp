@@ -31,6 +31,12 @@ namespace jfg::boot {
 // Sentinel participant id for the scheduler (baton holder when no guest runs).
 inline constexpr int kSchedulerParticipant = -1;
 
+// RGO diagnostics (FPS counter Detailed): baton hand-offs since start, and
+// how many of them found the receiver asleep after its spin, so it needed an
+// operating-system wake-up. Process-wide, relaxed counts.
+[[nodiscard]] std::uint64_t baton_handoffs() noexcept;
+[[nodiscard]] std::uint64_t baton_sleeps() noexcept;
+
 class BatonExecutor final {
 public:
     // A guest body receives the executor and its own participant id. It runs
