@@ -24,9 +24,12 @@ Order within a tier is the owner's priority.
   the game (function boundaries, symbols, overlay layout). Generate that once
   and ship it as data (addresses and names only), so users need just Python and
   a C++ compiler. The cloud (Linux) can do the investigation.
-- **Real setup progress.** The build already reports named steps
-  (`setup_step=...`), so show "step N of M".
-- **Use all CPU cores** for the final compile by default (`--jobs`).
+- **Real setup progress.** Done for the command line: the build prints
+  "Step N of M" (see `docs/rgo/build.md`). The frontend's setup screen could
+  show it too.
+- **Use all CPU cores** by default (`--jobs`). Done.
+- **Fast rebuilds.** Done: generation and the build folder are reused when the
+  generator inputs are unchanged (`docs/rgo/build.md`).
 
 ## Tier 3: graphics
 - Anti-aliasing (check what RT64 already exposes)
@@ -41,8 +44,8 @@ Order within a tier is the owner's priority.
 - Horde mode
 
 ## How changes are made
-The recompiled game code is generated from the ROM on every build and is never
-committed. Changes go into this repo's runtime/renderer code, or replace or hook
+The recompiled game code is generated from the ROM on the owner's PC (and
+cached there between builds) and is never committed. Changes go into this repo's runtime/renderer code, or replace or hook
 specific game functions with hand-written C. Understanding those functions
 comes from the decomp (ravenx444/Rocket-Group-Orion). Replacements only need to
 behave correctly; they don't have to match byte for byte.

@@ -20,7 +20,7 @@ endif()
 string(REPLACE "${jfg_depth_bounds_old}" "${jfg_depth_bounds_new}"
     jfg_depth_bounds_contents "${jfg_depth_bounds_contents}")
 set(jfg_depth_bounds_generated "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64/hle/rt64_rsp.cpp")
-file(WRITE "${jfg_depth_bounds_generated}" "${jfg_depth_bounds_contents}")
+jfg_write_if_changed("${jfg_depth_bounds_generated}" "${jfg_depth_bounds_contents}")
 get_target_property(jfg_depth_bounds_sources rt64 SOURCES)
 set(jfg_depth_bounds_patched_sources)
 set(jfg_depth_bounds_replaced FALSE)

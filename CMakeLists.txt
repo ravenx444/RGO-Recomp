@@ -99,13 +99,14 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Warnings)
+include(WriteIfChanged)
 include(GeneratedCode)
 include(CTest)
 
 if(WIN32)
     enable_language(RC)
     set(jfg_application_icon "${CMAKE_CURRENT_BINARY_DIR}/jfg-application-icon.rc")
-    file(WRITE "${jfg_application_icon}"
+    jfg_write_if_changed("${jfg_application_icon}"
         "1 ICON \"${CMAKE_CURRENT_SOURCE_DIR}/launcher/ui/assets/app.ico\"\n")
     add_executable(jfg-frontend WIN32 src/app/frontend_win32.cpp "${jfg_application_icon}")
     target_compile_features(jfg-frontend PRIVATE cxx_std_20)
@@ -253,7 +254,7 @@ if(JFG_ENABLE_RT64)
         "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64/render/rt64_transform_processor.cpp")
     file(MAKE_DIRECTORY
         "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64/render")
-    file(WRITE "${jfg_rt64_transform_processor_generated}"
+    jfg_write_if_changed("${jfg_rt64_transform_processor_generated}"
         "${jfg_rt64_transform_processor_patched}")
 
     get_target_property(jfg_rt64_sources rt64 SOURCES)
@@ -321,7 +322,7 @@ if(JFG_ENABLE_RT64)
             "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64/plume_d3d12.cpp")
         file(MAKE_DIRECTORY
             "${CMAKE_CURRENT_BINARY_DIR}/generated/rt64")
-        file(WRITE "${jfg_rt64_plume_d3d12_generated}"
+        jfg_write_if_changed("${jfg_rt64_plume_d3d12_generated}"
             "${jfg_rt64_plume_d3d12_patched}")
 
         get_target_property(jfg_rt64_plume_sources plume SOURCES)

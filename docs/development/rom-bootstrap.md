@@ -53,10 +53,15 @@ ROM copies, generated code, logs and binaries stay in the short local cache
 `%LOCALAPPDATA%\JFG\b\<checkout-id>\w\<run-id>` and a private WSL temporary
 directory. Do not upload either directory or add it to a release. The command
 prints the exact workspace; its `linux-workspace.txt` identifies the WSL folder
-retained for diagnosis. A failed run preserves its files. A normal invocation
-creates a fresh workspace. If generation finished but compilation failed, pass
-that workspace to `--resume-native` with the same `--rom` (and `--build-root`, if
-used). The script checks the generation manifest and hashes before resuming.
+retained for diagnosis. A failed run preserves its files. RGO: a normal
+invocation reuses the newest complete workspace whose generation inputs (ROM,
+pinned decomp and N64Recomp, generator scripts and patches) are unchanged, and
+compiles incrementally in its build folder; otherwise it generates into a fresh
+workspace. Older workspaces are deleted after a successful build, keeping one.
+`--regenerate` and `--clean` force a fresh generation; see `docs/rgo/build.md`.
+`--resume-native` still continues a specific workspace with the same `--rom`
+(and `--build-root`, if used). The script checks the generation manifest and
+hashes before reusing or resuming.
 Legacy workspaces under `tools/private/local-builds` remain intact and can be
 resumed when their native output path fits MSBuild's limit.
 
@@ -66,7 +71,7 @@ The recipe always extracts and builds the matching ELF again. It never takes a
 maintainer-generated ELF, overlay layout, CPU root, or audio source as input.
 
 `--generation-timeout` bounds the Linux process group (default one hour).
-`--jobs` controls build parallelism, and `--distro` selects a different installed
+`--jobs` controls build parallelism (RGO: default all logical cores, capped by RAM), and `--distro` selects a different installed
 WSL distribution. Existing dependency checkouts at another revision are rejected
 without changing them. Save files live in `%LOCALAPPDATA%\JFGRecomp\profiles\default`.
 
