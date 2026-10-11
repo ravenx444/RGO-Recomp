@@ -2327,6 +2327,13 @@ struct State : JfgOriginalTimingFast {
   // turns it off) and the net trim so far (positive: ran ahead).
   bool audio_level_trim = true;
   std::int64_t audio_trim_ns = 0;
+  // RGO diagnostics (JFG_RGO_STALL_DIAG=1): the last guest thread switches,
+  // dumped once when game frames stop for 600 VIs.
+  bool stall_diag = false, stall_dumped = false;
+  std::uint64_t last_frame_vi = 0U;
+  struct SwitchRecord { std::uint64_t vi, count; std::uint32_t from, to, pc; };
+  std::array<SwitchRecord, 256U> switch_ring{};
+  std::size_t switch_next = 0U;
   std::uint32_t graphics_color_image = 0U;
   bool graphics_frame_ready = false;
   std::array<std::uint32_t, 64U> recent_graphics_color_images{};
@@ -6886,6 +6893,7 @@ void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
   const auto now = std::chrono::steady_clock::now();
   if (state.rgo_frame_trace_start == std::chrono::steady_clock::time_point{})
     state.rgo_frame_trace_start = now;
+  state.last_frame_vi = state.vi_retraces;
   const auto wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
       now - state.rgo_frame_trace_start).count();
   // busy_us: host time of the frame that just ended; true60: 0 off, 1 at
@@ -10968,6 +10976,10 @@ int run_child(const char *path, const unsigned retrace_target,
                                  flag[0] == '0');
     }
     {
+      char flag[2]{};
+      state.stall_diag = GetEnvironmentVariableA("JFG_RGO_STALL_DIAG", flag, 2U) == 1U && flag[0] == '1';
+    }
+    {
       // RGO: guest threads switch as fibers on the emulation thread (no
       // kernel wake-up per hand-off); JFG_RGO_GUEST_THREADS=os goes back to
       // one OS thread per guest thread.
@@ -12218,6 +12230,39 @@ int run_child(const char *path, const unsigned retrace_target,
             set_cop1_cs(cpu.fcr31);
           }, [&state](const GuestThreadTransport<recomp_context>::EretBoundary& edge,
                       const recomp_context& cpu) {
+            if (state.stall_diag) {
+              state.switch_ring[state.switch_next++ % state.switch_ring.size()] =
+                  {state.vi_retraces, state.cpu_count, edge.from_thread, edge.to_thread, edge.target_pc};
+              if (!state.stall_dumped && state.last_frame_vi != 0U &&
+                  state.vi_retraces > state.last_frame_vi + 600U) {
+                state.stall_dumped = true;
+                std::fprintf(stderr, "stall: no game frame since VI %llu (now %llu); last switches:\n",
+                             static_cast<unsigned long long>(state.last_frame_vi),
+                             static_cast<unsigned long long>(state.vi_retraces));
+                const auto word = [&state](std::uint32_t address) {
+                  std::uint32_t value = 0U;
+                  std::memcpy(&value, state.rdram + (address & 0x007FFFFCU), 4U);
+                  return value;
+                };
+                for (const std::uint32_t thread : {0x800F92A0U, 0x800F9070U, 0x800F17C0U, 0x800FB4F0U,
+                                                   0x80104200U, 0x80105410U}) {
+                  const std::uint32_t queue = word(thread + 8U);
+                  std::fprintf(stderr, "stall: thread %08x pri %u state %04x queue %08x pc %08x ra %08x"
+                               " | queue valid %u count %u first %u msg %08x\n",
+                               thread, word(thread + 4U), word(thread + 0x10U) >> 16U, queue,
+                               word(thread + 0x11CU), word(thread + 0x104U),
+                               queue ? word(queue + 8U) : 0U, queue ? word(queue + 0x10U) : 0U,
+                               queue ? word(queue + 0xCU) : 0U, queue ? word(queue + 0x14U) : 0U);
+                }
+                for (std::size_t index = 0U; index < state.switch_ring.size(); ++index) {
+                  const auto &record = state.switch_ring[(state.switch_next + index) % state.switch_ring.size()];
+                  std::fprintf(stderr, "stall: vi %llu count %llu thread %08x -> %08x pc %08x\n",
+                               static_cast<unsigned long long>(record.vi),
+                               static_cast<unsigned long long>(record.count),
+                               record.from, record.to, record.pc);
+                }
+              }
+            }
             if (!state.eret_transfer_stream.is_open() && !state.instruction_effect_stream.is_open()) return;
             if (!state.guest_eret_boundary || state.guest_epc != edge.target_pc)
               fail_closed_dispatch(state, "eret-transfer-probe", "uncommitted-return", state.guest_last_pc);
