@@ -380,6 +380,47 @@ look rate already reaches the camera hook, so a "free aim" variant would
 feed the same rate into the aim heading/pitch through the aim hook's direct
 path (and draw the crosshair), behind its own setting.
 
+### Modern scheme for mouse and keyboard
+
+Owner report on the twin-stick build: mouse look "doesn't activate or work,
+in aiming or just using the mouse" and the controls should have feature
+parity. Cause: everything mouse-related (capture, mouse look and aim, aim
+keys, hold/toggle aim, the modern camera) still needed the profile-wide
+Experimental switch, while the controller's Modern scheme no longer did, and
+the keyboard page let you set mouse options that then did nothing with the
+switch off.
+
+Now the keyboard player has the same **Controls scheme: Original / Modern**
+(the same `scheme` key in `pc-input.ini`, so it is per player), with no
+Experimental switch:
+
+- **Move keys only move**: camera-relative outside aim; in the aim stance
+  they hold the game's own walk/strafe keys, exactly as the move stick does
+  (`pc_twin_aim_walk`), and they never move the crosshair.
+- **The mouse is the look stick**: outside aim it turns the camera (and the
+  character in place when standing still) and tilts the view; while aiming
+  (right mouse button by default, hold or toggle) it moves the aim directly.
+  No free crosshair outside aim mode. The aim keys (numpad) do the same.
+- Look mode 7 (`kPcTwinMouseMode`) carries mouse/key angle deltas with the
+  twin-stick rules (camera on foot only, turning in place, a new aim facing
+  the camera, the game's aim-walk speeds); recorded and replayed like mode 6.
+- Settings on the keyboard page whenever Modern is on: mouse camera and aim
+  sensitivity, vertical scale, aim key speed, aim button hold/toggle, Mouse
+  Y invert. Switching to Modern binds left mouse to fire and right mouse to
+  aim (the Normal preset) unless right mouse already aims. Presets and reset
+  keep the scheme, gyro and dual input settings (they used to reset them).
+- With Original, the page says that mouse look and aim need Modern or the
+  Experimental switch, instead of offering options that do nothing.
+- Dual input (Player 1 on a controller plus mouse and keyboard): both use
+  Player 1's scheme. With the controller active, mouse motion adds to the
+  right stick; with the keyboard active, mode 7 applies. Mouse capture and
+  release (focus loss, settings, menus, pause, cutscenes) are unchanged.
+- New keyboard-path game-memory reads (aim walking) only run once RDRAM is
+  mapped and gameplay is active (the boot-time poll reads nothing).
+
+The headless pad script can drive the keyboard and mouse too
+(`k:<virtual keys>` and `m:<dx>,<dy>` fields).
+
 ### Owner test (DualSense on Windows)
 
 1. Build and play as usual (`build_from_rom.py --rom ... --play`). Open
