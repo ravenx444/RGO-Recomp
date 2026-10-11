@@ -366,7 +366,10 @@ pitch, velocities, camera yaw, position). Profile files come from
 The game camera follows the orbit target with its own smoothing, so the
 view lags a fraction of a second behind the 200 deg/s target. A forward aim
 walk at upstream's 3.0 moved 25% faster at True 60 than at Original (the
-game clamps it to 2.0 only at 30), so twin-stick aim walking uses 2.0. In one
+game clamps it to 2.0 only at 30), so twin-stick aim walking uses 2.0: then
+1.73 (Original) vs 2.0 (True 60) units per VI over the same 78 VIs, so a
+~13% gap remains for walking forward in aim (strafing is identical, 2.5).
+Not explained yet; a follow-up for the True 60 audit. In one
 run the character slid about 70 units while spinning in place on the spot
 where the level starts; not explained yet (no velocity was set); worth
 watching for in the owner test.
