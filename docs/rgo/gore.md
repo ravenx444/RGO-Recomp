@@ -90,10 +90,14 @@ adjusts timers before the game's own function runs.
 - **Blood.** On each `bloodSpurtUpdateAll` call, resting splats that landed
   on a surface keep their timer at 128 or more (full colour). The default
   keeps **40** of the 64 slots, so 24 are always free for new blood; past
-  40 the oldest splat fades out over 2 s. The pool is found through the
-  game's runlink module table (overlay 8's loaded base + text + data sizes,
-  checked against its BSS size and `bloodSpurtUpdateAll`'s first two
-  instructions); if anything does not match, blood is left alone.
+  40 the oldest splat fades out over 2 s. The pool is found where the
+  generated code keeps it: overlay 8's normalized address
+  (`section_addresses[8]`, a window above RDRAM while the runtime has the
+  overlay active) plus its text and data sizes, checked against its BSS size
+  and `bloodSpurtUpdateAll`'s first two instructions. (The game's own runlink
+  table also records a load address in RDRAM, but the recompiled code does
+  not use that copy; it stays zero.) If anything does not match, blood is
+  left alone.
 - **Low memory.** Before keeping a limb, the hook reads `FreeRAM` and the
   main pool's used slots. Below 256 KiB free or 256 free slots it lets the
   oldest kept limb go (plain limbs first, then heads), at most one per game

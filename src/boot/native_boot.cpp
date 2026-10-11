@@ -6690,27 +6690,34 @@ bool true60_dispatch(State &state, const std::uint32_t target,
 }
 
 // RGO persistent gore (docs/rgo/gore.md): the blood pool lives in overlay 8's
-// BSS, wherever the game's runlink loader put the overlay. Returns 0 when the
-// overlay is not loaded or does not look like the expected blood code.
-std::uint32_t blood_pool_address(const jfg::rgo::GoreMemory &memory) {
-  const auto table = memory.u32(kRunlinkModuleTablePointer);
-  if (!table || *table == 0U)
+// BSS. Generated code addresses it at section_addresses[8]: the overlay's
+// normalized address while the runtime has it active (a window above RDRAM),
+// or a real load address in RDRAM. Returns 0 when overlay 8 is not there or
+// does not look like the expected blood code.
+std::uint32_t blood_pool_address(const State &state,
+                                 const jfg::rgo::GoreMemory &guest) {
+  constexpr std::uint32_t section = jfg::rgo::kBloodOverlay;
+  JfgGeneratedSectionMetadata metadata{};
+  if (section_addresses == nullptr ||
+      jfg_generated_section_metadata(section, &metadata) == 0 ||
+      metadata.is_overlay != 1U || metadata.bss_size != jfg::rgo::kBloodOverlayBssSize)
     return 0U;
-  const std::uint32_t record = *table + jfg::rgo::kBloodOverlay *
-      jfg::boot::kRunlinkModuleRecordSize;
-  const auto base = memory.u32(record), text = memory.u32(record + 8U),
-             data = memory.u32(record + 12U), bss = memory.u32(record + 16U);
-  if (!base || !text || !data || !bss || *base == 0U ||
-      *bss != jfg::rgo::kBloodOverlayBssSize)
+  const auto base = static_cast<std::uint32_t>(section_addresses[section]);
+  const bool in_rdram = base >= kKseg0 && base - kKseg0 < kRdramSize;
+  if (!in_rdram && (!state.active_overlay_sections.contains(section) ||
+                    base != metadata.linked_vram))
     return 0U;
-  const std::uint32_t entry = *base + jfg::rgo::kBloodSpurtUpdateAllOffset;
-  if (memory.u32(entry) != jfg::rgo::kBloodSpurtUpdateAllPrologue[0] ||
-      memory.u32(entry + 4U) != jfg::rgo::kBloodSpurtUpdateAllPrologue[1])
+  const std::uint64_t extent = std::uint64_t{metadata.text_size} +
+                               metadata.data_size + metadata.bss_size;
+  if ((base & 3U) != 0U || extent > 0x10000U ||
+      !guest.valid(base, static_cast<std::uint32_t>(extent)))
     return 0U;
-  const std::uint32_t pool = *base + *text + *data + jfg::rgo::kBloodPoolBssOffset;
-  constexpr auto pool_bytes = static_cast<std::uint32_t>(
-      jfg::rgo::kBloodSlots * jfg::rgo::kBloodSlotSize);
-  return memory.valid(pool, pool_bytes) ? pool : 0U;
+  const std::uint32_t entry = base + jfg::rgo::kBloodSpurtUpdateAllOffset;
+  if (guest.u32(entry) != jfg::rgo::kBloodSpurtUpdateAllPrologue[0] ||
+      guest.u32(entry + 4U) != jfg::rgo::kBloodSpurtUpdateAllPrologue[1])
+    return 0U;
+  return base + metadata.text_size + metadata.data_size +
+         jfg::rgo::kBloodPoolBssOffset;
 }
 
 // RGO persistent gore: severed limbs, drone heads and blood splats keep their
@@ -6728,7 +6735,7 @@ void gore_dispatch(State &state, const std::uint32_t target,
     state.gore_splats.clear();
     return;
   }
-  jfg::rgo::GoreMemory memory(rdram, kRdramSize);
+  jfg::rgo::GoreMemory memory(rdram, kRdramSize);  // RDRAM only
   if (target == jfg::rgo::kSeveredLimbControl) {
     if (!state.gore.heads && !state.gore.limbs)
       return;
@@ -6775,23 +6782,26 @@ void gore_dispatch(State &state, const std::uint32_t target,
   if (target == jfg::rgo::kBloodSpurtUpdateAll) {
     if (!state.gore.blood)
       return;
-    const std::uint32_t pool = blood_pool_address(memory);
+    // Overlay windows above RDRAM are only touched inside an active overlay's
+    // checked extent (blood_pool_address).
+    jfg::rgo::GoreMemory guest(rdram, kGuestAddressSpan);
+    const std::uint32_t pool = blood_pool_address(state, guest);
     if (pool == 0U)
       return;
     std::array<bool, jfg::rgo::kBloodSlots> resting{}, hold{};
     for (std::size_t slot = 0U; slot < jfg::rgo::kBloodSlots; ++slot) {
       const auto entry = pool + static_cast<std::uint32_t>(slot) * jfg::rgo::kBloodSlotSize;
-      resting[slot] = memory.u8(entry + jfg::rgo::kBloodSlotState) ==
+      resting[slot] = guest.u8(entry + jfg::rgo::kBloodSlotState) ==
                           jfg::rgo::kBloodStateResting &&
-                      memory.u8(entry + jfg::rgo::kBloodSlotSurface).value_or(0U) != 0U;
+                      guest.u8(entry + jfg::rgo::kBloodSlotSurface).value_or(0U) != 0U;
     }
     state.gore_splats.update(resting, state.gore.blood_limit, hold);
     for (std::size_t slot = 0U; slot < jfg::rgo::kBloodSlots; ++slot) {
       const auto timer = pool + static_cast<std::uint32_t>(slot) * jfg::rgo::kBloodSlotSize +
           jfg::rgo::kBloodSlotTimer;
-      if (hold[slot] && memory.s16(timer).value_or(jfg::rgo::kBloodHoldTimer) <
+      if (hold[slot] && guest.s16(timer).value_or(jfg::rgo::kBloodHoldTimer) <
                             jfg::rgo::kBloodHoldTimer)
-        (void)memory.put_s16(timer, jfg::rgo::kBloodHoldTimer);
+        (void)guest.put_s16(timer, jfg::rgo::kBloodHoldTimer);
     }
   }
 }

@@ -56,7 +56,9 @@ inline constexpr std::uint8_t kLimbKindHead = 2U;
 // about 1 s left and then fades out as in the original game.
 inline constexpr std::int16_t kLimbHoldTimer = 120;
 
-// Blood: overlay 8 (blood.c). A fixed pool of 64 spurts in the overlay's BSS;
+// Blood: overlay 8 (blood.c). A fixed pool of 64 spurts in the overlay's BSS
+// (generated code keeps it at the overlay's normalized address, which the
+// runtime passes as section_addresses[8]);
 // bloodSpurtAdd silently drops new blood while all 64 are in use. A spurt
 // flies (state 1), lands as a growing splat (state 2) and rests (state 3)
 // with a timer of 300 ticks; the splat fades over its last 120 ticks.
@@ -200,53 +202,55 @@ struct GoreSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Guest RAM as the runtime keeps it: big-endian, stored as native 32-bit
-// words. Accesses outside KSEG0/KSEG1 RAM fail instead of throwing.
+// Guest memory as the runtime keeps it: big-endian, stored as native 32-bit
+// words, guest address A at host offset A - 0x80000000 (mod 2^32). That is
+// RDRAM for KSEG0 addresses; generated overlays keep their code, data and BSS
+// at their normalized addresses below 0x0A000000, which land above RDRAM.
+// The caller passes the host span it has checked is mapped; accesses outside
+// it fail instead of faulting.
 
 class GoreMemory {
 public:
-    GoreMemory(std::uint8_t* rdram, std::size_t size) noexcept
-        : rdram_(rdram), size_(size & ~std::size_t{3U}) {}
+    GoreMemory(std::uint8_t* base, std::size_t span) noexcept
+        : base_(base), span_(span & ~std::size_t{3U}) {}
     [[nodiscard]] bool valid(std::uint32_t address, std::uint32_t bytes) const noexcept {
-        const std::uint32_t segment = address & 0xE0000000U;
-        const std::size_t offset = address & 0x1FFFFFFFU;
-        return rdram_ != nullptr && (segment == 0x80000000U || segment == 0xA0000000U) &&
-               offset <= size_ && bytes <= size_ - offset;
+        const std::size_t offset = address - 0x80000000U;
+        return base_ != nullptr && offset <= span_ && bytes <= span_ - offset;
     }
     [[nodiscard]] std::optional<std::uint8_t> u8(std::uint32_t address) const noexcept {
         if (!valid(address, 1U))
             return std::nullopt;
-        return rdram_[byte(address)];
+        return base_[byte(address)];
     }
     [[nodiscard]] std::optional<std::int16_t> s16(std::uint32_t address) const noexcept {
         if ((address & 1U) != 0U || !valid(address, 2U))
             return std::nullopt;
         return static_cast<std::int16_t>(
-            static_cast<std::uint16_t>((rdram_[byte(address)] << 8U) | rdram_[byte(address + 1U)]));
+            static_cast<std::uint16_t>((base_[byte(address)] << 8U) | base_[byte(address + 1U)]));
     }
     [[nodiscard]] std::optional<std::uint32_t> u32(std::uint32_t address) const noexcept {
         if ((address & 3U) != 0U || !valid(address, 4U))
             return std::nullopt;
         std::uint32_t value = 0U;
         for (std::uint32_t index = 0U; index < 4U; ++index)
-            value = (value << 8U) | rdram_[byte(address + index)];
+            value = (value << 8U) | base_[byte(address + index)];
         return value;
     }
     bool put_s16(std::uint32_t address, std::int16_t value) noexcept {
         if ((address & 1U) != 0U || !valid(address, 2U))
             return false;
         const auto bits = static_cast<std::uint16_t>(value);
-        rdram_[byte(address)] = static_cast<std::uint8_t>(bits >> 8U);
-        rdram_[byte(address + 1U)] = static_cast<std::uint8_t>(bits);
+        base_[byte(address)] = static_cast<std::uint8_t>(bits >> 8U);
+        base_[byte(address + 1U)] = static_cast<std::uint8_t>(bits);
         return true;
     }
 
 private:
     [[nodiscard]] static std::size_t byte(std::uint32_t address) noexcept {
-        return (address & 0x1FFFFFFFU) ^ 3U;
+        return static_cast<std::uint32_t>(address - 0x80000000U) ^ 3U;
     }
-    std::uint8_t* rdram_;
-    std::size_t size_;
+    std::uint8_t* base_;
+    std::size_t span_;
 };
 
 // ---------------------------------------------------------------------------

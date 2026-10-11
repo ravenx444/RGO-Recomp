@@ -141,6 +141,26 @@ void splats_keep_newest_within_limit() {
     require(!hold[5] && !hold[1], "limit zero");
 }
 
+void guest_memory_layout() {
+    // Big-endian guest words stored as native words: guest byte A sits at
+    // host offset (A - 0x80000000) ^ 3.
+    std::array<std::uint8_t, 16> host{};
+    jfg::rgo::GoreMemory memory(host.data(), host.size());
+    host[0] = 0x44U; host[1] = 0x33U; host[2] = 0x22U; host[3] = 0x11U;
+    require(memory.u32(0x80000000U) == 0x11223344U, "word read");
+    require(memory.u8(0x80000000U) == 0x11U && memory.u8(0x80000003U) == 0x44U, "byte read");
+    require(memory.s16(0x80000002U) == 0x3344, "halfword read");
+    require(memory.put_s16(0x80000004U, -2) && memory.s16(0x80000004U) == -2, "halfword write");
+    require(host[7] == 0xFFU && host[6] == 0xFEU, "halfword stored big-endian in native words");
+    require(!memory.u32(0x80000010U) && !memory.u8(0x80000010U), "past the span");
+    require(!memory.u32(0x8000000EU) && !memory.s16(0x80000001U), "misaligned");
+    require(!memory.u8(0x7FFFFFFFU), "below the base");
+    require(memory.valid(0x8000000CU, 4U) && !memory.valid(0x8000000CU, 5U), "range check");
+    // Normalized overlay addresses wrap to offsets above RDRAM.
+    jfg::rgo::GoreMemory wide(host.data(), 0x8A000000U);
+    require(wide.valid(0x01000000U, 4U) && !wide.valid(0x0A000000U, 1U), "overlay window range");
+}
+
 } // namespace
 
 int main() {
@@ -151,6 +171,7 @@ int main() {
     objects_follow_limit_changes();
     objects_reused_address_and_memory_pressure();
     splats_keep_newest_within_limit();
+    guest_memory_layout();
     std::puts("rgo gore tests passed");
     return 0;
 }
