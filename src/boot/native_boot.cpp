@@ -3440,7 +3440,9 @@ void refresh_video_settings(State &state) {
     details.audio_resyncs = static_cast<std::uint32_t>(state.host_audio.resyncs());
     details.audio_rate = state.host_audio.playback_rate_tenths();
     details.audio_production = state.host_audio.production_rate_tenths();
-    details.baton_spin_us = static_cast<std::uint32_t>(jfg::boot::baton_spin().count());
+    details.baton_spin_us = jfg::boot::default_executor_backend() == jfg::boot::ExecutorBackend::fibers
+        ? jfg::kBatonFibers
+        : static_cast<std::uint32_t>(jfg::boot::baton_spin().count());
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -10964,6 +10966,17 @@ int run_child(const char *path, const unsigned retrace_target,
       char flag[2]{};
       state.audio_level_trim = !(GetEnvironmentVariableA("JFG_RGO_AUDIO_TRIM", flag, 2U) == 1U &&
                                  flag[0] == '0');
+    }
+    {
+      // RGO: guest threads switch as fibers on the emulation thread (no
+      // kernel wake-up per hand-off); JFG_RGO_GUEST_THREADS=os goes back to
+      // one OS thread per guest thread.
+      char backend[8]{};
+      const auto length = GetEnvironmentVariableA("JFG_RGO_GUEST_THREADS", backend, 8U);
+      const bool threads = length == 2U && backend[0] == 'o' && backend[1] == 's';
+      jfg::boot::set_default_executor_backend(threads ? jfg::boot::ExecutorBackend::threads
+                                                      : jfg::boot::ExecutorBackend::fibers);
+      (void)jfg::boot::register_fiber_local(&jfg::swap_overlay_invocation_context);
     }
     {
       // RGO: JFG_RGO_BATON_SPIN_US sets how long a waiting guest thread spins

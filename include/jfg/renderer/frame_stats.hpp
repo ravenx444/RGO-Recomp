@@ -56,6 +56,8 @@ namespace jfg {
 inline constexpr unsigned kFrameStatsMessageOffset = 24U;
 inline constexpr unsigned kFrameDetailMessageOffset = 25U;
 inline constexpr unsigned kFrameDetailMessageCount = 9U;
+// FrameStats::baton_spin_us when guest threads run as fibers (no spin).
+inline constexpr std::uint32_t kBatonFibers = 0xFFFFFFFFU;
 
 struct FrameCounter {
     std::uint32_t game_tenths = 0U;
@@ -256,6 +258,7 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
 // "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms"
 // "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off")
 // "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000, spin 50 us"
+// (or "switches 9000/s, fibers" when guest threads run as fibers)
 // "audio 96/100 ms, card 100.0 %, game 100.0 %, 0 dropouts, 0 resyncs"
 // (queue level / cushion; the sound device's measured playback rate and the
 // game's production rate; underruns and queue-bound skips or clears since
@@ -278,8 +281,11 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
     }
     text += "\nMMIO " + std::to_string(stats.mmio) + "/s, stepped " +
             std::to_string(stats.mmio_stepped) + " | switches " +
-            std::to_string(stats.switches) + "/s, woken " + std::to_string(stats.wakes) +
-            ", spin " + std::to_string(stats.baton_spin_us) + " us";
+            std::to_string(stats.switches) + "/s, " +
+            (stats.baton_spin_us == kBatonFibers
+                 ? std::string("fibers")
+                 : "woken " + std::to_string(stats.wakes) + ", spin " +
+                       std::to_string(stats.baton_spin_us) + " us");
     text += "\naudio " + std::to_string(stats.audio_queued) + "/" +
             std::to_string(stats.audio_cushion) + " ms, card " +
             (stats.audio_rate == 0U ? std::string("--") : t(stats.audio_rate)) + " %, game " +

@@ -337,7 +337,39 @@ the guest leaf and OS execution paths (they are the live execution model,
 not optional logging; 3 % above); the MMIO trace records each register
 access (part of the 2 %); no per-instruction cycle charging or cache
 counters run. Removing the hand-off cost needs the guest threads to switch
-in user mode (fibers) instead of through the kernel (not done yet).
+in user mode (fibers) instead of through the kernel.
+
+**Guest threads as fibers** (`src/boot/executor.cpp`). The executor already
+ran exactly one guest thread at a time and every hand-off went through its
+scheduler (`resume` and `yield_to_scheduler`), so the guest threads now run
+as fibers on the scheduler's own thread: Windows fibers (16 MB stack
+reserve, the same as `/STACK` gives a thread, with the floating-point state
+switched per fiber), ucontext on the headless Linux build (16 MB stack with a
+guard page). A hand-off is a user-mode stack switch instead of a kernel
+wake-up and context switch. The order of execution is unchanged, so the game
+runs exactly as before. What changed with it:
+
+- Host `thread_local`s now belong to the one emulation thread. The overlay
+  runtime's running-invocation chain must follow the guest thread (a guest
+  thread can yield inside an overlay call), so the executor swaps it per
+  guest thread (`register_fiber_local`). The others are safe: the MMIO
+  thread-id checks span one instruction, the high-resolution timer is used by
+  one guest thread at a time, `pending_dispatch` is set and consumed within
+  one call. The MSVC runtime keeps errno and exception state per fiber.
+- A participant's body moves onto its fiber's stack before it runs (the
+  participant list can grow, and move, while it is parked) and is destroyed
+  before the fiber's last switch.
+- Shutdown unwinds each parked guest thread on its own fiber, as before on
+  its own thread. An exception that escapes a guest thread still terminates.
+- AddressSanitizer is told about every stack switch (CI's sanitizer job runs
+  the executor, scheduler and transport tests on fibers).
+- A crash or hang capture shows the running guest thread's stack on the
+  emulation thread; parked guest threads no longer have OS threads of their
+  own, so their stacks are not in the capture (they are all parked in a
+  hand-off).
+- `JFG_RGO_GUEST_THREADS=os` goes back to one OS thread per guest thread.
+  The Detailed counter shows `switches N/s, fibers` (or `woken`/`spin` with
+  OS threads).
 
 - **Longer spins do not help here.** Guest thread switches run at 2,000-
   5,000 a second and practically every one needs a wake-up (the 50 µs spin

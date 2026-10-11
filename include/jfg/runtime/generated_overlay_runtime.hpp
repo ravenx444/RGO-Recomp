@@ -308,6 +308,13 @@ struct GeneratedOverlayFunctionResult {
     }
 };
 
+// RGO: the running overlay invocations are tracked per host thread
+// (thread_local). With guest threads as fibers on one host thread, a guest
+// thread that yields inside an overlay call would leak that state to the next
+// guest thread; the fiber executor swaps it per guest thread through this
+// (jfg::boot::register_fiber_local). Installs `context`, returns the previous.
+void* swap_overlay_invocation_context(void* context) noexcept;
+
 // Synchronous project-owned overlay registry and generated-table adapter. All
 // potentially failing work targets a private staging copy. Live guest memory,
 // cache visibility, dependency bindings, and active publication are committed

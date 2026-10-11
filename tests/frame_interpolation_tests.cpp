@@ -267,6 +267,9 @@ int main() {
                     "MMIO 11000/s, stepped 12 | switches 9000/s, woken 2000, spin 500 us\n"
                     "audio 143/150 ms, card 99.7 %, game 100.3 %, 3 dropouts, 2 resyncs",
             "host line, holding 30");
+        stats.baton_spin_us = kBatonFibers;
+        require(format_frame_host(stats).find("switches 9000/s, fibers\naudio") != std::string::npos,
+                "fibers replace woken and spin");
         stats.true60 = 1U;
         require(format_frame_host(stats).find("True 60: 60, late 7/60, busy 18.3 ms\n") !=
                     std::string::npos,

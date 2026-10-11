@@ -2703,4 +2703,10 @@ const char* generated_overlay_error_message(
     return "unknown generated overlay runtime error";
 }
 
+void* swap_overlay_invocation_context(void* const context) noexcept {
+    void* const previous = active_invocation;
+    active_invocation = static_cast<InvocationLeaseContext*>(context);
+    return previous;
+}
+
 }  // namespace jfg

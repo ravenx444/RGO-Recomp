@@ -4,7 +4,9 @@
 
 #include "jfg/boot/executor.hpp"
 
+#include <array>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -130,13 +132,120 @@ void test_never_started_participant_shuts_down() {
     // Destructor shutdown() must not hang joining the never-resumed thread.
 }
 
-} // namespace
+// RGO fiber backend: a host thread_local registered as a fiber local keeps
+// one value per participant, though all of them run on one OS thread.
+thread_local void* t_test_local = nullptr;
+void* swap_test_local(void* value) noexcept {
+    void* previous = t_test_local;
+    t_test_local = value;
+    return previous;
+}
 
-int main() {
+void test_fiber_locals() {
+    check(register_fiber_local(&swap_test_local), "fiber local registered");
+    check(register_fiber_local(&swap_test_local), "registering twice is fine");
+    BatonExecutor executor;
+    int a_marker = 0, b_marker = 0, scheduler_marker = 0;
+    t_test_local = &scheduler_marker;
+    bool a_ok = true, b_ok = true;
+    const int a = executor.spawn([&](BatonExecutor& ex, int) {
+        t_test_local = &a_marker;
+        ex.yield_to_scheduler();
+        a_ok = t_test_local == &a_marker;
+    });
+    const int b = executor.spawn([&](BatonExecutor& ex, int) {
+        b_ok = t_test_local == nullptr;  // a new participant starts empty
+        t_test_local = &b_marker;
+        ex.yield_to_scheduler();
+        b_ok = b_ok && t_test_local == &b_marker;
+    });
+    (void)executor.resume(a);
+    check(t_test_local == &scheduler_marker, "scheduler's value restored after A");
+    (void)executor.resume(b);
+    (void)executor.resume(a);
+    (void)executor.resume(b);
+    check(a_ok && b_ok, "each participant kept its own value");
+    check(t_test_local == &scheduler_marker, "scheduler's value restored at the end");
+    t_test_local = nullptr;
+}
+
+// Participants spawned while others are parked mid-body (the participant
+// list grows and moves its elements), with captures large enough for
+// std::function to keep on the heap and small enough to keep inline.
+void test_spawn_while_parked() {
+    BatonExecutor executor;
+    std::vector<int> ids;
+    std::vector<long> results;
+    constexpr int kCount = 40;
+    results.resize(kCount);
+    for (int index = 0; index < kCount; ++index) {
+        std::array<long, 16> big{};
+        big[5] = index;
+        ids.push_back(executor.spawn([&results, index, big](BatonExecutor& ex, int) {
+            long total = big[5];
+            for (int step = 0; step < 3; ++step) {
+                ex.yield_to_scheduler();
+                total += step;
+            }
+            results[static_cast<std::size_t>(index)] = total;
+        }));
+        (void)executor.resume(ids.back());
+    }
+    for (int round = 0; round < 3; ++round)
+        for (const int id : ids) (void)executor.resume(id);
+    bool all = true;
+    for (int index = 0; index < kCount; ++index)
+        all = all && results[static_cast<std::size_t>(index)] == index + 3;
+    check(all, "every participant finished with its own captured state");
+}
+
+// Exceptions thrown and caught inside a participant, and a deep stack.
+int recurse(int depth) {
+    volatile char frame[1024];
+    frame[0] = 1;
+    return depth == 0 ? 0 : recurse(depth - 1) + frame[0];
+}
+
+void test_exceptions_and_deep_stack() {
+    BatonExecutor executor;
+    bool caught = false;
+    int depth_result = -1;
+    const int id = executor.spawn([&](BatonExecutor& ex, int) {
+        try {
+            ex.yield_to_scheduler();
+            throw std::runtime_error("inside a participant");
+        } catch (const std::runtime_error&) {
+            caught = true;
+        }
+        depth_result = recurse(4000);  // about 4 MB of stack
+    });
+    (void)executor.resume(id);
+    check(executor.resume(id), "participant finished");
+    check(caught, "exception caught inside the participant");
+    check(depth_result == 4000, "a 4 MB deep call chain fits the stack");
+}
+
+void run_all(const ExecutorBackend backend, const char* name) {
+    set_default_executor_backend(backend);
+    const int before = failures;
     test_deterministic_interleaving();
     test_single_runner_no_overlap();
     test_shutdown_unwinds_parked_participant();
     test_never_started_participant_shuts_down();
+    test_spawn_while_parked();
+    test_exceptions_and_deep_stack();
+    if (backend == ExecutorBackend::fibers)
+        test_fiber_locals();
+    BatonExecutor probe;
+    check(probe.backend() == backend, "default backend applies");
+    if (failures != before) std::cerr << "  (backend: " << name << ")\n";
+}
+
+} // namespace
+
+int main() {
+    run_all(ExecutorBackend::threads, "threads");
+    run_all(ExecutorBackend::fibers, "fibers");
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
         return 1;
