@@ -850,6 +850,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
   case kFrameDetails + 5:
   case kFrameDetails + 6:
   case kFrameDetails + 7:
+  case kFrameDetails + 8:
     jfg::decode_frame_stats(app.frameStats, message - kFrameDetails,
                             static_cast<std::uint32_t>(wparam),
                             static_cast<std::uint32_t>(lparam));

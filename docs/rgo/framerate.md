@@ -304,7 +304,41 @@ the game's code twice as fast as at 30. Profiling the headless build
 - **Baton spin** (`src/boot/executor.cpp`). Each guest thread is a host
   thread and exactly one runs at a time. A thread waiting for the baton now
   spins for up to 50 microseconds before it sleeps, so quick hand-offs skip
-  the futex wake-up. The order of execution is unchanged.
+  the futex wake-up. The order of execution is unchanged. `JFG_RGO_BATON_SPIN_US` (0 to 100000, read at start in the Windows build
+  too) sets the spin; the Detailed counter shows it (`spin 50 us`). On this
+  4-core VM a 2 ms spin cut the wake-ups from 2,300 to 450 a second but
+  doubled the busy time (13.4 against 7.7 ms per frame in the first level),
+  because the spinning threads take the few cores the game needs. On a PC
+  with many idle cores it may be the other way round.
+
+*Owner's PC (Ryzen 9 8940HX, 16 Zen 4 cores, RTX 5070 Ti, plugged in, dGPU):*
+14.9 ms of host time per frame in the first level, 3.6 ms of it the
+renderer, with 1,400-2,700 wake-ups a second. That is about twice this
+VM's 7.7 ms on a much faster CPU, so the cost is in the runtime, not the
+game. A fresh profile of the headless build (perf, True 60, real time,
+boot to the first level) ranks the CPU time:
+
+| Where | Share of CPU |
+|---|---|
+| Kernel: context switches, futex wake-ups, `sched_yield`, IPIs | 35 % |
+| Baton spin (`wait_until_holder`) | 23 % |
+| Snapshot compares and copies (`memcmp`, `memmove`) | 11 % |
+| The recompiled game code (`fn_*_recomp`) | 9 % |
+| Execution and audio probes (`jfg_phase9_execution_probe_*`, audio HLE) | 3 % |
+| MMIO trap handler and page protection (user side) | 2 % |
+| The rest (dispatch, scheduler, lookups) | 17 % |
+
+So the game's own code is a tenth of the work; handing the baton between
+guest threads (each a host thread, woken through the kernel) is more than
+half. On Windows a wake-up is a kernel round trip plus scheduling latency,
+which is why the same hand-off rate costs more there. Diagnostic and
+qualification paths in the live build: the original-timing mode turns on
+the guest leaf and OS execution paths (they are the live execution model,
+not optional logging; 3 % above); the MMIO trace records each register
+access (part of the 2 %); no per-instruction cycle charging or cache
+counters run. Removing the hand-off cost needs the guest threads to switch
+in user mode (fibers) instead of through the kernel (not done yet).
+
 - **Longer spins do not help here.** Guest thread switches run at 2,000-
   5,000 a second and practically every one needs a wake-up (the 50 µs spin
   rarely catches the baton). Spinning longer (300 µs to 3 ms, all threads or
@@ -1144,7 +1178,14 @@ before the first level; the old crash came about 1 min 50 s in.
      over time).
    - If the game crashes, send `crash.log`.
 
-8. **Optional A/B, only if runs still differ:** build `main` and this
+8. **Baton spin (host speed):** in the first level at True 60, note the
+   Detailed `host` ms and `woken` count with the default (`spin 50 us`).
+   Then quit, set `JFG_RGO_BATON_SPIN_US=500` before starting the game
+   (`set JFG_RGO_BATON_SPIN_US=500` in the same command prompt, or a user
+   environment variable), and note them again in the same place; repeat
+   with `2000`. Lower `host` with fewer `woken` means the spin helps on this
+   PC; the counter's `spin` field confirms the setting took effect.
+9. **Optional A/B, only if runs still differ:** build `main` and this
    branch from the same checkout (`git checkout main`, build, play;
    `git checkout rgo/framerate-fixes`, build, play), five starts each,
    and count the runs that stay at 30. To test whether the input stack is

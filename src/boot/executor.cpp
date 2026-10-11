@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <utility>
 
 #if defined(_M_X64) || defined(_M_IX86) || defined(__x86_64__) || defined(__i386__)
@@ -27,12 +28,22 @@ thread_local int t_self = kSchedulerParticipant;
 // times a second, often after a few microseconds; a waiter that is still
 // spinning takes it without the futex wake-up and context switch a sleeping
 // one needs (docs/rgo/framerate.md, "Host speed").
-constexpr std::chrono::microseconds kBatonSpin{50};
+// Settable (set_baton_spin): on a PC with many idle cores a longer spin can
+// avoid most wake-ups, which are costly on Windows.
+std::atomic<std::int64_t> g_baton_spin_us{50};
 
 std::atomic<std::uint64_t> g_handoffs{0U};
 std::atomic<std::uint64_t> g_sleeps{0U};
 
 } // namespace
+
+void set_baton_spin(const std::chrono::microseconds spin) noexcept {
+    g_baton_spin_us.store(spin.count() < 0 ? 0 : spin.count(), std::memory_order_relaxed);
+}
+
+std::chrono::microseconds baton_spin() noexcept {
+    return std::chrono::microseconds(g_baton_spin_us.load(std::memory_order_relaxed));
+}
 
 std::uint64_t baton_handoffs() noexcept {
     return g_handoffs.load(std::memory_order_relaxed);
@@ -113,7 +124,7 @@ void BatonExecutor::hand_off(const int to) {
 }
 
 void BatonExecutor::wait_until_holder(const int self) {
-    const auto spin_until = std::chrono::steady_clock::now() + kBatonSpin;
+    const auto spin_until = std::chrono::steady_clock::now() + baton_spin();
     for (unsigned spin = 1U; holder_.load(std::memory_order_acquire) != self; ++spin) {
         if ((spin & 63U) == 0U && std::chrono::steady_clock::now() >= spin_until)
             break;

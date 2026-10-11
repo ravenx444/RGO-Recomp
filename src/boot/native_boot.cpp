@@ -866,6 +866,7 @@ public:
   void frontend_pause(bool paused) noexcept {
     if (device_ != 0U && device_playing_) SDL_PauseAudioDevice(device_, paused ? 1 : 0);
     rate_meter_.restart();  // the device does not play while paused
+    production_meter_.restart();
   }
   void set_vi_counter(const std::uint64_t *vi) noexcept { capture_vi_ = vi; }
   void renderer_ready() noexcept { renderer_ready_ = true; update_playback_state(); }
@@ -1057,6 +1058,11 @@ public:
   [[nodiscard]] std::uint32_t playback_rate_tenths() const noexcept {
     return rate_meter_.rate_tenths();
   }
+  // RGO: how fast the game produced audio over the same windows (should be
+  // 100.0 %; more means the emulation ran ahead of the wall clock).
+  [[nodiscard]] std::uint32_t production_rate_tenths() const noexcept {
+    return production_meter_.rate_tenths();
+  }
   // The queue level the trim works from (smoothed over about half a second).
   [[nodiscard]] std::uint32_t smoothed_queue_milliseconds() const noexcept {
     return frequency_ == 0U || !device_playing_ ? 0U : static_cast<std::uint32_t>(
@@ -1172,18 +1178,23 @@ private:
     device_playing_ = false;
     level_trim_.reset();
     rate_meter_.restart();
+    production_meter_.restart();
     update_metrics();
     capture_event("resync-clear");
   }
 
   void update_metrics() noexcept {
     update_device_metrics();
-    if (device_playing_ && current_queued_bytes_ != 0U && frequency_ != 0U)
-      rate_meter_.sample(consumed_bytes_, static_cast<std::uint64_t>(
+    if (device_playing_ && current_queued_bytes_ != 0U && frequency_ != 0U) {
+      const auto now_us = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::microseconds>(
-              std::chrono::steady_clock::now().time_since_epoch()).count()), frequency_ * 4U);
-    else
+              std::chrono::steady_clock::now().time_since_epoch()).count());
+      rate_meter_.sample(consumed_bytes_, now_us, frequency_ * 4U);
+      production_meter_.sample(queued_bytes_ + dropped_bytes_, now_us, frequency_ * 4U);
+    } else {
       rate_meter_.restart();
+      production_meter_.restart();
+    }
   }
 
   void update_device_metrics() noexcept {
@@ -1329,6 +1340,7 @@ private:
   std::uint64_t throttled_us_ = 0U;
   jfg::audio::QueueLevelTrim level_trim_;
   jfg::audio::PlaybackRateMeter rate_meter_;
+  jfg::audio::PlaybackRateMeter production_meter_;
   bool dropping_ = false;
   std::uint64_t resyncs_ = 0U;
   std::uint64_t dropped_bytes_ = 0U;
@@ -3427,6 +3439,8 @@ void refresh_video_settings(State &state) {
     details.audio_underruns = static_cast<std::uint32_t>(state.host_audio.underruns());
     details.audio_resyncs = static_cast<std::uint32_t>(state.host_audio.resyncs());
     details.audio_rate = state.host_audio.playback_rate_tenths();
+    details.audio_production = state.host_audio.production_rate_tenths();
+    details.baton_spin_us = static_cast<std::uint32_t>(jfg::boot::baton_spin().count());
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -10950,6 +10964,18 @@ int run_child(const char *path, const unsigned retrace_target,
       char flag[2]{};
       state.audio_level_trim = !(GetEnvironmentVariableA("JFG_RGO_AUDIO_TRIM", flag, 2U) == 1U &&
                                  flag[0] == '0');
+    }
+    {
+      // RGO: JFG_RGO_BATON_SPIN_US sets how long a waiting guest thread spins
+      // before it sleeps (jfg::boot::set_baton_spin; 0 to 100000).
+      char spin[16]{};
+      const auto length = GetEnvironmentVariableA("JFG_RGO_BATON_SPIN_US", spin, 16U);
+      if (length > 0U && length < 16U) {
+        char *end = nullptr;
+        const long value = std::strtol(spin, &end, 10);
+        if (end != spin && *end == '\0' && value >= 0L && value <= 100000L)
+          jfg::boot::set_baton_spin(std::chrono::microseconds(value));
+      }
     }
   }
   char mod_flag[2]{};

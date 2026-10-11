@@ -52,10 +52,10 @@
 namespace jfg {
 
 // Windows messages: WM_APP + 24 carries the plain counter (FrameCounter,
-// packed), WM_APP + 25 to WM_APP + 32 carry FrameStats, two 32-bit values each.
+// packed), WM_APP + 25 to WM_APP + 33 carry FrameStats, two 32-bit values each.
 inline constexpr unsigned kFrameStatsMessageOffset = 24U;
 inline constexpr unsigned kFrameDetailMessageOffset = 25U;
-inline constexpr unsigned kFrameDetailMessageCount = 8U;
+inline constexpr unsigned kFrameDetailMessageCount = 9U;
 
 struct FrameCounter {
     std::uint32_t game_tenths = 0U;
@@ -163,6 +163,10 @@ struct FrameStats {
     std::uint32_t audio_underruns = 0U;
     std::uint32_t audio_resyncs = 0U;
     std::uint32_t audio_rate = 0U;
+    // The game's audio production rate in tenths of a percent (0: not
+    // measured yet) and the guest threads' baton spin in microseconds.
+    std::uint32_t audio_production = 0U;
+    std::uint32_t baton_spin_us = 0U;
     friend bool operator==(const FrameStats&, const FrameStats&) = default;
 };
 
@@ -196,7 +200,8 @@ encode_frame_stats(const FrameStats& stats) noexcept {
             pack_pair(stats.mmio_stepped, stats.audio_cushion),
             pack_pair(stats.switches, (std::min)(stats.audio_underruns, 0xFFU) |
                                           ((std::min)(stats.audio_resyncs, 0xFFU) << 8U)),
-            pack_pair(stats.wakes, stats.audio_queued)};
+            pack_pair(stats.wakes, stats.audio_queued),
+            pack_pair(stats.audio_production, 0U), stats.baton_spin_us};
 }
 
 // Applies message `index` (0 to 4) to `stats`.
@@ -239,6 +244,10 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
         stats.wakes = second & 0xFFFFU;
         stats.audio_queued = second >> 16U;
         break;
+    case 8U:
+        stats.audio_production = first & 0xFFFFU;
+        stats.baton_spin_us = second;
+        break;
     default: break;
     }
 }
@@ -246,10 +255,11 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
 // The Detailed counter's last two lines:
 // "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.1 ms"
 // "True 60: 60, late 2/60, busy 11.0 ms" (or "holding 30", or "off")
-// "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000"
-// "audio 96/100 ms, card 100.0 %, 0 dropouts, 0 resyncs"
-// (queue level / cushion; the sound device's measured playback rate;
-// underruns and queue-bound skips or clears since the game started)
+// "MMIO 11000/s, stepped 0 | switches 9000/s, woken 2000, spin 50 us"
+// "audio 96/100 ms, card 100.0 %, game 100.0 %, 0 dropouts, 0 resyncs"
+// (queue level / cushion; the sound device's measured playback rate and the
+// game's production rate; underruns and queue-bound skips or clears since
+// the game started)
 [[nodiscard]] inline std::string format_frame_host(const FrameStats& stats) {
     const auto t = [](std::uint32_t tenths) {
         return std::to_string(tenths / 10U) + "." + std::to_string(tenths % 10U);
@@ -268,10 +278,13 @@ constexpr void decode_frame_stats(FrameStats& stats, const unsigned index,
     }
     text += "\nMMIO " + std::to_string(stats.mmio) + "/s, stepped " +
             std::to_string(stats.mmio_stepped) + " | switches " +
-            std::to_string(stats.switches) + "/s, woken " + std::to_string(stats.wakes);
+            std::to_string(stats.switches) + "/s, woken " + std::to_string(stats.wakes) +
+            ", spin " + std::to_string(stats.baton_spin_us) + " us";
     text += "\naudio " + std::to_string(stats.audio_queued) + "/" +
             std::to_string(stats.audio_cushion) + " ms, card " +
-            (stats.audio_rate == 0U ? std::string("--") : t(stats.audio_rate)) + " %, " +
+            (stats.audio_rate == 0U ? std::string("--") : t(stats.audio_rate)) + " %, game " +
+            (stats.audio_production == 0U ? std::string("--") : t(stats.audio_production)) +
+            " %, " +
             std::to_string(stats.audio_underruns) + " dropouts, " +
             std::to_string(stats.audio_resyncs) + " resyncs";
     return text;
