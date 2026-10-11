@@ -23,6 +23,14 @@ inline PcInputConfig effective_pad_input(bool experimental, const PcInputConfig 
   return active;
 }
 
+// The same for the mouse and keyboard player: the Modern scheme turns on
+// mouse look and aim and the modern camera, with no Experimental switch.
+inline PcInputConfig effective_keyboard_input(bool experimental, const PcInputConfig &saved) {
+  auto active = effective_pc_input(experimental, saved);
+  if (pc_twin_stick(saved)) active.modern = active.mouse_aim = 1;
+  return active;
+}
+
 // Turn speed at full right-stick deflection and 100% sensitivity, in degrees
 // per second. Typical of modern console shooters: a quick camera, and a
 // slower, precise aim.
@@ -35,6 +43,12 @@ inline constexpr double kPcTicksPerSecond = 60.0;
 // tick, so it fits the recorded int16 look channel up to ~1100 degrees/s.
 inline constexpr int kPcTwinStickMode = 6;
 inline constexpr double kPcTwinRateScale = 16.0;
+
+// Look mode 7: the mouse (and aim keys) in the Modern scheme. Angle deltas
+// like mode 3, with the twin-stick rules (camera on foot only, turning in
+// place, a new aim facing the camera, the game's own aim walking).
+inline constexpr int kPcTwinMouseMode = 7;
+inline bool pc_twin_mode(int mode) { return mode == kPcTwinStickMode || mode == kPcTwinMouseMode; }
 
 struct PcStickLook {
   double x = 0, y = 0; // -1..1, right and up positive

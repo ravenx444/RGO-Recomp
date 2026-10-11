@@ -271,21 +271,34 @@ struct Ui : Rml::EventListener {
     if(GetKeyNameTextW(static_cast<LONG>(scan<<16),text,64)>0)return u8(text);
     return "Key "+std::to_string(key);
   }
+  // RGO: the same Controls scheme for the mouse and keyboard player. Modern
+  // turns on mouse look and aim with no Experimental switch.
+  std::string keyboardSchemeHtml(const jfg::PcInputConfig &c) {
+    const bool twin=jfg::pc_twin_stick(c);
+    return "<div class=\"row\"><div class=\"grow\">Controls scheme<div class=\"muted\">"+
+      std::string(twin?"Modern: the move keys only move (and walk and strafe while aiming); the mouse turns the camera, and aims while you hold the aim button.":
+        "Original: as on the N64. Mouse look and aim need Modern (or the Experimental switch below).")+"</div></div>"+
+      button("twin-scheme",twin?"Modern":"Original")+"</div>";
+  }
   std::string pcInputHtml() {
     auto &c=pcInput[static_cast<std::size_t>(player)];
     const bool keyboard=pcKeyboard(), enabled=pcExperimental();
-    std::string html=pcExperimentalHtml();
+    const bool twin=keyboard && jfg::pc_twin_stick(c);
+    std::string html=keyboard?keyboardSchemeHtml(c):std::string{};
+    if(!twin)html+=pcExperimentalHtml();
     if(!keyboard && !enabled)return html;
     html+="<div class=\"row\">"+
       button(keyboard?"pc-normal":"pc-pad-normal","Normal preset",!keyboard && !enabled)+
       button(keyboard?"pc-expert":"pc-pad-expert","Expert preset",!keyboard && !enabled)+
       button("pc-reset",keyboard?"Reset keyboard and mouse":"Reset aim settings",!keyboard && !enabled)+
-      (keyboard?button("controller-settings",controllerSettings?"Hide settings":"Settings",!enabled):std::string{})+"</div>";
-    if(enabled && controllerSettings) {
-      html+="<div class=\"row\">"+
+      (keyboard && !twin?button("controller-settings",controllerSettings?"Hide settings":"Settings",!enabled):std::string{})+"</div>";
+    if(twin)html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Aim: "+escape(pcKeyName(c.keys[9]))+
+      ". Fire: "+escape(pcKeyName(c.keys[2]))+".</p>";
+    if(twin || (enabled && controllerSettings)) {
+      if(!twin)html+="<div class=\"row\">"+
         button(keyboard?"pc-mouse":"pc-dual",keyboard?(c.mouse_aim?"Mouse look and aim: on":"Mouse look and aim: off"):(c.dual_stick?"Dual-stick aim: on":"Dual-stick aim: off"))+
         button("pc-modern",c.modern?"Modern camera + movement: on":"Modern camera + movement: off")+"</div>";
-      html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Modern camera and aim movement currently support single-player.</p>";
+      if(!twin)html+="<p class=\"muted\">Match the preset to the game's Normal or Expert control scheme. Modern camera and aim movement currently support single-player.</p>";
       const char* labels[]={"Mouse look sensitivity (camera)","Aim stick sensitivity","Aim stick deadzone","Mouse aim sensitivity","Camera stick sensitivity","Mouse vertical scale","Stick vertical scale","Aim key speed (degrees/s)"};
       const int values[]={c.mouse_sensitivity,c.aim_sensitivity,c.aim_deadzone,c.mouse_aim_sensitivity,c.camera_sensitivity,c.mouse_vertical_sensitivity,c.stick_vertical_sensitivity,c.key_aim_speed};
       const int maxima[]={500,300,30000,500,300,300,300,360};
@@ -300,7 +313,7 @@ struct Ui : Rml::EventListener {
     }
     if(!keyboard)return html;
     html+="<div class=\"label\">KEYBOARD AND MOUSE BINDINGS</div>";
-    if(!enabled)html+="<p class=\"muted\">Bindings are always active. Experimental controls add mouse look and modern movement.</p>";
+    if(!enabled && !twin)html+="<p class=\"muted\">Bindings are always active. Mouse look and aim need the Modern scheme above (or the Experimental switch).</p>";
     const auto &shown=c;
     const char* names[]={"A / confirm","B / weapon","Z / fire","Start","D-pad up","D-pad down","D-pad left","D-pad right","L","R / aim","C up / Normal jump","C down","C left","C right","Move forward","Move back","Move left","Move right","Full movement","Alternate A","Aim up","Aim down","Aim left","Aim right"};
     for(std::size_t i=0;i<shown.keys.size();++i) {
@@ -1287,7 +1300,8 @@ struct Ui : Rml::EventListener {
     const bool keyboardBinding=pcKeyboard() && (a.rfind("pc-bind",0)==0 ||
       a.rfind("pc-unbind",0)==0 || a.rfind("pc-key",0)==0 ||
       a=="pc-normal" || a=="pc-expert" || a=="pc-reset");
-    if(a.rfind("pc-",0)==0 && a!="pc-experimental" && !keyboardBinding && !pcExperimental())return;
+    const bool twinKeyboard=pcKeyboard() && jfg::pc_twin_stick(pcInput[static_cast<std::size_t>(player)]);
+    if(a.rfind("pc-",0)==0 && a!="pc-experimental" && !keyboardBinding && !twinKeyboard && !pcExperimental())return;
     if (event.GetType() == "change") {
       if(a=="rumble-strength") {
         auto &c=pcInput[static_cast<std::size_t>(player)];
@@ -1408,7 +1422,13 @@ struct Ui : Rml::EventListener {
     if(a.rfind("twin-",0)==0 && a.rfind("twin-tune",0)!=0) {
       auto &c=pcInput[static_cast<std::size_t>(player)];
       auto &m=mappings[player];
-      if(a=="twin-scheme") {
+      if(a=="twin-scheme" && pcKeyboard()) {
+        // Modern for the mouse and keyboard: the preset's mouse buttons
+        // (left fire, right aim) unless keys are already bound that way.
+        c.scheme=jfg::pc_twin_stick(c)?jfg::kPcSchemeOriginal:jfg::kPcSchemeTwinStick;
+        if(c.scheme && c.keys[9]!=2){const auto preset=jfg::pc_keyboard_preset(false);c.keys=preset.keys;}
+      }
+      else if(a=="twin-scheme") {
         c.scheme=jfg::pc_twin_stick(c)?jfg::kPcSchemeOriginal:jfg::kPcSchemeTwinStick;
         // The right stick looks in the modern scheme, so its buttons move.
         const int device=m.device,stick=m.stick;
@@ -1431,7 +1451,7 @@ struct Ui : Rml::EventListener {
         modal("controllers");
       return;
     }
-    if(a.rfind("pc-",0)==0 && !keyboardBinding && !pcExperimental())return;
+    if(a.rfind("pc-",0)==0 && !keyboardBinding && !twinKeyboard && !pcExperimental())return;
     if(a.rfind("pc-key",0)==0 || a.rfind("pc-tune",0)==0)return;
     if(a=="pc-input") {if(controllerWindow)modal("controllers");else {close();action("controllers");}return;}
     if(a.rfind("pc-player",0)==0) {player=std::clamp(a.back()-'0',0,3);loadPcInput();modal("pc-input");return;}
@@ -1444,11 +1464,17 @@ struct Ui : Rml::EventListener {
         c.modern=1;c.dual_stick=1;saveController();
       }
       else if(a=="pc-normal" || a=="pc-expert" || (a=="pc-reset" && pcKeyboard())) {
-        auto next=a=="pc-reset"?jfg::PcInputConfig{}:jfg::pc_keyboard_preset(a=="pc-expert");
+        // RGO: in the Modern scheme a reset keeps the mouse buttons (left
+        // fire, right aim); presets and resets keep the controller's
+        // settings, the scheme, gyro and dual input.
+        auto next=a!="pc-reset"?jfg::pc_keyboard_preset(a=="pc-expert"):
+          jfg::pc_twin_stick(c)?jfg::pc_keyboard_preset(false):jfg::PcInputConfig{};
         next.dual_stick=c.dual_stick;next.aim_sensitivity=c.aim_sensitivity;
         next.aim_deadzone=c.aim_deadzone;next.aim_invert_y=c.aim_invert_y;
         next.camera_sensitivity=c.camera_sensitivity;next.aim_curve=c.aim_curve;next.stick_vertical_sensitivity=c.stick_vertical_sensitivity;
-        next.rumble=c.rumble;
+        next.rumble=c.rumble;next.scheme=c.scheme;next.camera_invert_y=c.camera_invert_y;next.dual_input=c.dual_input;
+        next.gyro=c.gyro;next.gyro_sensitivity=c.gyro_sensitivity;next.gyro_mode=c.gyro_mode;
+        next.gyro_ratchet=c.gyro_ratchet;next.gyro_invert_y=c.gyro_invert_y;
         if(a!="pc-reset"){next.aim_toggle=c.aim_toggle;next.key_aim_speed=c.key_aim_speed;}
         c=next;
       }
