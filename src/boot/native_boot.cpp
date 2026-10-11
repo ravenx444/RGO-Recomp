@@ -10823,6 +10823,17 @@ int run_child(const char *path, const unsigned retrace_target,
   jfg::GeneratedOverlayRuntime runtime(std::as_writable_bytes(rdram));
   State state{};
 #if defined(JFG_LIVE_RUNTIME)
+  // RGO host speed switches (docs/rgo/framerate.md, "Host speed"): =1 turns
+  // each on, on Windows and in the headless build.
+  {
+    const auto switch_on = [](const char *name) {
+      char flag[2]{};
+      return GetEnvironmentVariableA(name, flag, 2U) == 1U && flag[0] == '1';
+    };
+    state.present_full_import = switch_on("JFG_RGO_PRESENT_FULL_IMPORT");
+    state.snapshot_full_import = switch_on("JFG_RGO_SNAPSHOT_FULL");
+    state.snapshot_verify = switch_on("JFG_RGO_SNAPSHOT_VERIFY");
+  }
   char mod_flag[2]{};
   if (GetEnvironmentVariableA("JFG_NAVIGATION_MOD",mod_flag,2U)==1U && mod_flag[0]=='1') {
     wchar_t output[32768]{};
@@ -10907,9 +10918,6 @@ int run_child(const char *path, const unsigned retrace_target,
   state.wall_floor_disabled = std::getenv("JFG_RGO_DETERMINISTIC_CLOCK") != nullptr;
   state.fast_run_disabled = std::getenv("JFG_RGO_NO_FAST_RUNS") != nullptr;
   state.unpaced = state.wall_floor_disabled && std::getenv("JFG_RGO_UNPACED") != nullptr;
-  state.present_full_import = std::getenv("JFG_RGO_PRESENT_FULL_IMPORT") != nullptr;
-  state.snapshot_full_import = std::getenv("JFG_RGO_SNAPSHOT_FULL") != nullptr;
-  state.snapshot_verify = std::getenv("JFG_RGO_SNAPSHOT_VERIFY") != nullptr;
   if (const char *pilot = std::getenv("JFG_RGO_AUTOPILOT");
       pilot != nullptr && std::strcmp(pilot, "newgame") == 0) {
     state.autopilot.emplace();
