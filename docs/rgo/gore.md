@@ -70,7 +70,11 @@ hit sprites (`bloodHitSpriteAdd`), animated flashes that end on their own.
   The US game calls `sparkUpdate` where `squadsLowMemoryPanic` was meant, so
   there is no further fallback.
 - The object list (`ObjList`, 0x800F2CA4) has **no overflow check** in the
-  retail build (the "ObjList Overflow" message is never printed).
+  retail build (the "ObjList Overflow" message is never printed). Measured
+  headlessly, its allocation is 2048 bytes: room for 512 objects. The opening
+  cutscenes and the first areas use 20-60.
+- Measured main-pool use: about 1.2 MB free and 343 of 1600 slots at the
+  title, about 630 KB free and 620-650 slots in Goldwood's first area.
 
 ## What RGO changes
 
@@ -133,20 +137,51 @@ blood up to 48).
 
 ## Bodies (not changed)
 
-A dead drone's body is the squaddie object itself (overlay 3, the squad AI).
-When it has finished dying, `squadsKillSquaddie` (overlay 3 + 0x9FF0) drops
-the squadron's bonus item when the whole squadron is dead, and
-`RemoveSquaddie` (overlay 3 + 0x9A14) takes it out of the squad and frees
-it. Keeping that object would hold up squadron completion (bonus items,
-doors unlocked by a cleared squadron) and keep the AI running on it. Keeping
-bodies needs a separate, static copy of the dead body (model, last pose,
-position) drawn in its place; that is a bigger change and is left for a
-later PR. The limbs and the head that come off it do stay.
+A dead drone's body is the squaddie object itself (overlay 3, the squad AI),
+not a separate corpse object. `squadsKillSquaddie` (overlay 3 + 0x9FF0)
+drops the squadron's bonus item once the whole squadron is dead and then
+calls `RemoveSquaddie` (overlay 3 + 0x9A14), which takes it out of its
+squad. Keeping that object around would mean holding up that path (bonus
+items, doors opened by a cleared squadron) and keeping the AI running on a
+dead body. Keeping bodies properly needs a separate static copy of the dead
+body (model, last pose, position) drawn in its place; that is a bigger
+change, left for a later PR. The limbs and the head that come off it do
+stay.
 
 ## Headless check
 
-(Filled in below.)
+Headless Linux build (`docs/rgo/framerate.md`, "Headless measurement") of
+`rgo/next` with this branch merged, True 60, the new-game autopilot, plus a
+temporary trace (not committed) of the blood pool and the object and memory
+counts.
+
+- **Blood.** The opening cutscenes add 137 blood spurts.
+  - Gore off: every resting splat counts 300 -> 0 and frees, as in the
+    original.
+  - Gore on: resting splats stop at 126 and keep full colour. At most 40 are
+    kept; extra ones are let go and fade out.
+  - The pool fills completely during the heaviest burst in both cases (64
+    spurts in flight at once), so keeping splats does not drop more new blood
+    than the original game does.
+- **Pool location.** The first version used the address in the game's runlink
+  table; that copy of overlay 8's BSS stays all zero, because generated code
+  uses `section_addresses[8]`. Fixed and re-measured as above.
+- **Limbs and heads.** Not exercised headlessly: the autopilot never reaches
+  an enemy (also with the navigation mod's instant kill on, no squad member
+  came near in the first areas). Checked instead that `severedLimbControl`'s
+  and `objFreeObject`'s first two instructions are in RDRAM as expected, so
+  the hook qualifies, and the bookkeeping is unit tested. The owner test
+  covers the rest.
 
 ## Owner test
 
-(See the PR.)
+1. **Heads.** In Goldwood (Juno's first level), kill drones until a head
+   comes off. Leave it, wait at least 30 s: it must still be there. Walk over
+   it: it is collected.
+2. **Limbs and blood.** Severed limbs and splats on floors and walls must
+   still be there after 30 s.
+3. **Settings.** Game > Gameplay settings...: switching a setting Off while
+   playing makes the kept items fade within about 3 s.
+4. Repeat 1 at Frame rate **True 60** and **Original**.
+5. A long fight (30+ drones) in one area: new enemies, shots and blood keep
+   appearing; no slowdown or crash.
