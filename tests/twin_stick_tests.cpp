@@ -103,6 +103,12 @@ int main() {
   check(jfg::pc_twin_turn_in_place(0,0,0) && jfg::pc_twin_turn_in_place(0,5,-5),"standing still turns in place");
   check(!jfg::pc_twin_turn_in_place(0,0,40) && !jfg::pc_twin_turn_in_place(0,-20,0),"moving steers instead");
   check(!jfg::pc_twin_turn_in_place(11,0,0) && !jfg::pc_twin_turn_in_place(6,0,0),"aim and special states keep their own heading");
+  {
+    const auto f=jfg::pc_twin_aim_movement(0,80),b=jfg::pc_twin_aim_movement(0,-80),r=jfg::pc_twin_aim_movement(80,0);
+    check(std::abs(f.forward+2.0F)<1e-5F && std::abs(b.forward-2.0F)<1e-5F && std::abs(r.side-2.5F)<1e-5F && r.forward==0.0F,"aim walk speeds");
+    const auto d=jfg::pc_twin_aim_movement(80,80);
+    check(std::abs(d.side*d.side/6.25F+d.forward*d.forward/4.0F-1.0F)<1e-3F,"diagonal aim walk is not faster");
+  }
   // Aim walking: the left stick holds the game's own aim-walk keys.
   {
     const jfg::PcAimWalkKeys normal{0x8000,0x4000,0x2,0x1}; // ControlModeNormal: A/B, C-left/C-right

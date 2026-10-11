@@ -7240,7 +7240,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
               const auto movement_state=pc_memory.u8(control+0x568U);
               if((frame.pc_mode==3 || frame.pc_mode==4 || twin) && (movement_state==10 || movement_state==11) && (pc_memory.u8(control+1U)&3U)<3U) {
                 const auto &move=state.controller_ports.samples[port];
-                const auto velocity=jfg::pc_aim_movement(move.x,move.y);
+                const auto velocity=twin?jfg::pc_twin_aim_movement(move.x,move.y):jfg::pc_aim_movement(move.x,move.y);
                 (void)memory.write_u32(control+0x10U,std::bit_cast<std::uint32_t>(velocity.side));
                 (void)memory.write_u32(control+0x4U,std::bit_cast<std::uint32_t>(velocity.forward));
               }

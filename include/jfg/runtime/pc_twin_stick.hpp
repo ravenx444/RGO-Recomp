@@ -139,6 +139,15 @@ inline std::uint16_t pc_twin_aim_walk(N64StickSample move, const PcAimWalkKeys &
   return static_cast<std::uint16_t>(buttons & 0xFFFFU);
 }
 
+// Aim walking speed from the move stick, within the game's own aim-walk
+// limits (overlay 15: 2.5 sideways for C-left/C-right; forward clamps at
+// 2.0 at 30 fps). Headless, a 3.0 forward speed (pc_aim_movement) walked
+// 25% faster at True 60 than at 30, so forward and back use 2.0.
+inline PcMoveVelocity pc_twin_aim_movement(int x, int y) {
+  const auto v = pc_aim_movement(x, y);
+  return {v.side, v.forward / 3.0F * 2.0F};
+}
+
 // Controller bindings for the twin-stick scheme, by the game's control
 // scheme (ControlModeNormal / ControlModeExpert at 0x800A18B4 / 0x800A18D8):
 // L2 aims (the game's R), R2 fires (Z), Cross jumps, Square is the other face
