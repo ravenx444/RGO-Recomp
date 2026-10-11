@@ -299,10 +299,12 @@ public:
     // Lets the oldest held object of this kind go. False when none is held.
     bool release_oldest(GoreKind kind) {
         Entry* oldest = nullptr;
-        for (auto& [address, entry] : entries_)
+        for (auto& item : entries_) {
+            Entry& entry = item.second;
             if (entry.held && entry.kind == kind &&
                 (oldest == nullptr || entry.order < oldest->order))
                 oldest = &entry;
+        }
         if (oldest == nullptr)
             return false;
         oldest->held = false;
@@ -357,6 +359,8 @@ public:
                 if (order_[slot] != 0U && !released_[slot] &&
                     (oldest == kBloodSlots || order_[slot] < order_[oldest]))
                     oldest = slot;
+            if (oldest == kBloodSlots)
+                break;
             released_[oldest] = true;
             --held;
         }

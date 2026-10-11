@@ -6743,7 +6743,7 @@ void gore_dispatch(State &state, const std::uint32_t target,
       state.gore_limb_qualified =
           memory.u32(target) == jfg::rgo::kSeveredLimbControlPrologue[0] &&
           memory.u32(target + 4U) == jfg::rgo::kSeveredLimbControlPrologue[1]
-              ? 1U : 2U;
+              ? std::uint8_t{1U} : std::uint8_t{2U};
     if (state.gore_limb_qualified != 1U)
       return;
     // Low memory: let the oldest kept limb go, at most once per game frame.
