@@ -32,6 +32,9 @@ struct PcInputConfig {
   // Controller scheme (0 original, 1 modern twin-stick; pc_twin_stick.hpp)
   // and invert Y for the right-stick camera, separate from the aim's.
   int scheme = 0, camera_invert_y = 0;
+  // Which of the game's own control options (0 Normal, 1 Expert) the player
+  // uses, so the Controllers page can name each button's action.
+  int game_controls = 0;
   // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A,
   // and (RGO, version 4) aim up/down/left/right: Numpad 8/2/4/6.
   std::array<int,24> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
@@ -60,7 +63,7 @@ inline constexpr std::array<std::string_view,14> kPcSettings{
 // RGO: version 4 adds these optional settings. A missing one keeps its default,
 // so files written before a setting existed still load.
 struct PcExtension { std::string_view name; int minimum, maximum; int PcInputConfig::*field; };
-inline constexpr std::array<PcExtension,11> kPcExtensions{{
+inline constexpr std::array<PcExtension,12> kPcExtensions{{
   {"rumble",0,200,&PcInputConfig::rumble},
   {"aim_toggle",0,1,&PcInputConfig::aim_toggle},
   {"key_aim_speed",30,360,&PcInputConfig::key_aim_speed},
@@ -71,7 +74,8 @@ inline constexpr std::array<PcExtension,11> kPcExtensions{{
   {"gyro_invert_y",0,1,&PcInputConfig::gyro_invert_y},
   {"dual_input",0,1,&PcInputConfig::dual_input},
   {"scheme",0,1,&PcInputConfig::scheme},
-  {"camera_invert_y",0,1,&PcInputConfig::camera_invert_y}}};
+  {"camera_invert_y",0,1,&PcInputConfig::camera_invert_y},
+  {"game_controls",0,1,&PcInputConfig::game_controls}}};
 inline std::string serialize_pc_input(const PcInputConfig &c) {
   const std::array<int,14> values{4,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
     c.dual_stick,c.aim_sensitivity,c.aim_deadzone,c.aim_invert_y,c.modern,

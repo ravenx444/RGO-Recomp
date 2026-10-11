@@ -1,6 +1,7 @@
 // RGO: modern twin-stick controller scheme (pc_twin_stick.hpp).
 #include "jfg/runtime/pc_twin_stick.hpp"
 #include "jfg/rgo/headless_pad_script.hpp"
+#include "jfg/runtime/game_actions.hpp"
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -128,6 +129,16 @@ int main() {
     check(jfg::pc_twin_aim_walk({-80,0},normal)==(0x8000|0x2),"strafe left");
     check(jfg::pc_twin_aim_walk({80,-60},normal)==(0x4000|0x1),"back and right");
     check(jfg::pc_twin_aim_state(5) && jfg::pc_twin_aim_state(11) && !jfg::pc_twin_aim_state(0) && !jfg::pc_twin_aim_state(1),"aim states");
+  }
+  // Controllers page labels: the action, then the N64 button.
+  check(jfg::game_action_label(10,false)=="Jump / zoom in (C-up)" && jfg::game_action_label(0,true)=="Jump / zoom in (A)","jump label per game option");
+  check(jfg::game_action_label(11,false)=="Crouch / zoom out (C-down)" && jfg::game_action_label(1,true)=="Crouch / zoom out (B)","crouch label");
+  check(jfg::game_action_label(0,false)=="Previous weapon (A)" && jfg::game_action_label(10,true)=="Next weapon (C-up)","weapon labels");
+  check(jfg::game_action_label(2,true)=="Fire (Z)" && jfg::game_action_label(9,false)=="Aim (R)" && jfg::game_action_label(12,false)=="Sidestep left (C-left)","shared labels");
+  check(jfg::game_action_label(4,false)=="D-pad up" && jfg::game_action_label(8,true)=="L" && jfg::game_action_label(14,false).empty(),"no action, no guess");
+  {
+    jfg::PcInputConfig labels;labels.game_controls=1;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(labels),roundtrip) && roundtrip.game_controls==1,"game control option roundtrips");
   }
   // Headless scripted controller, mouse and keyboard.
   {

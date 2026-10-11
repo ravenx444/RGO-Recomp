@@ -299,8 +299,8 @@ Experimental switch. `pc-input.ini` keys `scheme` (0/1) and
   velocities decay to 0) and **11** (`0x00F04658`, aim walking); the headless
   trace shows aiming on foot entering 11 straight from 0. In the original
   game you walk in aim with the zoom-in/zoom-out keys and strafe with
-  C-left/C-right (`ControlModeNormal`/`ControlModeExpert` at
-  `0x800A18B4`/`0x800A18D8`, masks at +0x1C/+0x20 and +0x14/+0x18; strafe is
+  C-left/C-right (the game's control tables at
+  `0x800A18D8` (Normal) / `0x800A18B4` (Expert), see Button labels, masks at +0x1C/+0x20 and +0x14/+0x18; strafe is
   overlay 15's `0x00F04B4C`, +/-2.5 sideways). Now, in states 5/11, the left
   stick holds those keys for the game (`pc_twin_aim_walk`, read from the
   active table), so the game walks and strafes with its own logic and
@@ -420,6 +420,36 @@ Experimental switch:
 
 The headless pad script can drive the keyboard and mouse too
 (`k:<virtual keys>` and `m:<dx>,<dy>` fields).
+
+### Button labels
+
+Owner request: name each binding by what it does, with the N64 button in
+brackets ("Jump (C-up)"). `game_actions.hpp` holds the actions, from the
+game's two control tables (`controlModeKeys` points at one): slot +0 fire
+(`controlUpdateWeapon`), +4 next weapon (`controlSelectNextWeapon`), +8
+previous weapon, +0xC jump (checked with `controlCeiling` for headroom first),
++0x10 crouch, +0x14/+0x18 sidestep left/right (`0x00F04B4C`: rolls on foot,
+strafing in aim), +0x1C/+0x20 zoom in/out with the sniper scope (and walk
+forward/back in aim); R aims, Start pauses.
+
+| N64 | Normal (table `0x800A18D8`) | Expert (table `0x800A18B4`) |
+| --- | --- | --- |
+| A | Previous weapon | Jump / zoom in |
+| B | Next weapon | Crouch / zoom out |
+| C-up | Jump / zoom in | Next weapon |
+| C-down | Crouch / zoom out | Previous weapon |
+| C-left / C-right | Sidestep left / right | Sidestep left / right |
+| Z / R / Start | Fire / Aim / Pause | Fire / Aim / Pause |
+| L, D-pad | no on-foot action in the control code (plain name) | same |
+
+The decomp names `0x800A18B4` "ControlModeNormal" and `0x800A18D8`
+"ControlModeExpert"; the labels use the opposite, because a new game (the
+default option) runs with `0x800A18D8` (seen headlessly: the aim-walk keys
+read from it were C-up/C-down) and upstream's in-game-tested presets call
+jump on C-up "Normal". The launcher cannot read the game's option, so each
+player page has **Labels for the game's: Normal / Expert controls**; the
+Normal/Expert layout and preset buttons set it too. Rebinding is unchanged:
+it still sets the N64 button in brackets.
 
 ### Owner test (DualSense on Windows)
 
