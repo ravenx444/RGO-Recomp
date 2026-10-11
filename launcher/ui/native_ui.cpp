@@ -1092,8 +1092,12 @@ struct Ui : Rml::EventListener {
         html+="<div id=\"mapping-content\" class=\"muted\">Choose mouse and keyboard or a controller to configure bindings.</div>";
         note="This player port is disconnected.";
       } else {
-      html+="<div id=\"mapping-content\" class=\"gamepad-mapping\"><div class=\"row\"><span>Movement</span>"+
-        button("stick",m.stick?"Right stick":"Left stick")+button("controller-settings",controllerSettings?"Hide settings":"Settings")+"</div>";
+      // RGO: in the twin-stick scheme this is "Swap sticks" (left-handed):
+      // the other stick always looks and aims.
+      const bool twinScheme=jfg::pc_twin_stick(pcInput[static_cast<std::size_t>(player)]);
+      html+="<div id=\"mapping-content\" class=\"gamepad-mapping\"><div class=\"row\"><span>"+std::string(twinScheme?"Swap sticks (left-handed)":"Movement")+"</span>"+
+        button("stick",twinScheme?(m.stick?"On: right stick moves":"Off: left stick moves"):(m.stick?"Right stick":"Left stick"))+
+        button("controller-settings",controllerSettings?"Hide settings":"Settings")+"</div>";
       html+=twinStickHtml();
       const char *names[] = {"A / jump", "B",      "Z / fire", "Start",  "Up",
                              "Down",     "Left",   "Right",    "L",      "R",

@@ -89,18 +89,28 @@ public:
   void clear() { x_ = y_ = 0; }
 };
 
-// The player's movement state (control block +0x568) in which the right
-// stick turns the camera. Other states (swimming, jetpack, vehicles, ...)
-// keep the game's own camera.
-inline bool pc_twin_camera_state(std::uint8_t state) {
-  return state == 0 || state == 5 || state == 11;
+// Where the right stick turns the camera: on foot on the ground, movement
+// state 0 (standing, running; aiming has its own camera) with the medium
+// bits of control block +1 at 1 (ground, as the run-speed code checks).
+// Other states and media (swimming, jetpack, vehicles, hanging, ...) keep
+// the game's own camera.
+inline bool pc_twin_camera_state(std::uint8_t state, std::uint8_t medium) {
+  return state == 0 && (medium & 3U) == 1U;
 }
 
 // The body heading (control block +0x11C) that faces where the camera looks.
 // The game runs at heading atan2(stick) - camera yaw, and a stick pushed
 // straight up is 0x8000 there (mathAtan2 0x80049C84), so straight ahead of
-// the camera is 0x8000 - camera yaw (controlcam +0).
+// the camera is 0x8000 - camera yaw (controlcam +0). Checked headless: a
+// forward run settles at this heading.
+inline constexpr int kPcStickAtRest = 8; // of 80
 inline std::int16_t pc_camera_heading(int camera_yaw) { return pc_wrap_angle(0x8000 - camera_yaw); }
+// Standing on foot (movement state 0 with the left stick at rest), turning
+// the right stick turns the character in place with the camera.
+inline bool pc_twin_turn_in_place(std::uint8_t state, int move_x, int move_y) {
+  return state == 0 && move_x > -kPcStickAtRest && move_x < kPcStickAtRest &&
+         move_y > -kPcStickAtRest && move_y < kPcStickAtRest;
+}
 // A new aim (no aim update for this many VIs, a quarter of a second) starts
 // facing the camera's direction instead of the body's.
 inline constexpr std::uint64_t kPcNewAimGap = 15U;

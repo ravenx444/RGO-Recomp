@@ -99,6 +99,10 @@ int main() {
     check(jfg::map_controller(m,pad).buttons==(expert?0x8000:0x0008),"Cross jumps in both game schemes");
   }
   check(jfg::pc_camera_heading(0)==-32768 && jfg::pc_camera_heading(0x4000)==0x4000 && jfg::pc_camera_heading(-0x4000)==-0x4000,"camera heading");
+  check(jfg::pc_twin_camera_state(0,1) && jfg::pc_twin_camera_state(0,0x81) && !jfg::pc_twin_camera_state(0,2) && !jfg::pc_twin_camera_state(6,1),"camera on foot only");
+  check(jfg::pc_twin_turn_in_place(0,0,0) && jfg::pc_twin_turn_in_place(0,5,-5),"standing still turns in place");
+  check(!jfg::pc_twin_turn_in_place(0,0,40) && !jfg::pc_twin_turn_in_place(0,-20,0),"moving steers instead");
+  check(!jfg::pc_twin_turn_in_place(11,0,0) && !jfg::pc_twin_turn_in_place(6,0,0),"aim and special states keep their own heading");
   // Aim walking: the left stick holds the game's own aim-walk keys.
   {
     const jfg::PcAimWalkKeys normal{0x8000,0x4000,0x2,0x1}; // ControlModeNormal: A/B, C-left/C-right

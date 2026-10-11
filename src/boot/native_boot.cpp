@@ -3069,14 +3069,14 @@ void sample_live_controller(State &state) noexcept {
       const auto control = memory.u32(actor+0x68U);
       const auto camera = memory.u32(0x800F6DC0U);
       const auto &frame = state.pc_frames[0];
-      std::fprintf(state.player_trace, "%llu\t%llu\t%zu\t%04x\t%d\t%d\t%u\t%d\t%d\t%u\t%d\t%d\t%.3f\t%.3f\t%d\t%.2f\t%.2f\t%.2f\t%d\t%u\n",
+      std::fprintf(state.player_trace, "%llu\t%llu\t%zu\t%04x\t%d\t%d\t%u\t%d\t%d\t%u\t%d\t%d\t%.3f\t%.3f\t%d\t%.2f\t%.2f\t%.2f\t%d\t%u\t%d\n",
         static_cast<unsigned long long>(state.vi_retraces), static_cast<unsigned long long>(state.controller_samples),
         state.pad_script->step(), buttons, stick_x, stick_y, unsigned(frame.pc_mode), frame.look_x, frame.look_y,
         unsigned(memory.u8(control+0x568U)), memory.s16(control+0x11CU), memory.s16(control+0x1E2U),
         memory.f32(control+0x10U), memory.f32(control+0x4U),
         memory.valid(camera,0x4CU) ? memory.s16(camera) : 0,
         memory.f32(actor+0xCU), memory.f32(actor+0x10U), memory.f32(actor+0x14U), memory.s16(actor),
-        unsigned(memory.u8(control+1U)));
+        unsigned(memory.u8(control+1U)), state.pc_orbits[0].yaw);
     }
   }
 #endif
@@ -7077,6 +7077,14 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
         orbit.active=true;orbit.actor=actor;orbit.retrace=state.vi_retraces;
         orbit.yaw=jfg::pc_wrap_angle(orbit.yaw+state.pc_camera_look.x);
         orbit.pitch=std::clamp(orbit.pitch-state.pc_camera_look.y,-8192,12288);
+        // RGO twin-stick: standing still, the right stick turns the
+        // character in place with the camera (the body faces where the
+        // camera looks). Moving, the left stick steers relative to the
+        // camera as in the original game.
+        const auto &move=state.controller_ports.samples[port];
+        if(state.pc_frames[port].pc_mode==jfg::kPcTwinStickMode && state.pc_camera_look.x!=0 &&
+           jfg::pc_twin_turn_in_place(ram.u8(control+0x568U),move.x,move.y) && ram.valid(control+0x11CU,2U))
+          ram.put16(control+0x11CU,static_cast<std::uint16_t>(jfg::pc_camera_heading(orbit.yaw)));
         const auto point=jfg::pc_orbit_point(orbit.yaw,orbit.pitch,radius);
         hle::GuestMemory memory({rdram,kRdramSize},hle::GuestMemory::Layout::native_word_big_endian);
         (void)memory.write_u32(stack+0x8CU,std::bit_cast<std::uint32_t>(px+point.x));
@@ -7130,7 +7138,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
       if(port<4 && state.controller_ports.samples[port].connected) {
         const auto &frame=state.pc_frames[port];
         const bool twin=frame.pc_mode==jfg::kPcTwinStickMode;
-        if((frame.pc_mode==3 || frame.pc_mode==4 || (twin && jfg::pc_twin_camera_state(ram.u8(control+0x568U)))) &&
+        if((frame.pc_mode==3 || frame.pc_mode==4 || (twin && jfg::pc_twin_camera_state(ram.u8(control+0x568U),ram.u8(control+1U)))) &&
            !(state.controller_ports.samples[port].buttons&0x10)) {
           auto* original=jfg_generated_lookup_function(static_cast<std::int32_t>(target));
           if(original) {
@@ -10551,7 +10559,7 @@ int run_child(const char *path, const unsigned retrace_target,
         return 3;
       }
       std::fputs("vi\tpoll\tstep\tbuttons\tstick_x\tstick_y\tpc_mode\tlook_x\tlook_y\tstate\theading\tpitch\t"
-                 "side\tforward\tcamera_yaw\tx\ty\tz\tactor_yaw\tmedium\n", state.player_trace);
+                 "side\tforward\tcamera_yaw\tx\ty\tz\tactor_yaw\tmedium\torbit_yaw\n", state.player_trace);
     }
   }
 #endif
