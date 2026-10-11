@@ -1280,3 +1280,21 @@ Detailed counter at that moment, show which part is wrong.
   60 would cost; the 15 ms / 20 ms thresholds leave for that.
 - **RDRAM copies per graphics task:** the renderer side is now a delta
   (above); the copy into the snapshot itself still compares 4 MB per task.
+
+### Status of the fiber work (rgo/guest-fibers, paused)
+
+- Done: fiber backend (Windows fibers, ucontext + ASan annotations on
+  Linux), per-fiber swap of the overlay invocation chain, kill switch
+  `JFG_RGO_GUEST_THREADS=os`, executor tests on both backends, counter shows
+  `fibers`. Deterministic 14,000-VI trace identical to OS threads (state hash
+  too). Headless throughput 1.99x -> 3.58x real time; cutscene busy 12.0 ->
+  7.6 ms per frame.
+- Blocker: an intermittent real-time-only stall with fibers (about 3 of 7
+  headless runs; 0 with OS threads), always at the same cutscene points (VI
+  ~6130 and ~9750). The main game thread `gThread3` (0x800F92A0) stops being
+  scheduled while the idle, PI, VI manager, scheduler (0x800FB4F0) and audio
+  threads keep cycling: it is blocked on a message that never arrives. Next
+  step: run with `JFG_RGO_STALL_DIAG=1` (prints the threads' state, pc and
+  the queue they wait on at the stall) and find what fiber mode changes there.
+- Not done: Windows build of the fiber code (CI does not build the live
+  runtime), owner test, PR. Do not merge until the stall is fixed.
