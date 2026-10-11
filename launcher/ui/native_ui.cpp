@@ -28,6 +28,7 @@
 #include <jfg/platform/sdl_gamepads.hpp>
 #include <jfg/runtime/pc_input.hpp>
 #include <jfg/renderer/widescreen.hpp>
+#include <jfg/rgo/persistent_gore.hpp>
 #include <memory>
 #include <shellapi.h>
 #include <sstream>
@@ -427,6 +428,8 @@ struct Ui : Rml::EventListener {
   fs::path profile;
   int volume = 100, player = 0;
   bool muted = false;
+  // RGO persistent gore (gore.ini, docs/rgo/gore.md).
+  jfg::rgo::GoreSettings gore{};
   double toastUntil = 0, decorationTick = -1;
   std::array<bool, 4> connected{};
   std::array<std::uint32_t, 4> buttons{};
@@ -630,6 +633,55 @@ struct Ui : Rml::EventListener {
     if (!MoveFileExW(tmp.c_str(), dest.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
       status("Cannot save audio settings.");
+  }
+  void loadGore() {
+    std::ifstream f(profile / jfg::rgo::kGoreSettingsFileName, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    gore = jfg::rgo::parse_gore_settings(text).value_or(jfg::rgo::GoreSettings{});
+  }
+  void saveGore() {
+    std::error_code ec;
+    fs::create_directories(profile, ec);
+    const auto dest = profile / jfg::rgo::kGoreSettingsFileName;
+    const auto tmp = profile / (std::string(jfg::rgo::kGoreSettingsFileName) + ".ui.tmp");
+    {
+      std::ofstream f(tmp, std::ios::binary);
+      f << jfg::rgo::encode_gore_settings(gore);
+      f.flush();
+      if (ec || !f) {
+        status("Cannot save gameplay settings.");
+        return;
+      }
+    }
+    if (!MoveFileExW(tmp.c_str(), dest.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+      status("Cannot save gameplay settings.");
+  }
+  std::string goreHtml() {
+    std::string html = "<div class=\"row\"><div class=\"grow\">Alien heads stay<div class=\"muted\">Drone heads (and "
+                       "dropped pickups) stay until you pick them up. Off: they fade after about 10 seconds.</div></div>"
+                       "<div class=\"segments\">" + button("heads-on", "On") + button("heads-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Body parts stay<div class=\"muted\">Severed limbs stay where they "
+            "land. Off: they fade after about 10 seconds.</div></div><div class=\"segments\">" +
+            button("limbs-on", "On") + button("limbs-off", "Off") + "</div></div>";
+    html += "<div class=\"row\"><div class=\"grow\">Blood splats stay<div class=\"muted\">Blood on floors and walls "
+            "stays. Off: it fades after about 5 seconds.</div></div><div class=\"segments\">" +
+            button("blood-on", "On") + button("blood-off", "Off") + "</div></div>";
+    html += "<p class=\"muted\">Up to " + std::to_string(gore.head_limit) + " heads, " +
+            std::to_string(gore.limb_limit) + " body parts and " + std::to_string(gore.blood_limit) +
+            " splats stay at once; past that the oldest fades as in the original game. They also fade "
+            "early if the game runs low on memory, and when you leave the area.</p>";
+    return html;
+  }
+  // Click actions on the Gameplay page. Returns false for other actions.
+  bool goreAction(const std::string &a) {
+    if (a == "heads-on" || a == "heads-off") gore.heads = a == "heads-on";
+    else if (a == "limbs-on" || a == "limbs-off") gore.limbs = a == "limbs-on";
+    else if (a == "blood-on" || a == "blood-off") gore.blood = a == "blood-on";
+    else return false;
+    saveGore();
+    modal("gameplay");
+    return true;
   }
   std::string button(const std::string &action, const std::string &text,
                      bool disabled = false, const std::string &shortcut = "") {
@@ -945,6 +997,7 @@ struct Ui : Rml::EventListener {
           menu = button(paused ? "resume" : "pause", paused ? "Resume game" : "Pause game") +
                  button("stop", "Stop / return home");
         }
+        menu += button("gameplay", "Gameplay settings...");
         menu += button("setup", "Set up and build...", state.playing) +
                 button("rom", "Change ROM...", state.busy);
         menu += button("shortcut", "Save direct-launch shortcut...", state.busy || state.rom.empty() || state.runtime.empty());
@@ -964,6 +1017,7 @@ struct Ui : Rml::EventListener {
                           : page == "support"   ? "SUPPORT REPORT"
                           : page == "video"     ? "VIDEO"
                           : page == "audio"     ? "AUDIO"
+                          : page == "gameplay"  ? "GAMEPLAY"
                                                 : "JFG RECOMP");
     el("dialog")->SetProperty("width", page == "controllers" || page == "video" ? "880dp"
                                        : page == "audio"     ? "480dp"
@@ -997,6 +1051,9 @@ struct Ui : Rml::EventListener {
               std::to_string(volume) + "\" data-action=\"volume\"/>" +
               button("up", "+") + "</div>";
       note = "Applied immediately. Volume is remembered when muted.";
+    } else if (page == "gameplay") {
+      html = goreHtml();
+      note = "Changes apply immediately, also while playing.";
     } else if (page == "video") {
       html = videoHtml();
       note = "Changes apply immediately. Anti-aliasing applies the next time the game starts.";
@@ -1168,6 +1225,12 @@ struct Ui : Rml::EventListener {
         if (auto *e = el(id))
           e->SetClass("selected", true);
     }
+    if (page == "gameplay")
+      for (const char *id : {gore.heads ? "action-heads-on" : "action-heads-off",
+                             gore.limbs ? "action-limbs-on" : "action-limbs-off",
+                             gore.blood ? "action-blood-on" : "action-blood-off"})
+        if (auto *e = el(id))
+          e->SetClass("selected", true);
     if (page == "controllers") {
       if(auto *e=el("action-invertx"))e->SetClass("selected", mappings[player].invert_x);
       if(auto *e=el("action-inverty"))e->SetClass("selected", mappings[player].invert_y);
@@ -1281,6 +1344,8 @@ struct Ui : Rml::EventListener {
       return;
     }
     if (current == "video" && videoAction(a))
+      return;
+    if (current == "gameplay" && goreAction(a))
       return;
     if (a == "window-windowed" || a == "window-borderless" || a == "window-exclusive") {
       // The frontend owns the window; it saves the fullscreen kind and
@@ -1473,6 +1538,9 @@ struct Ui : Rml::EventListener {
     }
     if (a == "audio") {
       loadAudio();
+      modal(a);
+    } else if (a == "gameplay") {
+      loadGore();
       modal(a);
     } else if (a == "controllers") {
       if(controllerWindow){loadControllers();modal(a);}

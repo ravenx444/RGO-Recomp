@@ -66,6 +66,7 @@
 #include "jfg/testkernel/sha256.hpp"
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
 #include "jfg/rgo/headless_autopilot.hpp"
+#include "jfg/rgo/persistent_gore.hpp"
 #include "jfg/evidence/g2_private_task_adapter.hpp"
 #include "jfg/renderer/rt64_shell.hpp"
 #include "jfg/renderer/vi_presentation.hpp"
@@ -2131,7 +2132,18 @@ struct State : JfgOriginalTimingFast {
   std::chrono::steady_clock::time_point video_settings_next_read{};
 #if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
   std::unique_ptr<jfg::AsyncVolumeFile> video_settings_file;
+  // RGO persistent gore (docs/rgo/gore.md): gore.ini beside video.ini.
+  std::unique_ptr<jfg::AsyncVolumeFile> gore_settings_file;
 #endif
+  // Off (all false) for replays and captures, so they stay deterministic.
+  jfg::rgo::GoreSettings gore = jfg::rgo::original_gore();
+  std::chrono::steady_clock::time_point gore_settings_next_read{};
+  jfg::rgo::PersistentObjects gore_objects;
+  jfg::rgo::PersistentSplats gore_splats;
+  // 0: not checked yet, 1: severedLimbControl's prologue matched, 2: it did not.
+  std::uint8_t gore_limb_qualified = 0U;
+  std::uint64_t gore_relief_frame = 0U;
+  std::uint64_t gore_released_low_memory = 0U;
   std::unique_ptr<jfg::Rt64Shell> rt64_shell;
   std::vector<std::byte> rt64_rdram;
   std::uint32_t graphics_color_image = 0U;
@@ -3054,6 +3066,11 @@ void refresh_video_settings(State &state) {
         state.video_settings_file = std::make_unique<jfg::AsyncVolumeFile>(
             jfg::kVideoSettingsMaximumBytes);
         state.video_settings_file->start(config);
+        // RGO persistent gore: gore.ini in the same profile folder.
+        state.gore_settings_file = std::make_unique<jfg::AsyncVolumeFile>(
+            jfg::rgo::kGoreSettingsMaximumBytes);
+        state.gore_settings_file->start(config.parent_path() /
+                                        jfg::rgo::kGoreSettingsFileName);
       }
     } else if (state.play_mode && !state.input_replay_loaded) {
       // Direct interactive runs without a launcher profile get the defaults.
@@ -3071,6 +3088,20 @@ void refresh_video_settings(State &state) {
     if (const auto text = state.video_settings_file->latest())
       if (const auto settings = jfg::parse_video_settings(*text))
         state.video = *settings;
+  }
+  // RGO persistent gore: the defaults (everything stays) unless gore.ini
+  // says otherwise; off for replays and captures.
+  if (!state.video_managed || state.input_replay_loaded)
+    state.gore = jfg::rgo::original_gore();
+  else if (!state.gore_settings_file)
+    state.gore = jfg::rgo::GoreSettings{};
+  else if (now >= state.gore_settings_next_read) {
+    state.gore_settings_next_read = now + std::chrono::milliseconds(250);
+    const auto text = state.gore_settings_file->latest();
+    if (!text)
+      state.gore = jfg::rgo::GoreSettings{};  // No gore.ini: the defaults.
+    else if (const auto settings = jfg::rgo::parse_gore_settings(*text))
+      state.gore = *settings;
   }
   state.widescreen = state.video.aspect == jfg::AspectMode::widescreen;
   // RGO fast clock: unless Original N64 slowdown is on (Original frame rate
@@ -6658,6 +6689,113 @@ bool true60_dispatch(State &state, const std::uint32_t target,
   return true;
 }
 
+// RGO persistent gore (docs/rgo/gore.md): the blood pool lives in overlay 8's
+// BSS, wherever the game's runlink loader put the overlay. Returns 0 when the
+// overlay is not loaded or does not look like the expected blood code.
+std::uint32_t blood_pool_address(const jfg::rgo::GoreMemory &memory) {
+  const auto table = memory.u32(kRunlinkModuleTablePointer);
+  if (!table || *table == 0U)
+    return 0U;
+  const std::uint32_t record = *table + jfg::rgo::kBloodOverlay *
+      jfg::boot::kRunlinkModuleRecordSize;
+  const auto base = memory.u32(record), text = memory.u32(record + 8U),
+             data = memory.u32(record + 12U), bss = memory.u32(record + 16U);
+  if (!base || !text || !data || !bss || *base == 0U ||
+      *bss != jfg::rgo::kBloodOverlayBssSize)
+    return 0U;
+  const std::uint32_t entry = *base + jfg::rgo::kBloodSpurtUpdateAllOffset;
+  if (memory.u32(entry) != jfg::rgo::kBloodSpurtUpdateAllPrologue[0] ||
+      memory.u32(entry + 4U) != jfg::rgo::kBloodSpurtUpdateAllPrologue[1])
+    return 0U;
+  const std::uint32_t pool = *base + *text + *data + jfg::rgo::kBloodPoolBssOffset;
+  constexpr auto pool_bytes = static_cast<std::uint32_t>(
+      jfg::rgo::kBloodSlots * jfg::rgo::kBloodSlotSize);
+  return memory.valid(pool, pool_bytes) ? pool : 0U;
+}
+
+// RGO persistent gore: severed limbs, drone heads and blood splats keep their
+// fade timers from running out (each kind has a setting and a limit; past the
+// limit the oldest fades as in the original game). Only adjusts guest memory
+// before the game's own function runs; never replaces it.
+void gore_dispatch(State &state, const std::uint32_t target,
+                   std::uint8_t *rdram, const recomp_context *context) {
+  if (target == jfg::rgo::kObjFreeObject) {
+    state.gore_objects.forget(static_cast<std::uint32_t>(context->r4));
+    return;
+  }
+  if (target == jfg::rgo::kObjFreeAll || target == jfg::rgo::kMainChangeLevel) {
+    state.gore_objects.clear();
+    state.gore_splats.clear();
+    return;
+  }
+  jfg::rgo::GoreMemory memory(rdram, kRdramSize);
+  if (target == jfg::rgo::kSeveredLimbControl) {
+    if (!state.gore.heads && !state.gore.limbs)
+      return;
+    if (state.gore_limb_qualified == 0U)
+      state.gore_limb_qualified =
+          memory.u32(target) == jfg::rgo::kSeveredLimbControlPrologue[0] &&
+          memory.u32(target + 4U) == jfg::rgo::kSeveredLimbControlPrologue[1]
+              ? 1U : 2U;
+    if (state.gore_limb_qualified != 1U)
+      return;
+    // Low memory: let the oldest kept limb go, at most once per game frame.
+    if (state.gore_relief_frame != state.logic_frames) {
+      state.gore_relief_frame = state.logic_frames;
+      const auto free_ram = memory.u32(jfg::rgo::kFreeRam);
+      const auto max_slots = memory.u32(jfg::rgo::kMainPoolMaxSlots);
+      const auto used_slots = memory.u32(jfg::rgo::kMainPoolUsedSlots);
+      const bool low_ram = free_ram &&
+          static_cast<std::int32_t>(*free_ram) < jfg::rgo::kLowFreeRam;
+      const bool low_slots = max_slots && used_slots &&
+          static_cast<std::int64_t>(*max_slots) - static_cast<std::int64_t>(*used_slots) <
+              jfg::rgo::kLowFreeSlots;
+      if ((low_ram || low_slots) && state.gore_objects.release_oldest())
+        ++state.gore_released_low_memory;
+    }
+    const auto object = static_cast<std::uint32_t>(context->r4);
+    const auto limb = memory.u32(object + jfg::rgo::kObjectState);
+    const auto queued = memory.u8(object + jfg::rgo::kObjectFreeQueued);
+    if (!limb || !queued || *queued != 0U)
+      return;
+    const auto kind_byte = memory.u8(*limb + jfg::rgo::kLimbKind);
+    const auto timer = memory.s16(*limb + jfg::rgo::kLimbTimer);
+    if (!kind_byte || !timer)
+      return;
+    const auto kind = jfg::rgo::limb_kind(*kind_byte);
+    const bool head = kind == jfg::rgo::GoreKind::head;
+    if (!(head ? state.gore.heads : state.gore.limbs))
+      return;
+    if (state.gore_objects.hold(object, kind,
+                                head ? state.gore.head_limit : state.gore.limb_limit) &&
+        *timer < jfg::rgo::kLimbHoldTimer)
+      (void)memory.put_s16(*limb + jfg::rgo::kLimbTimer, jfg::rgo::kLimbHoldTimer);
+    return;
+  }
+  if (target == jfg::rgo::kBloodSpurtUpdateAll) {
+    if (!state.gore.blood)
+      return;
+    const std::uint32_t pool = blood_pool_address(memory);
+    if (pool == 0U)
+      return;
+    std::array<bool, jfg::rgo::kBloodSlots> resting{}, hold{};
+    for (std::size_t slot = 0U; slot < jfg::rgo::kBloodSlots; ++slot) {
+      const auto entry = pool + static_cast<std::uint32_t>(slot) * jfg::rgo::kBloodSlotSize;
+      resting[slot] = memory.u8(entry + jfg::rgo::kBloodSlotState) ==
+                          jfg::rgo::kBloodStateResting &&
+                      memory.u8(entry + jfg::rgo::kBloodSlotSurface).value_or(0U) != 0U;
+    }
+    state.gore_splats.update(resting, state.gore.blood_limit, hold);
+    for (std::size_t slot = 0U; slot < jfg::rgo::kBloodSlots; ++slot) {
+      const auto timer = pool + static_cast<std::uint32_t>(slot) * jfg::rgo::kBloodSlotSize +
+          jfg::rgo::kBloodSlotTimer;
+      if (hold[slot] && memory.s16(timer).value_or(jfg::rgo::kBloodHoldTimer) <
+                            jfg::rgo::kBloodHoldTimer)
+        (void)memory.put_s16(timer, jfg::rgo::kBloodHoldTimer);
+    }
+  }
+}
+
 // RGO frame interpolation, phase 2 (experimental, interpolate_objects=on):
 // run the game's object matrix writers and tag each matrix they write with an
 // ID from the object pointer and how many matrices it pushed since the last
@@ -6920,6 +7058,11 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     return 1;
   if (true60 && true60_dispatch(state, target, rdram, context))
     return 1;
+  // RGO persistent gore: adjusts fade timers, then the call runs as usual.
+  if (target == jfg::rgo::kSeveredLimbControl || target == jfg::rgo::kObjFreeObject ||
+      target == jfg::rgo::kObjFreeAll || target == jfg::rgo::kMainChangeLevel ||
+      target == jfg::rgo::kBloodSpurtUpdateAll)
+    gore_dispatch(state, target, rdram, context);
   // RGO frame interpolation: tag object matrices (experimental).
   if (state.rt64_shell != nullptr && state.video.interpolate_objects &&
       jfg::interpolation_requested(state.video) &&

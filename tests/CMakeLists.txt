@@ -563,6 +563,12 @@ target_compile_features(jfg_rgo_framerate_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_rgo_framerate_tests)
 add_test(NAME jfg.rgo_framerate COMMAND jfg_rgo_framerate_tests)
 
+add_executable(jfg_rgo_gore_tests rgo_gore_tests.cpp)
+target_include_directories(jfg_rgo_gore_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(jfg_rgo_gore_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_rgo_gore_tests)
+add_test(NAME jfg.rgo_gore COMMAND jfg_rgo_gore_tests)
+
 add_executable(jfg_frame_interpolation_tests frame_interpolation_tests.cpp)
 target_include_directories(jfg_frame_interpolation_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
 target_compile_features(jfg_frame_interpolation_tests PRIVATE cxx_std_20)
