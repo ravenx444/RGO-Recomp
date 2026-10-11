@@ -147,7 +147,7 @@ class AssembleG2PrivateEvidenceTests(unittest.TestCase):
         plan, pins = self.plan(self.bundle)
         plan_path = self.write_plan(plan, self.bundle)
         with self.assertRaises(ASSEMBLER.AssemblyError):
-                    ASSEMBLER._assemble_for_tests(plan_path, ROOT / "README.md", self.bundle / "public.json", pins=pins, harness_pins=self.policy())
+                    ASSEMBLER._assemble_for_tests(plan_path, ROOT / "LICENSE", self.bundle / "public.json", pins=pins, harness_pins=self.policy())
 
     def test_legacy_shared_and_cross_execution_paths_are_rejected(self) -> None:
         plan, pins = self.plan(self.bundle)
