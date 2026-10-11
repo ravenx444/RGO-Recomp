@@ -75,4 +75,62 @@ private:
   double smoothed_ = 0.0;
   bool primed_ = false;
 };
+
+// RGO: a hard upper bound on the host audio queue. Everything queued plays
+// that much later than the picture; the trim above corrects small drifts
+// only (2 %). If the device plays slower than the game produces by more than
+// that, or stops while the game keeps running, the queue would grow without
+// limit. Above the cushion plus kDropAboveMs the incoming game audio is
+// dropped until the queue is back at the cushion (a short skip, the delay
+// returns to normal); above the cushion plus kClearAboveMs the queue is
+// cleared and refilled to the cushion (a short silence instead of seconds of
+// stale sound).
+enum class QueueBoundAction { keep, drop, clear };
+inline constexpr std::uint32_t kDropAboveMs = 100U;
+inline constexpr std::uint32_t kClearAboveMs = 1000U;
+[[nodiscard]] constexpr QueueBoundAction queue_bound_action(
+    const bool playing, const bool dropping, const std::uint32_t queued_bytes,
+    const std::uint32_t cushion_bytes, const std::uint32_t bytes_per_second) noexcept {
+  if (!playing) return QueueBoundAction::keep;
+  const std::uint64_t queued = queued_bytes, cushion = cushion_bytes;
+  if (queued > cushion + std::uint64_t{bytes_per_second} * kClearAboveMs / 1000U)
+    return QueueBoundAction::clear;
+  if (queued > cushion + std::uint64_t{bytes_per_second} * kDropAboveMs / 1000U ||
+      (dropping && queued > cushion))
+    return QueueBoundAction::drop;
+  return QueueBoundAction::keep;
+}
+
+// RGO: how fast the sound device really plays, relative to its nominal
+// rate, over windows of at least 10 s of uninterrupted playback, in tenths
+// of a percent (1000: exact; 0: not measured yet). Shown by the Detailed
+// counter: a device that plays a few percent slow explains a growing queue.
+class PlaybackRateMeter {
+public:
+  static constexpr std::uint64_t kWindowUs = 10'000'000U;
+  void restart() noexcept { started_ = false; }
+  void sample(const std::uint64_t consumed_bytes, const std::uint64_t now_us,
+              const std::uint32_t bytes_per_second) noexcept {
+    if (!started_ || consumed_bytes < start_bytes_ || now_us < start_us_) {
+      started_ = true;
+      start_bytes_ = consumed_bytes;
+      start_us_ = now_us;
+      return;
+    }
+    const std::uint64_t elapsed = now_us - start_us_;
+    if (elapsed < kWindowUs || bytes_per_second == 0U) return;
+    const double rate = static_cast<double>(consumed_bytes - start_bytes_) * 1e6 /
+                        (static_cast<double>(elapsed) * static_cast<double>(bytes_per_second));
+    rate_tenths_ = static_cast<std::uint32_t>(std::clamp(rate * 1000.0 + 0.5, 1.0, 65535.0));
+    start_bytes_ = consumed_bytes;
+    start_us_ = now_us;
+  }
+  [[nodiscard]] std::uint32_t rate_tenths() const noexcept { return rate_tenths_; }
+
+private:
+  std::uint64_t start_bytes_ = 0U;
+  std::uint64_t start_us_ = 0U;
+  std::uint32_t rate_tenths_ = 0U;
+  bool started_ = false;
+};
 } // namespace jfg::audio

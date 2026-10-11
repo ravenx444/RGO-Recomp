@@ -80,7 +80,7 @@ int main() {
     // time per frame shows it can hold 60 again.
     {
         using G = True60Governor;
-        constexpr std::uint32_t fast = 9000U, borderline = 17000U, slow = 25000U;
+        constexpr std::uint32_t fast = 9000U, fit = 14000U, borderline = 17000U, slow = 25000U;
         // Frames of `vis` VIs and `busy` microseconds; returns the frames run.
         const auto run = [](G& governor, std::uint64_t& vi, int frames, std::uint32_t vis,
                             std::uint32_t busy) {
@@ -108,13 +108,22 @@ int main() {
         require(!governor.active(vi), "not before 90 % of the window is fast");
         run(governor, vi, 1, 2U, fast);
         require(governor.active(vi), "60 resumes on evidence");
-        // A try that fails at once doubles the minimum time at 30 (4 s).
-        run(governor, vi, 7, 2U, fast);
+        // A try that fails at once doubles the minimum time at 30 (4 s) for
+        // a scene that is fit for 60 but not light.
+        run(governor, vi, 7, 2U, fit);
         require(!governor.active(vi), "failed again");
-        run(governor, vi, 119, 2U, fast);
+        run(governor, vi, 119, 2U, fit);
         require(!governor.active(vi), "the minimum time at 30 doubled");
-        run(governor, vi, 1, 2U, fast);
+        run(governor, vi, 1, 2U, fit);
         require(governor.active(vi), "and 60 resumes after it");
+        // Failing again doubles it to 8 s, but a scene that turns light
+        // resumes after the first 2 s anyway.
+        run(governor, vi, 7, 2U, fit);
+        require(!governor.active(vi), "failed a third time");
+        run(governor, vi, 59, 2U, fast);
+        require(!governor.active(vi), "light: not before 2 s");
+        run(governor, vi, 1, 2U, fast);
+        require(governor.active(vi), "light: resumes after 2 s despite the 8 s back-off");
         // Holding 60 for 10 s makes the next minimum short again.
         run(governor, vi, static_cast<int>(G::kSettled) + 60, 1U, fast);
         run(governor, vi, 7, 2U, slow);
@@ -245,7 +254,7 @@ int main() {
     {
         FrameStats stats{600U, 600U, 598U, 301U, 300U, 2U, 300U, 158U, 342U, 69U, 70001U,
                          98U, 142U, 60U, 31U, 2U, 7U, 183U, 4U,
-                         11000U, 12U, 9000U, 2000U, 150U, 143U, 3U};
+                         11000U, 12U, 9000U, 2000U, 150U, 143U, 3U, 2U, 997U, 1003U, 500U};
         const auto words = encode_frame_stats(stats);
         FrameStats decoded{};
         for (unsigned index = 0U; index < kFrameDetailMessageCount; ++index)
@@ -255,8 +264,8 @@ int main() {
         require(format_frame_host(stats) ==
                     "host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms | VI wake +0.4 ms\n"
                     "True 60: holding 30, busy 18.3 ms\n"
-                    "MMIO 11000/s, stepped 12 | switches 9000/s, woken 2000 | audio 143/150 ms, "
-                    "3 dropouts",
+                    "MMIO 11000/s, stepped 12 | switches 9000/s, woken 2000, spin 500 us\n"
+                    "audio 143/150 ms, card 99.7 %, game 100.3 %, 3 dropouts, 2 resyncs",
             "host line, holding 30");
         stats.true60 = 1U;
         require(format_frame_host(stats).find("True 60: 60, late 7/60, busy 18.3 ms\n") !=

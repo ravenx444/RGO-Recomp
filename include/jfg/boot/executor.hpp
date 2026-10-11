@@ -18,6 +18,7 @@
 // and the message-queue HLE is a later brick.
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
@@ -36,6 +37,10 @@ inline constexpr int kSchedulerParticipant = -1;
 // operating-system wake-up. Process-wide, relaxed counts.
 [[nodiscard]] std::uint64_t baton_handoffs() noexcept;
 [[nodiscard]] std::uint64_t baton_sleeps() noexcept;
+// RGO: how long a guest thread waiting for the baton spins before it
+// sleeps (50 us by default; JFG_RGO_BATON_SPIN_US in the live build).
+void set_baton_spin(std::chrono::microseconds spin) noexcept;
+[[nodiscard]] std::chrono::microseconds baton_spin() noexcept;
 
 class BatonExecutor final {
 public:

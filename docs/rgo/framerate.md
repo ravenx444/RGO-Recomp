@@ -239,10 +239,16 @@ MMIO 12000/s, stepped 0 | switches 2500/s, woken 2500 | audio 100 ms
   **woken**: how many needed an operating-system wake-up because the
   receiving thread had stopped spinning (on this VM practically all of
   them; a wake-up costs tens of microseconds on Linux and can cost more on
-  Windows). **audio**: the audio queue level (smoothed) / the cushion it is
-  held at (100 ms, more after underruns), and the dropouts (underruns) since
-  the game started. A level that stays near the cushion is right; dropouts
-  that keep counting up mean the PC stalls longer than the cushion.
+  Windows).
+- **audio** (its own line): the audio queue level (smoothed) / the cushion
+  it is held at (100 ms, more after underruns); **card**: how fast the
+  sound device really plays, measured over 10 s of playback (100.0 % is
+  exact, `--` until measured); the dropouts (underruns) and **resyncs**
+  (audio skipped or cleared by the queue bound) since the game started. A
+  level that stays near the cushion is right. Dropouts that keep counting
+  up mean the PC stalls longer than the cushion; resyncs that keep counting
+  up with `card` below about 99 % mean the sound device plays slower than
+  the game produces.
 - **VI wake**: how late the emulation thread woke from its wait for a VI,
   at worst in the last half second. A few tenths of a millisecond is
   normal; several milliseconds mean the operating system wakes it late,
@@ -298,7 +304,41 @@ the game's code twice as fast as at 30. Profiling the headless build
 - **Baton spin** (`src/boot/executor.cpp`). Each guest thread is a host
   thread and exactly one runs at a time. A thread waiting for the baton now
   spins for up to 50 microseconds before it sleeps, so quick hand-offs skip
-  the futex wake-up. The order of execution is unchanged.
+  the futex wake-up. The order of execution is unchanged. `JFG_RGO_BATON_SPIN_US` (0 to 100000, read at start in the Windows build
+  too) sets the spin; the Detailed counter shows it (`spin 50 us`). On this
+  4-core VM a 2 ms spin cut the wake-ups from 2,300 to 450 a second but
+  doubled the busy time (13.4 against 7.7 ms per frame in the first level),
+  because the spinning threads take the few cores the game needs. On a PC
+  with many idle cores it may be the other way round.
+
+*Owner's PC (Ryzen 9 8940HX, 16 Zen 4 cores, RTX 5070 Ti, plugged in, dGPU):*
+14.9 ms of host time per frame in the first level, 3.6 ms of it the
+renderer, with 1,400-2,700 wake-ups a second. That is about twice this
+VM's 7.7 ms on a much faster CPU, so the cost is in the runtime, not the
+game. A fresh profile of the headless build (perf, True 60, real time,
+boot to the first level) ranks the CPU time:
+
+| Where | Share of CPU |
+|---|---|
+| Kernel: context switches, futex wake-ups, `sched_yield`, IPIs | 35 % |
+| Baton spin (`wait_until_holder`) | 23 % |
+| Snapshot compares and copies (`memcmp`, `memmove`) | 11 % |
+| The recompiled game code (`fn_*_recomp`) | 9 % |
+| Execution and audio probes (`jfg_phase9_execution_probe_*`, audio HLE) | 3 % |
+| MMIO trap handler and page protection (user side) | 2 % |
+| The rest (dispatch, scheduler, lookups) | 17 % |
+
+So the game's own code is a tenth of the work; handing the baton between
+guest threads (each a host thread, woken through the kernel) is more than
+half. On Windows a wake-up is a kernel round trip plus scheduling latency,
+which is why the same hand-off rate costs more there. Diagnostic and
+qualification paths in the live build: the original-timing mode turns on
+the guest leaf and OS execution paths (they are the live execution model,
+not optional logging; 3 % above); the MMIO trace records each register
+access (part of the 2 %); no per-instruction cycle charging or cache
+counters run. Removing the hand-off cost needs the guest threads to switch
+in user mode (fibers) instead of through the kernel (not done yet).
+
 - **Longer spins do not help here.** Guest thread switches run at 2,000-
   5,000 a second and practically every one needs a wake-up (the 50 µs spin
   rarely catches the baton). Spinning longer (300 µs to 3 ms, all threads or
@@ -582,6 +622,44 @@ stalls, and the only dropouts left are stalls longer than the cushion.
 The two 30 minute runs overlapped on a 4-core VM, so some stalls come from
 that. The sound card case uses `JFG_RGO_WALL_AUDIO_PPM` (headless only), which
 runs the exact wall-clock sink that many parts per million fast or slow.
+
+*Owner's `rgo/next` with the trim (1396ca3): "audio seems fixed"*, one
+dropout, but the Detailed counter read `audio 536/149 ms` while playing and
+`audio 4571/149 ms` after the game sat in the background: the queue grew far
+past the cushion. 536 ms queued means the sound played about half a second
+after the picture. Production cannot outrun the wall clock (the VIs are
+paced to it and the trim only slows them while the queue is high), so the
+sound device took audio slower than its nominal rate, by more than the
+trim's 2 %, or stopped for a while (in the background). Which one cannot be
+told from Linux, so the counter now measures it (`card`).
+
+Fix: **a hard upper bound on the queue** (`queue_bound_action`,
+`jfg/audio/playback_buffer.hpp`). More than 100 ms above the cushion, the
+game's incoming audio is dropped until the queue is back at the cushion (a
+short skip; the delay returns to normal). More than a second above, the
+queue is cleared and refilled to the cushion (a short silence instead of
+seconds of stale sound); that is a resync, not an underrun, so the cushion
+does not grow. The startup drain (also run after the frontend's pause) now
+gives up after a second instead of waiting for a device that does not play,
+which would have hung the game.
+
+| Headless, True 60, 6 min | Queue | Resyncs | Counter |
+|---|---|---|---|
+| exact sink | 109-169 ms | 0 | `card 100.0 %` |
+| sink 3 % slow | 67-233 ms (bounded) | 34 (one ~100 ms skip every 10 s) | `card 97.0 %` |
+| sink stopped (2 min) | at most 200 ms, game keeps running | 2 | `card 0.1 %` |
+
+Before the bound, the stopped sink hung the game at startup and a slow one
+grew the queue without limit.
+
+*Governor:* the same report says the first level "still had some frames
+crashing down to 30fps, basically locked". The PC's busy time at 60 is
+13.8-15.1 ms against a 16.7 ms frame, right at the edge, so heavy spots
+fall back to 30, and each try of 60 that fails again within 10 s doubles the
+minimum time at 30 (2 s up to 30 s). **A scene that has become light
+(busy up to 12 ms at 30) now resumes 60 after 2 s however long the back-off
+has grown** (`True60Governor::kLightBusyUs`). A scene that stays at the edge
+still backs off: the real fix there is host speed.
 
 **5. Does the input stack cost host time?** No measurable cost. The SDL
 thread polls at about 500 Hz and used 2 % of one core on Linux without a
@@ -1090,12 +1168,24 @@ before the first level; the old crash came about 1 min 50 s in.
      after 10 and 20 minutes.
    - A dropout should come only with a visible hitch (a load, a long
      `host` time). Note when crackles happen and what the counter shows.
+   - The `audio` line: `card` should read 99.5-100.5 %; `resyncs` should
+     stay at 0 while the game is in front. Leave the game in the background
+     for a few minutes and photograph the line again: `card` and `resyncs`
+     then tell whether Windows slows or stops the sound device there. The
+     queue level must stay below cushion + 100 ms either way.
    - For comparison, set `JFG_RGO_AUDIO_TRIM=0` before starting the game:
      that is the old behaviour (the level creeps down and dropouts grow
      over time).
    - If the game crashes, send `crash.log`.
 
-8. **Optional A/B, only if runs still differ:** build `main` and this
+8. **Baton spin (host speed):** in the first level at True 60, note the
+   Detailed `host` ms and `woken` count with the default (`spin 50 us`).
+   Then quit, set `JFG_RGO_BATON_SPIN_US=500` before starting the game
+   (`set JFG_RGO_BATON_SPIN_US=500` in the same command prompt, or a user
+   environment variable), and note them again in the same place; repeat
+   with `2000`. Lower `host` with fewer `woken` means the spin helps on this
+   PC; the counter's `spin` field confirms the setting took effect.
+9. **Optional A/B, only if runs still differ:** build `main` and this
    branch from the same checkout (`git checkout main`, build, play;
    `git checkout rgo/framerate-fixes`, build, play), five starts each,
    and count the runs that stay at 30. To test whether the input stack is
