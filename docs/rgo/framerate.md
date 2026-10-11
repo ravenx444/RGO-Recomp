@@ -303,8 +303,7 @@ the game's code twice as fast as at 30. Profiling the headless build
   VM: emulated seconds per wall second fell from 1.49-1.56 to 0.77-1.08, as
   spinning threads take CPU from the running one. Windows wake-ups may cost
   more; the Detailed counter's `switches`/`woken` figures and the host time
-  will tell. `JFG_RGO_BATON_SPIN_US` and `JFG_RGO_SCHEDULER_SPIN_US` set the
-  spins for measurements.
+  will tell.
 - **The governor starts over in a new scene.** A heavy cutscene that cannot
   hold 60 grows the governor's pause up to 30 s; the gameplay after it used
   to stay at 30 for that long. The pause now resets when the level changes.
