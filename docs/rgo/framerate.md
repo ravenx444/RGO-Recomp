@@ -239,7 +239,10 @@ MMIO 12000/s, stepped 0 | switches 2500/s, woken 2500 | audio 100 ms
   **woken**: how many needed an operating-system wake-up because the
   receiving thread had stopped spinning (on this VM practically all of
   them; a wake-up costs tens of microseconds on Linux and can cost more on
-  Windows). **audio**: the audio cushion (100 ms, more after underruns).
+  Windows). **audio**: the audio queue level (smoothed) / the cushion it is
+  held at (100 ms, more after underruns), and the dropouts (underruns) since
+  the game started. A level that stays near the cushion is right; dropouts
+  that keep counting up mean the PC stalls longer than the cushion.
 - **VI wake**: how late the emulation thread woke from its wait for a VI,
   at worst in the last half second. A few tenths of a millisecond is
   normal; several milliseconds mean the operating system wakes it late,
@@ -541,6 +544,34 @@ more before playing again, up to 200 ms, so stalls of the same length stop
 cutting out. Cost: sound plays up to 100 ms later than the picture on a PC
 that needed it, for the rest of the session; a PC without underruns keeps
 100 ms. The Detailed counter shows the current cushion (`audio 100 ms`).
+
+*Owner's next `rgo/next` build: "audio seems to degrade over time."* A 30
+minute real-time headless run of True 60 (first level, autopilot, exact
+wall-clock audio sink) shows why. Memory (about 150 MB) and host time per
+frame (about 7 ms) stay flat, so nothing accumulates in the runtime. The
+audio queue does: its only inflow is the game's audio, which the game makes
+at the emulated AI rate, and VI pacing ties emulated time to the wall clock.
+Whenever the emulation loses time for good (a host stall long enough that
+the emulated AI runs dry, a real-time floor reset after a level load), the
+queue is left that much lower, and nothing ever refills it. It steps down
+(200, 191, 189, 138, 102, 85 ms over the first 90 s) until it runs dry and
+cuts out; the refill to the cushion is then silent. Emulated time ended
+1.9 s behind the wall clock after 30 min: 12 dropouts, more as the session
+goes on. A sound card whose clock is slightly fast does the same steadily
+(0.05 % fast is 0.9 s over 30 min); one slightly slow makes the queue, and
+so the delay of the sound behind the picture, grow without limit.
+
+Fix: **the queue is held at its cushion** (`QueueLevelTrim`,
+`jfg/audio/playback_buffer.hpp`). Each VI's wall deadline is moved a little
+earlier while the queue (smoothed over about half a second) is more than
+8 ms below the cushion, and a little later while it is more than 8 ms above:
+1 % of a VI per 10 ms beyond that band, at most 2 %. The game then runs up
+to 2 % fast or slow until the queue is back; the sound's pitch does not
+change. It only runs ahead when that VI would wait anyway, so a PC that is
+behind does not build up time it later races through. `JFG_RGO_AUDIO_TRIM=0`
+turns it off. Same run with the trim: the queue holds at the cushion between
+stalls, and the only dropouts left are stalls longer than the cushion
+(measurements below).
 
 **5. Does the input stack cost host time?** No measurable cost. The SDL
 thread polls at about 500 Hz and used 2 % of one core on Linux without a
