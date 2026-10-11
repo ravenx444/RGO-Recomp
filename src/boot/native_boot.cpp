@@ -2699,7 +2699,6 @@ void sample_controller_ports(State &state) {
     state.host_keys.fill(false);
     for (const int key : step.keys)
       state.host_keys[static_cast<std::size_t>(key)] = true;
-    state.pc_raw_available = true;
     if (state.pc_mouse_captured.load())
       state.pc_mouse.add(step.mouse_x, step.mouse_y);
   }
@@ -2982,7 +2981,11 @@ void sample_live_controller(State &state) noexcept {
     want_mouse|=(state.pc_experimental || state.pc_kb_twin[p]) && state.pc_keyboard_active[p] && config.mouse_aim &&
       state.controller_ports.samples[p].connected && (config.modern || (state.controller_ports.samples[p].buttons&0x10)!=0);
   }
-  want_mouse=want_mouse && state.pc_raw_available && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
+  bool raw_mouse=state.pc_raw_available;
+#if defined(JFG_HEADLESS_LIVE)
+  raw_mouse=raw_mouse || state.pad_script_active; // the scripted mouse (headless_pad_script.hpp)
+#endif
+  want_mouse=want_mouse && raw_mouse && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
   if(want_mouse && state.native_window) {
