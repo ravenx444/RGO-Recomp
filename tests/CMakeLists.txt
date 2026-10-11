@@ -664,3 +664,9 @@ target_include_directories(jfg_original_timing_fast_tests PRIVATE
 target_compile_features(jfg_original_timing_fast_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_original_timing_fast_tests)
 add_test(NAME jfg.original_timing_fast COMMAND jfg_original_timing_fast_tests)
+
+add_executable(jfg_twin_stick_tests twin_stick_tests.cpp)
+target_link_libraries(jfg_twin_stick_tests PRIVATE jfg_runtime)
+target_compile_features(jfg_twin_stick_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_twin_stick_tests)
+add_test(NAME jfg.twin_stick COMMAND jfg_twin_stick_tests)

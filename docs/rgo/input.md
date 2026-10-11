@@ -240,6 +240,119 @@ player and restarting. Now:
 **Gyro settings** are on the device card for any player whose controller has a
 gyro, with no Experimental switch needed (see Gyro aiming above).
 
+## Modern twin-stick scheme
+
+Owner request (after testing gyro on a DualSense): put all aiming on the right
+stick, separate from movement. Controllers > player > **Controller scheme**:
+**Original** (one stick moves and aims, as on the N64) or **Modern
+twin-stick**. It is on the gamepad page for every controller player, with no
+Experimental switch. `pc-input.ini` keys `scheme` (0/1) and
+`camera_invert_y`; older files load as Original.
+
+**What it does**
+
+- **Left stick: movement only**, always. Outside aiming the game already runs
+  relative to the camera (see below), so turning the camera turns the
+  controls with it. While aiming the left stick walks and strafes.
+- **Right stick: camera, and the aim while aiming.** Outside aiming it orbits
+  the camera (upstream's orbit hook at `levelGetCamera`, fed before the game's
+  scenery solver). While aiming it turns the aim heading and pitch directly
+  (the direct-aim path the mouse and gyro use), with nothing springing back.
+  Gyro adds to it.
+- **A new aim starts where the camera looks**: the first aim update after a
+  break of a quarter of a second sets the body heading to the camera's
+  direction, so after turning the camera, aiming points at what is on screen
+  instead of where the character happened to face.
+- **Default buttons** (applied when switching to Modern; **Normal controls** /
+  **Expert controls** pick the layout for the game's own control scheme):
+  L2 aim (the game's R), R2 fire (Z), Cross jump (C-up in Normal, A in
+  Expert), Square the other face action, Circle B, L3 C-down, L1/R1
+  C-left/C-right (sidestep rolls), Options Start, Create/Back the game's L,
+  D-pad as before. Nothing is bound to the right stick. All rebindable.
+  Switching back to Original restores the default layout.
+- **Settings** (shown when Modern is on): camera speed and aim speed
+  (100% = 200 and 100 degrees a second at full stick, 10-300%), right-stick
+  deadzone (radial, rescaled to full travel), vertical speed, response curve
+  (Linear, Precise = squared, Extra precise = cubed; the curve shapes the
+  deflection, not the direction, so diagonals stay diagonal), Camera Y and
+  Aim Y invert, separately.
+
+**Why upstream's dual-stick was not reliable, and what changed**
+
+- Its stick look went through a fake N64 stick (`pc_aim_stick`, an `int8`
+  scaled to +/-80 and clamped to 127), so sensitivities above ~160% did
+  nothing, and it only worked with the Experimental switch.
+  Now the right stick becomes an angle rate (look mode 6, `pc_twin_rate`):
+  1/16 angle units per game tick, applied by the hooks times the ticks each
+  update covers (`PcTwinTurn`), with fractions carried. The turn per second
+  is identical at 20, 30 and True 60 (unit-tested).
+- Aim walking only worked in movement states 10/11. The decomp shows the aim
+  states are **5** (aim stance: `controlGetManualAim` is called from its
+  handler, velocities decay to 0) and **11** (aim walking); state 10 is not
+  an aim state. In the original game you walk in aim with the zoom-in /
+  zoom-out keys (Normal: A/B) and strafe with C-left/C-right
+  (`ControlModeNormal`/`ControlModeExpert` at `0x800A18B4`/`0x800A18D8`,
+  masks at +0x1C/+0x20 and +0x14/+0x18; strafe is overlay 15's
+  `0x00F04B4C`, +/-2.5 sideways). Now, in states 5/11, the left stick holds
+  those keys for the game (`pc_twin_aim_walk`), so the game itself enters
+  aim walking with its own animations, and the aim hook sets the analog
+  speed (`pc_aim_movement`). Not while the sniper scope is up (those keys
+  zoom; `controlGetManualAim` returns the scope state).
+- The camera hook ran in any state. Mode 6 only orbits the camera in the
+  movement states listed under Coverage.
+
+**How the game moves** (overlays 15/16/17 are Juno, Vela and Lupus; same
+code): before its state switch, `controlPlayer`'s character code computes the
+wanted heading as `atan2(controlXjoy, -controlYjoy) - camera yaw`
+(`mathAtan2` at `0x80049C84`; stick straight up is `0x8000`) and the speed
+from the stick length (clamped to 65), then dispatches on the movement state
+(`+0x568`, 13 states, jump table at overlay 15 `0x00F08700`). So movement is
+camera-relative in every on-foot state, and straight ahead of the camera is
+heading `0x8000 - camera yaw` (`pc_camera_heading`).
+
+**Coverage** (what uses the modern path, what keeps the original):
+
+COVERAGE_PLACEHOLDER
+
+**Recordings**: twin-stick input is recorded as look mode 6 in the v3 format
+(a recording is extended when Experimental or the twin-stick scheme is on
+when it starts) and replays without the switch. Gyro is still never recorded.
+
+**Headless check**: the headless Linux build has a scripted virtual
+controller for this (`JFG_RGO_PAD_SCRIPT`, `jfg/rgo/headless_pad_script.hpp`):
+the new-game autopilot plays the title screens, then the script takes over
+as an SDL controller in slot 0 through the real mapping, scheme and hooks;
+`JFG_RGO_PLAYER_TRACE` writes one row per poll (movement state, heading,
+pitch, velocities, camera yaw, position). Profile files come from
+`JFG_CONTROLLER_CONFIG`'s folder. Results: HEADLESS_PLACEHOLDER
+
+## Plan: crosshair points where shots land (roadmap item 6)
+
+Not in this PR. Today the shot leaves the gun along the aim heading/pitch
+while the camera sits on an offset spring arm, so near objects the crosshair
+and the hit point disagree. Plan:
+
+1. **Find the crosshair ray.** In the aim hook, after the game updates the
+   aim, take the camera position and the crosshair's screen point (the
+   game's crosshair is the projected aim point; with direct aim it stays at
+   the screen centre) and build a world ray from the camera through it.
+2. **Cast it into the level.** Use the game's own collision query (the
+   `trackMakePolylist` + `trackGetIntersect` pair that `controlCeiling`
+   uses, `charControl.c`) against level geometry, and the object hit lists
+   for enemies, up to the weapon's range. The nearest hit is the target
+   point; with no hit, a point at long range along the ray.
+3. **Aim the gun at it.** From the gun barrel (`controlGetGunBarrelPos`,
+   `0x8003B418`) compute yaw/pitch to the target point and write them into
+   the shot's direction, either by adjusting the heading/pitch only for the
+   firing call (`controlUpdateWeapon` → the per-weapon fire functions in
+   `charControl.c`, e.g. `func_80039098`) or by hooking the projectile
+   spawn's angle arguments. The body/crosshair keep the camera's aim, so the
+   view does not move.
+4. **Check**: headless, aim at a wall at several distances and compare the
+   projectile's impact point with the camera ray's hit point; owner check
+   for feel, lock-on, the sniper scope and split-screen (leave split-screen
+   original).
+
 ## Status
 
 - PR 1 (DualShock 4 / DualSense, rumble): merged (#9).
@@ -247,3 +360,4 @@ gyro, with no Experimental switch needed (see Gyro aiming above).
 - PR 3 (gyro): merged (#11).
 - PR 4 (dual input): merged (#12).
 - PS5 fixes (choosing a controller, gyro settings): in review.
+- Modern twin-stick scheme: in review (based on the PS5 fixes).
