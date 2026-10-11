@@ -49,7 +49,7 @@ work. See [PC controls status](planning/pc-controls-status.md).
 
 ## Gameplay coverage
 
-Maintainer-reported progress is tracked in the [README](../README.md#campaign-playtest-progress).
+Upstream's maintainer-reported progress was tracked in its README, which this fork removed.
 The maintainer has completed the campaign using optional infinite-health and
 enemy auto-kill testing mods and a save with all Tribals unlocked. Saving and
 loading are also verified. This establishes campaign progression coverage;
