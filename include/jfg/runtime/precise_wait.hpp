@@ -22,4 +22,21 @@ void precise_sleep_until(const std::chrono::time_point<Clock, Duration> deadline
         std::this_thread::yield();
 }
 
+// The same with the coarse sleep done by `sleep_for` (a callable taking a
+// std::chrono::nanoseconds). On Windows the runtime passes a high-resolution
+// waitable timer: a plain sleep there is only as precise as the process's
+// timer resolution, which Windows 11 does not always raise (it can refuse a
+// process it considers occluded or inaudible), and then it can wake up to
+// 15.6 ms late, past the 2 ms margin.
+template <typename Clock, typename Duration, typename SleepFor>
+void precise_sleep_until(const std::chrono::time_point<Clock, Duration> deadline,
+                         SleepFor&& sleep_for) {
+    const auto coarse = deadline - kPreciseWaitSpin;
+    const auto now = Clock::now();
+    if (now < coarse)
+        sleep_for(std::chrono::duration_cast<std::chrono::nanoseconds>(coarse - now));
+    while (Clock::now() < deadline)
+        std::this_thread::yield();
+}
+
 }  // namespace jfg

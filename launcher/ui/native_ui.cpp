@@ -1827,6 +1827,11 @@ void FrontendUiFrame(const FrontendUiState &state) {
                "<br/>input " + t(d.input_tenths) +
                "<br/>game frame " + t(d.frame_min) + "-" + t(d.frame_max) + " ms" +
                "<br/>display frame " + t(d.display_min) + "-" + t(d.display_max) + " ms";
+        // Host time per frame, graphics tasks and the True 60 governor.
+        std::string host = escape(jfg::format_frame_host(d));
+        for (std::size_t at = host.find('\n'); at != std::string::npos; at = host.find('\n', at))
+          host.replace(at, 1U, "<br/>");
+        rml += "<br/>" + host;
       }
       fps->SetInnerRML(rml);
     }

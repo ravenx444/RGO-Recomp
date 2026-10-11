@@ -124,6 +124,7 @@ extern "C" BOOLEAN WINAPI SystemFunction036(PVOID, ULONG);
 #include <ucontext.h>
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
 #include <SDL.h>
+#include "jfg/platform/sdl_gamepads.hpp"
 #endif
 #endif
 // The live runtime: Windows, or the headless Linux build.
@@ -929,7 +930,7 @@ public:
   // Establish the wall clock only after that excess has played, so startup
   // work cannot permanently choose a larger audio/video phase offset.
   void settle_startup_queue() {
-    if (!device_playing_ || device_ == 0U) return;
+    if (!device_playing_ || (device_ == 0U && !wall_sink_)) return;
     update_metrics();
     capture_event("anchor-drain-begin");
     while (device_playing_ && current_queued_bytes_ > prebuffer_bytes_) {
@@ -947,11 +948,17 @@ public:
       advance_emulated_dma();
     update_metrics();
     update_playback_state();
-    while (throttle && device_playing_ &&
-           current_queued_bytes_ > pacing_bytes_) {
-      SDL_Delay(1U);
-      update_metrics();
-      update_playback_state();
+    if (throttle && device_playing_ && current_queued_bytes_ > pacing_bytes_) {
+      const auto throttle_start = std::chrono::steady_clock::now();
+      while (throttle && device_playing_ &&
+             current_queued_bytes_ > pacing_bytes_) {
+        SDL_Delay(1U);
+        update_metrics();
+        update_playback_state();
+      }
+      throttled_us_ += static_cast<std::uint64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::steady_clock::now() - throttle_start).count());
     }
     if (!advance_emulated_clock) {
       if (capture_pcm_.is_open())
@@ -989,6 +996,13 @@ public:
     return underruns_;
   }
   [[nodiscard]] std::uint64_t overruns() const noexcept { return overruns_; }
+  // Time spent waiting for a too-full queue to play down (RGO busy time).
+  [[nodiscard]] std::uint64_t throttled_microseconds() const noexcept { return throttled_us_; }
+  // Audio waiting to play, in milliseconds (headless counter log).
+  [[nodiscard]] std::uint32_t queued_milliseconds() const noexcept {
+    return frequency_ == 0U ? 0U : static_cast<std::uint32_t>(
+        static_cast<std::uint64_t>(current_queued_bytes_) * 1000U / (frequency_ * 4U));
+  }
   [[nodiscard]] std::uint64_t consumed_milliseconds() const noexcept {
     return frequency_ == 0U
                ? 0U
@@ -1035,8 +1049,19 @@ private:
     desired.channels = 2U;
     desired.samples = 256U;
     SDL_AudioSpec obtained{};
+#if defined(JFG_HEADLESS_LIVE)
+    // RGO headless measurement: JFG_RGO_WALL_AUDIO=1 plays into an exact
+    // wall-clock sink instead of an SDL device (SDL's dummy driver consumes
+    // a few percent too fast or too slow, which shows as false underruns).
+    if (const char *wall = std::getenv("JFG_RGO_WALL_AUDIO"); wall != nullptr && wall[0] == '1') {
+      wall_sink_ = true;
+      obtained = desired;
+    } else
+#endif
     device_ = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
-    if (device_ == 0U || obtained.freq != desired.freq ||
+    if (wall_sink_) {
+      // The wall-clock sink stands in for the device.
+    } else if (device_ == 0U || obtained.freq != desired.freq ||
         obtained.format != desired.format ||
         obtained.channels != desired.channels) {
       if (device_ != 0U)
@@ -1073,7 +1098,19 @@ private:
   }
 
   void update_metrics() noexcept {
-    if (device_ == 0U) {
+    if (wall_sink_) {
+      // Consume at exactly the output rate while playing.
+      const auto now = std::chrono::steady_clock::now();
+      if (device_playing_ && wall_mark_ != std::chrono::steady_clock::time_point{})
+        wall_consumed_ += std::chrono::duration<double>(now - wall_mark_).count() *
+                          static_cast<double>(frequency_) * 4.0;
+      wall_mark_ = now;
+      if (wall_consumed_ > static_cast<double>(queued_bytes_))
+        wall_consumed_ = static_cast<double>(queued_bytes_);
+      consumed_bytes_ = static_cast<std::uint64_t>(wall_consumed_) & ~std::uint64_t{3};
+      current_queued_bytes_ = static_cast<std::uint32_t>(
+          (std::min)(queued_bytes_ - consumed_bytes_, std::uint64_t{UINT32_MAX}));
+    } else if (device_ == 0U) {
       if (!null_sink_)
         return;
       std::uint64_t remaining = 0U;
@@ -1086,10 +1123,12 @@ private:
                             : 0U;
       return;
     }
-    current_queued_bytes_ = SDL_GetQueuedAudioSize(device_);
-    consumed_bytes_ = queued_bytes_ >= current_queued_bytes_
-                          ? queued_bytes_ - current_queued_bytes_
-                          : 0U;
+    if (!wall_sink_) {
+      current_queued_bytes_ = SDL_GetQueuedAudioSize(device_);
+      consumed_bytes_ = queued_bytes_ >= current_queued_bytes_
+                            ? queued_bytes_ - current_queued_bytes_
+                            : 0U;
+    }
     if (device_playing_ && current_queued_bytes_ == 0U) {
       if (!empty_episode_) {
         ++underruns_;
@@ -1110,7 +1149,7 @@ private:
   }
 
   void update_playback_state() noexcept {
-    if (device_ == 0U) {
+    if (device_ == 0U && !wall_sink_) {
       if (null_sink_ && !started_ &&
           current_queued_bytes_ >= prebuffer_bytes_)
         started_ = true;
@@ -1120,19 +1159,19 @@ private:
     switch (jfg::audio::playback_buffer_action(started_, device_playing_,
                 current_queued_bytes_, prebuffer_bytes_, resume_bytes_)) {
     case jfg::audio::PlaybackBufferAction::start:
-      SDL_PauseAudioDevice(device_, 0);
+      if (device_ != 0U) SDL_PauseAudioDevice(device_, 0);
       started_ = true;
       device_playing_ = true;
       empty_episode_ = false;
       capture_event("start");
       break;
     case jfg::audio::PlaybackBufferAction::pause_empty:
-      SDL_PauseAudioDevice(device_, 1);
+      if (device_ != 0U) SDL_PauseAudioDevice(device_, 1);
       device_playing_ = false;
       capture_event("pause-empty");
       break;
     case jfg::audio::PlaybackBufferAction::resume:
-      SDL_PauseAudioDevice(device_, 0);
+      if (device_ != 0U) SDL_PauseAudioDevice(device_, 0);
       device_playing_ = true;
       empty_episode_ = false;
       capture_event("resume");
@@ -1193,6 +1232,11 @@ private:
   std::deque<std::uint32_t> emulated_dma_lengths_;
   std::uint64_t emulated_byte_accumulator_ = 0U;
   std::uint32_t frequency_ = 0U;
+  std::uint64_t throttled_us_ = 0U;
+  // RGO headless wall-clock sink (JFG_RGO_WALL_AUDIO).
+  bool wall_sink_ = false;
+  double wall_consumed_ = 0.0;
+  std::chrono::steady_clock::time_point wall_mark_{};
   std::uint32_t prebuffer_bytes_ = 0U;
   std::uint32_t resume_bytes_ = 0U;
   std::uint32_t pacing_bytes_ = 0U;
@@ -1962,8 +2006,9 @@ struct State : JfgOriginalTimingFast {
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
   jfg::WindowInputMailbox window_input;
-#if defined(_WIN32)
+#if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
   // RGO: SDL gamepads (DualShock 4, DualSense, Switch Pro, Xbox) and rumble.
+  // The headless build runs them too, so its timing includes the input thread.
   std::unique_ptr<jfg::SdlGamepads> gamepads;
   bool gamepads_failed = false, rumble_blocked = false;
   jfg::GamepadSnapshot gamepad_snapshot;
@@ -2086,9 +2131,24 @@ struct State : JfgOriginalTimingFast {
   // True 60: texture scroller ticks waiting to run in pairs, and whether the
   // previous frame ran at true 60 (to hand the game back its 30 fps mode).
   std::uint32_t scroller_pending_ticks = 0U;
+  // True 60: the squads AI (bug enemies) runs once per 2 ticks. Ticks waiting
+  // to run, and the rate it runs with this frame (0: skipped this frame).
+  std::uint32_t squads_pending_ticks = 0U;
+  std::uint32_t squads_rate = 0U;
+  std::uint64_t squaddie_calls = 0U;  // headless counter log: bugs are active
   bool true60_active = false;
   jfg::True60Governor true60_governor;
   std::uint32_t true60_level = 0U;  // the governor's scene (kCurrentLevel)
+  // RGO host busy time per game frame (the governor's evidence and the
+  // Detailed counter's "host" line): wall time between two viFrameSync calls
+  // minus the time the emulation thread slept waiting for a VI.
+  std::uint64_t pacing_wait_us = 0U;      // all VI pacing sleeps so far
+  std::uint64_t busy_frame_wait_us = 0U;  // pacing_wait_us at the last frame
+  std::chrono::steady_clock::time_point busy_frame_start{};
+  std::uint64_t frame_busy_us = 0U, frame_busy_max_us = 0U, frame_busy_frames = 0U;
+  std::uint32_t frame_busy_last_us = 0U;  // the frame that just ended
+  std::uint64_t vi_wake_late_max_us = 0U;  // latest VI pacing wake-up, this report
+  std::uint64_t frame_graphics_start = 0U, frame_submit_us_start = 0U;
   // RGO fast clock real-time floor: the Count of the last paced VI and the
   // wall time it was due, so Count can follow the wall clock when the host
   // falls behind (JFG_RGO_DETERMINISTIC_CLOCK=1 turns this off).
@@ -3056,6 +3116,52 @@ bool service_host_audio(State &state, const bool pace) {
   return true;
 }
 
+#if defined(_WIN32)
+// RGO: a high-resolution waitable timer (Windows 10 1803 and later) wakes
+// within about half a millisecond whatever the process timer resolution is.
+struct HighResolutionTimer {
+  HANDLE handle = CreateWaitableTimerExW(nullptr, nullptr,
+      0x00000002U /* CREATE_WAITABLE_TIMER_HIGH_RESOLUTION */, TIMER_ALL_ACCESS);
+  HighResolutionTimer() = default;
+  HighResolutionTimer(const HighResolutionTimer &) = delete;
+  HighResolutionTimer &operator=(const HighResolutionTimer &) = delete;
+  ~HighResolutionTimer() {
+    if (handle != nullptr)
+      CloseHandle(handle);
+  }
+};
+#endif
+
+// RGO frame pacing: sleep until a VI is due. Counts the time slept (the busy
+// time excludes it) and how late the thread woke (the Detailed counter's
+// "VI wake" figure: a plain sleep can wake up to 15.6 ms late on Windows when
+// the timer resolution is not raised, which makes frames miss their VI).
+void paced_sleep_until(State &state, const std::chrono::steady_clock::time_point deadline) {
+  const auto start = std::chrono::steady_clock::now();
+#if defined(_WIN32)
+  // Each guest thread is a host thread, so each gets its own timer.
+  thread_local HighResolutionTimer timer;
+  jfg::precise_sleep_until(deadline, [](const std::chrono::nanoseconds wait) {
+    LARGE_INTEGER due{};
+    due.QuadPart = -static_cast<LONGLONG>(wait.count() / 100);  // relative, 100 ns units
+    const auto timeout = static_cast<DWORD>(wait.count() / 1000000 + 20);
+    if (timer.handle == nullptr || due.QuadPart >= 0 ||
+        !SetWaitableTimer(timer.handle, &due, 0, nullptr, nullptr, FALSE) ||
+        WaitForSingleObject(timer.handle, timeout) != WAIT_OBJECT_0)
+      std::this_thread::sleep_for(wait);
+  });
+#else
+  jfg::precise_sleep_until(deadline);
+#endif
+  const auto end = std::chrono::steady_clock::now();
+  state.pacing_wait_us += static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(end - start).count());
+  if (end > deadline)
+    state.vi_wake_late_max_us = (std::max)(state.vi_wake_late_max_us,
+        static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(end - deadline).count()));
+}
+
 // RGO display settings: follow the launcher's video settings while playing.
 void refresh_video_settings(State &state) {
   if (!state.video_settings_checked) {
@@ -3125,6 +3231,10 @@ void refresh_video_settings(State &state) {
     state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
     state.frame_gaps = {};
     state.frame_input_start = state.controller_samples;
+    state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
+    state.vi_wake_late_max_us = 0U;
+    state.frame_graphics_start = state.graphics_tasks;
+    state.frame_submit_us_start = state.graphics_submit_microseconds;
   } else if (now - state.frame_rate_start >= std::chrono::milliseconds(500)) {
     const auto elapsed_us = static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::microseconds>(
@@ -3153,6 +3263,27 @@ void refresh_video_settings(State &state) {
     details.frame_max = state.frame_gaps.maximum_tenths();
     details.display_min = counter.frame_min_tenth_ms;
     details.display_max = counter.frame_max_tenth_ms;
+    // Host time per game frame, graphics tasks and the True 60 governor.
+    const auto tenths_ms = [](const std::uint64_t microseconds) {
+      return static_cast<std::uint32_t>((std::min<std::uint64_t>)((microseconds + 50U) / 100U, 0xFFFFU));
+    };
+    const std::uint64_t logic = state.logic_frames - state.frame_rate_logic_start;
+    if (state.frame_busy_frames != 0U) {
+      details.busy_avg = tenths_ms(state.frame_busy_us / state.frame_busy_frames);
+      details.busy_max = tenths_ms(state.frame_busy_max_us);
+    }
+    if (logic != 0U) {
+      details.tasks_per_frame = static_cast<std::uint32_t>((std::min<std::uint64_t>)(
+          ((state.graphics_tasks - state.frame_graphics_start) * 10U + logic / 2U) / logic, 0xFFFFU));
+      details.submit_per_frame = tenths_ms(
+          (state.graphics_submit_microseconds - state.frame_submit_us_start) / logic);
+    }
+    if (state.video_managed && !state.input_replay_loaded && jfg::true_logic_60(state.video)) {
+      details.true60 = state.true60_governor.holding_30() ? 2U : 1U;
+      details.late = state.true60_governor.late_frames();
+      details.busy_p90 = tenths_ms(state.true60_governor.busy_p90());
+    }
+    details.wake_late = tenths_ms(state.vi_wake_late_max_us);
     const HWND window = static_cast<HWND>(state.native_window);
     if (window != nullptr && GetParent(window) != nullptr) {
       const HWND root = GetAncestor(window, GA_ROOT);
@@ -3166,10 +3297,16 @@ void refresh_video_settings(State &state) {
                      static_cast<LPARAM>(words[index * 2U + 1U]));
     }
 #if defined(JFG_HEADLESS_LIVE)
-    if (state.counter_log)
-      std::fprintf(stderr, "counter: VI %llu %s\n",
+    if (state.counter_log) {
+      std::string host = jfg::format_frame_host(details);
+      std::replace(host.begin(), host.end(), '\n', ' ');
+      std::fprintf(stderr, "counter: VI %llu %s | %s | audio queued %u ms, underruns %llu | squaddie calls %llu\n",
                    static_cast<unsigned long long>(state.vi_retraces),
-                   jfg::format_frame_counter(counter).c_str());
+                   jfg::format_frame_counter(counter).c_str(), host.c_str(),
+                   state.host_audio.queued_milliseconds(),
+                   static_cast<unsigned long long>(state.host_audio.underruns()),
+                   static_cast<unsigned long long>(state.squaddie_calls));
+    }
 #endif
     state.frame_rate_start = now;
     state.frame_rate_presents = 0U;
@@ -3179,6 +3316,10 @@ void refresh_video_settings(State &state) {
     state.frame_drawn = state.frame_new = state.frame_camera = state.frame_repeats = 0U;
     state.frame_gaps = {};
     state.frame_input_start = state.controller_samples;
+    state.frame_busy_us = state.frame_busy_max_us = state.frame_busy_frames = 0U;
+    state.vi_wake_late_max_us = 0U;
+    state.frame_graphics_start = state.graphics_tasks;
+    state.frame_submit_us_start = state.graphics_submit_microseconds;
   }
 }
 
@@ -3245,6 +3386,7 @@ void service_live_window(State &state) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   if (frontend_paused) {
+    state.busy_frame_start = {};  // the paused time is not host work
     RemovePropW(frontend,L"JfgFrontendPaused");
     state.host_audio.frontend_pause(false);
     state.host_frame_deadline_initialized = false;
@@ -3259,7 +3401,7 @@ void service_live_window(State &state) {
   state.host_frame_deadline += std::chrono::microseconds(16667);
   const auto deadline_now = std::chrono::steady_clock::now();
   if (state.host_frame_deadline > deadline_now) {
-    jfg::precise_sleep_until(state.host_frame_deadline);
+    paced_sleep_until(state, state.host_frame_deadline);
   } else if (deadline_now - state.host_frame_deadline >
              std::chrono::microseconds(66668)) {
     // Do not run an unbounded catch-up burst after shader compilation, window
@@ -6459,11 +6601,16 @@ void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
     state.rgo_frame_trace_start = now;
   const auto wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
       now - state.rgo_frame_trace_start).count();
-  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\n",
+  // busy_us: host time of the frame that just ended; true60: 0 off, 1 at
+  // 60, 2 the governor holds 30.
+  const unsigned true60 = !jfg::true_logic_60(state.video) || !state.video_managed ? 0U
+      : state.true60_governor.holding_30() ? 2U : 1U;
+  std::fprintf(state.rgo_frame_trace, "%llu\t%u\t%u\t%llu\t%llu\t%lld\t%u\t%u\t%u\t%u\t%llu\n",
                static_cast<unsigned long long>(state.vi_retraces), delay, delta,
                static_cast<unsigned long long>(state.cpu_count),
                static_cast<unsigned long long>(state.observed_guest_instructions),
-               static_cast<long long>(wall_us), mode, level);
+               static_cast<long long>(wall_us), mode, level, state.frame_busy_last_us, true60,
+               static_cast<unsigned long long>(state.host_audio.underruns()));
 }
 
 // RGO fast clock: a guest thread that keeps polling an empty queue in a loop
@@ -6570,6 +6717,30 @@ void leave_true60(State &state, std::uint8_t *rdram) {
       rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] == 1U)
     rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] = 2U;
   state.scroller_pending_ticks = 0U;
+  state.squads_pending_ticks = 0U;
+}
+
+// RGO: how long the host was busy with the game frame that ends now: the wall
+// time since the previous viFrameSync minus the time spent sleeping for a VI
+// (0: not measured, e.g. the first frame or after the frontend paused).
+std::uint32_t frame_busy_microseconds(State &state) {
+  const auto now = std::chrono::steady_clock::now();
+  const auto previous = state.busy_frame_start;
+  const std::uint64_t all_waits =
+      state.pacing_wait_us + state.host_audio.throttled_microseconds();
+  const std::uint64_t waited = all_waits - state.busy_frame_wait_us;
+  state.busy_frame_start = now;
+  state.busy_frame_wait_us = all_waits;
+  if (previous == std::chrono::steady_clock::time_point{})
+    return 0U;
+  const auto elapsed = static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now - previous).count());
+  const std::uint64_t busy = elapsed > waited ? elapsed - waited : 1U;
+  state.frame_busy_us += busy;
+  state.frame_busy_max_us = (std::max)(state.frame_busy_max_us, busy);
+  ++state.frame_busy_frames;
+  return static_cast<std::uint32_t>((std::min<std::uint64_t>)((std::max<std::uint64_t>)(busy, 1U),
+                                                              UINT32_MAX));
 }
 
 // viFrameSync, once per game frame: counts the VI ticks the logic gets for
@@ -6595,26 +6766,36 @@ bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
   // timing (Original N64 slowdown On) keeps that behaviour.
   if (state.fast_clock != 0U)
     rdram[(jfg::kSkipVideoDeltaAdjust - kKseg0) ^ 3U] = 1U;
+  // Host time the frame that just ended took, without the VI waits
+  // (measured when dispatch saw this viFrameSync call).
+  const std::uint32_t busy_us = state.frame_busy_last_us;
   original(rdram, context);
   if (one_vi) {
     (void)memory.write_u32(jfg::kRunInOneFrame, saved);
-    state.true60_governor.frame(static_cast<std::uint32_t>(context->r2), state.vi_retraces);
+    // This frame's ticks for the squads AI: every other frame, two at once.
+    state.squads_rate = jfg::batch_ticks(state.squads_pending_ticks,
+                                         static_cast<std::uint32_t>(context->r2));
   }
+  // The governor sees every frame while True 60 is chosen, at 60 and while it
+  // holds 30, so it can tell when the host is fast enough to resume.
+  if (jfg::true_logic_60(state.video))
+    state.true60_governor.frame(static_cast<std::uint32_t>(context->r2), state.vi_retraces,
+                                busy_us);
   state.frame_logic_ticks += (std::min)(static_cast<std::uint32_t>(context->r2), 6U);
   return true;
 }
 
 // RGO true 60 fps logic: the scheduler releases each frame's done message
-// without waiting for a second VI, and three places that assume 2 ticks per
-// frame are adjusted (frame_interpolation.hpp): texture scrollers run once
-// per 2 ticks, literal 2-tick particle bursts use the real rate, and a frame
-// without a new controller read reports no presses. Returns true when it ran
-// the original.
+// without waiting for a second VI, and the places that assume 2 ticks per
+// frame are adjusted (frame_interpolation.hpp): texture scrollers and the
+// bug AI run once per 2 ticks, literal 2-tick particle bursts use the real
+// rate, and a frame without a new controller read reports no presses.
+// Returns true when it ran (or deliberately skipped) the original.
 bool true60_dispatch(State &state, const std::uint32_t target,
                      std::uint8_t *rdram, recomp_context *context) {
   if (target != jfg::kAnimseqUpdateTextureScrollers &&
       target != jfg::kPartUpdateTriggers && target != jfg::kJoyRead &&
-      target != jfg::kScTaskComplete)
+      target != jfg::kScTaskComplete && !jfg::squads_function(target))
     return false;
   hle::GuestMemory memory({rdram, kRdramSize},
                           hle::GuestMemory::Layout::native_word_big_endian);
@@ -6630,6 +6811,24 @@ bool true60_dispatch(State &state, const std::uint32_t target,
     if (!memory.read_u32(frame_count_address, frame_count))
       return false;
     (void)memory.write_u32(frame_count_address, jfg::true60_frame_count(frame_count));
+    original(rdram, context);
+    return true;
+  }
+  if (jfg::squads_function(target)) {
+    // The bug AI counts per call: run it every other frame with both ticks.
+    // Only the per-frame calls, which pass the frame's rate; the level setup
+    // (squadsInitialiseAfterObjects) runs each bug once as it is.
+    std::uint32_t frame_rate = 0U;
+    auto &rate = target == jfg::kSquadsModuleTick ? context->r4 : context->r5;
+    if (!memory.read_u32(jfg::kDelayDat, frame_rate) ||
+        static_cast<std::uint32_t>(rate) != frame_rate ||
+        jfg::squads_setup_call(static_cast<std::uint32_t>(context->r31)))
+      return false;
+    if (target == jfg::kSquaddieControl)
+      ++state.squaddie_calls;
+    if (state.squads_rate == 0U)
+      return true;  // Skipped: runs with the next frame's tick.
+    rate = state.squads_rate;
     original(rdram, context);
     return true;
   }
@@ -6910,6 +7109,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   // with.
   if (target == jfg::kViFrameSync) {
     ++state.logic_frames;
+    state.frame_busy_last_us = frame_busy_microseconds(state);
     if (state.rgo_frame_trace != nullptr)
       write_rgo_frame_trace(state, rdram);
     // A new level or cutscene: True 60 tries 60 again at once.
@@ -10052,7 +10252,7 @@ extern "C" __declspec(noinline) void jfg_phase9_execution_probe_slow(unsigned se
                 mmio.vi_next, std::chrono::steady_clock::now(),
                 state.host_audio.underruns());
             if (!state.unpaced && std::chrono::steady_clock::now() < target_time)
-              jfg::precise_sleep_until(target_time);
+              paced_sleep_until(state, target_time);
             // RGO fast clock: this VI's Count is due at this wall time.
             state.wall_anchor_count = mmio.vi_next;
             state.wall_anchor_time = target_time;
@@ -10396,7 +10596,8 @@ int run_child(const char *path, const unsigned retrace_target,
       std::fputs("native boot setup failed: frame trace path\n", stderr);
       return 3;
     }
-    std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\n",
+    std::fputs("vi\tticks\tdelta_time\tcount\tinstructions\twall_us\tfront_mode\tlevel\t"
+               "busy_us\ttrue60\taudio_underruns\n",
                state.rgo_frame_trace);
   }
   state.counter_log = std::getenv("JFG_RGO_COUNTER_LOG") != nullptr;
