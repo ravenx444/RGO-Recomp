@@ -2988,9 +2988,12 @@ void sample_live_controller(State &state) noexcept {
   want_mouse=want_mouse && raw_mouse && !block_physical && !state.input_replay_loaded && (state.input_record_path.empty() || state.pc_record_extended) &&
     jfg::mod::gameplay_active(pc_memory,state.phase9_player_actor) && pc_memory.u8(0x800FD7BDU)==0 &&
     !jfg::mod::scripted_camera_active(pc_memory,state.phase9_player_actor);
-  if(want_mouse && state.native_window) {
-    const HWND window=static_cast<HWND>(state.native_window);RECT rect{};GetClientRect(window,&rect);
-    MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&rect),2);ClipCursor(&rect);SetCursor(nullptr);
+  if(want_mouse) {
+    // No window: headless, where the pad script supplies the mouse motion.
+    if(state.native_window) {
+      const HWND window=static_cast<HWND>(state.native_window);RECT rect{};GetClientRect(window,&rect);
+      MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&rect),2);ClipCursor(&rect);SetCursor(nullptr);
+    }
   } else {
     if(state.pc_mouse_captured){ClipCursor(nullptr);SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)));}
     state.pc_mouse.clear();
