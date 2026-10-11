@@ -71,7 +71,7 @@ int main() {
     constexpr std::uint32_t kTarget = static_cast<std::uint32_t>(kBytesPerSecond / 10.0);
     const auto simulate = [&](bool trimmed, double card_rate, int vis, double lost_at_vi_100) {
       jfg::audio::QueueLevelTrim trim;
-      double level = kTarget, wall = 0.0, lowest = level;
+      double level = kTarget, lowest = level;
       for (int vi = 0; vi < vis; ++vi) {
         double step = kViSeconds;
         if (trimmed)
@@ -79,7 +79,6 @@ int main() {
               static_cast<std::uint32_t>(kBytesPerSecond),
               static_cast<std::int64_t>(kViSeconds * 1e9))) / 1e9;
         if (vi == 100) step += lost_at_vi_100;  // wall time with no emulated audio
-        wall += step;
         level -= step * kBytesPerSecond * card_rate;
         if (vi % 2 == 1) level += 2.0 * kViSeconds * kBytesPerSecond;
         lowest = std::min(lowest, level);
