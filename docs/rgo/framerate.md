@@ -16,6 +16,11 @@ first level, 48-59 in the rest of the gameplay measured (it varies from run
 to run), and falls back to 30 in the heaviest cutscene shots. Owner test
 steps are near the end.
 
+After the input stack was merged, the owner saw True 60 engage on some runs
+and not others, things moving too fast at 60, the 20s in a firefight and
+audio crackle; see
+[After the input merge](#after-the-input-merge-owner-report-and-fixes).
+
 ## Why the first attempt did not work
 
 PR #8 (`rgo/true-60fps`) forced the game's one-VI mode and overclocked the
@@ -119,14 +124,37 @@ cost model unchanged (the faithful console timing, with its 20 fps drops).
   1), as before.
 - `__scTaskComplete` runs with the scheduler's `frameCount` (OSSched +
   0x300) raised to 2, so the frame-done message goes out at once.
-- The three places that assume two ticks per frame stay fixed: texture
+- The places that assume two ticks per frame stay fixed: texture
   scrollers run per two ticks, literal two-tick particle bursts use the real
   rate, and a frame without a new controller read reports no new presses.
-- **Governor** (`True60Governor`). If more than 6 of the last 60 frames
-  needed more than one VI (the host is too slow for 60 here), the game gets
-  its own steady 30 for 4 s, then tries 60 again; the pause doubles after
-  each failed try (up to 30 s) and resets after 10 s at 60. A steady 30 looks
-  better than frames of one, two and three VIs in turn.
+- **The bug enemies' AI runs at 30** (`squads_function`). The squads AI
+  (overlay 3: `SquaddieControl` 0x00310600, `SquadronControl` 0x00314D4C,
+  `AIPointControl` 0x0030A110, `AIJunctionControl` 0x00316CB4,
+  `squadsModuleTick` 0x00316990) counts per call, not per tick: a bug moves
+  by its velocity, accelerates, gets drag and gravity, spins when knocked
+  back and counts its fire delay and other timers by one per call; the
+  squadron counts its reinforcement timer per call; the module ages the
+  noises the bugs remember per call and flips an every-other-update flag.
+  At one VI per frame bugs ran, strafed, tumbled, fired and spawned twice as
+  fast while their legs (the animation does use the rate) moved at normal
+  speed. True 60 now runs these five functions together once per two ticks
+  with rate 2, exactly their 30 fps inputs, so bugs behave as on the console
+  and their positions update 30 times a second (RT64 blends them above 60).
+  Only calls that pass the frame's rate are batched; the level setup
+  (`squadsInitialiseAfterObjects`) runs each bug once, untouched.
+  See [the owner's report](#after-the-input-merge-owner-report-and-fixes).
+- **Governor** (`True60Governor`). As soon as 7 of the last 60 frames needed
+  more than one VI (the host is too slow for 60 here), the game gets its own
+  steady 30. Every frame also reports how long the host was busy with it
+  (wall time minus the VI wait); a frame at 30 runs the same game step and
+  draws the same picture, so that is about what a 60 frame costs. After a
+  minimum time at 30 (2 s, doubling after each try that fails within 10 s,
+  up to 30 s, back to 2 s after 10 s at 60) it checks the busy time 90 % of
+  the last 60 frames stayed within: up to 15 ms it resumes 60, up to 20 ms
+  it tries 60 at twice the minimum time, above that it stays at a steady 30
+  (a 60 frame misses its VI after about 21 ms). A new level or cutscene shot
+  tries 60 at once. A steady 30 looks better than frames of one, two and
+  three VIs in turn.
 
 ### Settings apply live
 
@@ -153,8 +181,8 @@ and the settings page says so.
 
 The owner's first True 60 test showed `60.0 FPS`, but the game "felt like
 interpolated 30". The plain counter can't tell why, so Video settings →
-FPS counter → **Detailed** adds five lines under the counter (all per
-second, except the frame times):
+FPS counter → **Detailed** adds seven lines under the counter (all per
+second, except the frame times and the last two lines):
 
 ```
 Game 60 | Render 60 | Display 60 | 16.5-16.9 ms
@@ -163,6 +191,8 @@ drawn 60.0 | new 60.0 | camera 60.0 | repeats 0.0
 input 60.0
 game frame 16.6-16.8 ms
 display frame 16.5-16.9 ms
+host 9.8 ms, longest 14.2 ms | gfx 6.0 tasks, 3.1 ms
+True 60: 60, late 0/60, busy 11.0 ms
 ```
 
 - **logic**: `viFrameSync` calls, one per game frame. **ticks**: the VIs
@@ -188,10 +218,24 @@ display frame 16.5-16.9 ms
   presents (RT64's present hook). Steady 60 is about 16.7 ms for both; gaps
   alternating near 0 and 33 ms are frames presented in pairs, which looks
   like 30.
+- **host**: how long the PC was busy with each game frame in the last half
+  second, average and longest: the wall time between two game frames minus
+  the time the emulation thread slept waiting for the next VI. At True 60 a
+  frame must fit in one VI (16.7 ms, a few ms more with the real-time
+  floor's slack); at 30 in two. **gfx**: graphics tasks per game frame (the
+  main frame plus off-screen tasks such as one shadow mask per character)
+  and the time their submission to the renderer took per game frame, the
+  renderer's GPU syncs for shadow masks included. If host is high and gfx
+  ms is a large part of it, the renderer is the bottleneck; if gfx ms is
+  small, the game's code and the runtime are.
+- **True 60**: `60` with the late frames of the last 60 (7 or more make it
+  fall back), or `holding 30`, or `off` (Frame rate Original). **busy** is
+  the busy time 90 % of the last 60 frames stayed within, which decides when
+  60 resumes (up to 15 ms) or is tried again (up to 20 ms).
 
 The numbers come from `include/jfg/renderer/frame_stats.hpp` (tested in
 `jfg.frame_interpolation`). The game posts them as `WM_APP + 25` to
-`WM_APP + 29`; `fps_details=on` in `video.ini` shows them. **logic** is the
+`WM_APP + 30`; `fps_details=on` in `video.ini` shows them. **logic** is the
 same count as **Game**, and **display frame** the same range as the plain
 counter's.
 
@@ -268,6 +312,101 @@ the paced deterministic run. Gameplay frames take 10-12 ms median here
 frame misses its VI in real time. Levels 325 and the second long level 323 shot are the heaviest
 cutscene stretches (about 8 graphics tasks a frame).
 
+## After the input merge: owner report and fixes
+
+`main` at c96b25b merged the 60 fps work (#13) and the input stack (#9-#12)
+textually, without ever running them together. On the owner's PC: (1) one
+run stayed at 30 in every setting and level, the next ran 60, with no
+change; (2) at 60 some things moved faster than normal; (3) a firefight with
+about four bugs dropped into the 20s; (4) audio crackled now and then, and
+once that came before a crash. Branch `rgo/framerate-fixes`.
+
+**The merge itself.** The Windows build compiles, but the input code broke
+the headless Linux build (the gamepad functions were outside the `_WIN32`
+guard of the state they use), so the merged tree had never been measured.
+The headless build now compiles and also runs the SDL gamepad thread, so
+its measurements include the input stack. Nothing in the input code touches
+the True 60 decision (the setting, `video_managed`, the governor), the VI
+clock or the scheduler.
+
+**1. True 60 on some runs and not others.** True 60 itself engages from
+the setting every frame; what then decides between 60 and 30 is only the
+governor, and the old governor decided from late frames alone: 7 late
+frames out of 60 meant 30 for 4 s, then a try, doubling to 30 s pauses after
+failed tries, reset only by a new level or shot. Anything that makes a run's
+host slower for a while (the first run after a build compiles RT64's
+shaders on the CPU; Windows can put the emulation thread on an efficiency
+core; background load) made it back off to long pauses and spend most of a
+level at 30, while the next run, without that, held 60. That fits the
+report, but it can't be confirmed without numbers from the PC. Two changes:
+- The governor resumes on evidence: each frame's host busy time (wall time
+  minus the VI wait) shows whether 60 fits, so 60 comes back within 2 s
+  once the host is fast enough, instead of after up to 30 s
+  ([True 60](#true-60)).
+- The Detailed counter now shows the host time per frame, the graphics
+  tasks and their submission time per frame, and the governor's state, so a
+  photo of it tells which case it is ([Detailed](#diagnostics-fps-counter-detailed)).
+
+**2. Things faster than normal at 60: the bug enemies.** The engine's object
+loop, physics, animation, particles, explosions, projectiles, weather and
+HUD scale by the tick rate (checked in the decomp and the US asm). The bugs'
+AI (overlay 3, the squads module) does not: movement, acceleration, drag,
+gravity and knock-back spin, the fire delay, several AI timers, squadron
+reinforcement timers and the memory of noises all count per call. At 60
+bugs ran, strafed, tumbled, fired and got reinforcements twice as fast
+while their legs moved at normal speed (they slid). True 60 now runs the
+squads AI once per two ticks with rate 2 ([True 60](#true-60)). The
+headless autopilot does not meet bugs, so this needs the owner's test.
+Smaller per-call items found and left as they are: a water splash emits its
+(unchanged number of) droplets over half the time; thrown shurikens spin
+twice as fast; lens flares fade in and out twice as fast; the day/night
+clock may run slow (its rate rounds down at one tick). Not audited by hand
+yet: `sidekickControl`, the player aim timers in `controlUpdatePlayerAim`,
+`wakeUpdate`, `rumbleTick` and the special movers of overlays 146-155 (the
+last are called from the squads AI, so they now run at 30 too).
+
+**3. The 20s in a firefight.** A game frame at 30 takes three VIs (20 fps)
+when the host needs more than about 37 ms for it; at that point no
+scheduling helps, only host speed. Two things made it worse than it had to
+be:
+- The old governor kept trying 60 every 4-30 s even when the scene was far
+  too heavy, and each try lasted a full 60 frames of one, two, three and
+  more VIs (several seconds at 10-25 fps on a slow PC). It now falls back
+  as soon as 7 of the last 60 frames are late and does not try 60 again
+  while the busy time says a 60 frame cannot fit.
+- The bugs fired and spawned twice as often (item 2), which adds work.
+
+  What the host spends its time on in a heavy scene: every graphics task
+  (one per character shadow mask plus the main frame) copies the changed
+  parts of the 4 MB RDRAM image, comparing all of it; headlessly that is
+  about a quarter of all CPU time in heavy cutscenes (`memcmp`/`memmove` in
+  `perf`), and the Windows renderer compares and copies it once more and
+  waits for the GPU for each shadow mask. The counter's `gfx` part shows
+  that cost on the PC; reducing it is the next host-speed step (see
+  [Risks](#risks-and-what-to-look-for)).
+
+**4. Audio crackle.** The audio queue holds about 100 ms. When emulated time
+falls more than that behind real time (a hitch: loading, a shader compile,
+a very slow frame), the device runs dry, pauses and restarts after 100 ms
+of new audio: a crackle. SDL's dummy driver plays 3-12 % too fast or slow,
+so the headless build now has an exact wall-clock sink
+(`JFG_RGO_WALL_AUDIO=1`, the default in `rgo_headless_run.py`). Measured
+over the opening 250 s: on this VM 2-7 underruns at True 60; on a host
+about half as fast 6-13 at True 60 and 18 at Original (30), so it is not
+specific to True 60, it is host speed and hitches. An underrun is not a
+crash: no audio path fails closed on one (the AI submission ring holds 2048
+buffers). The crash after the crackle needs its `crash.log` to say what it
+was.
+
+**5. Does the input stack cost host time?** No measurable cost. The SDL
+thread polls at about 500 Hz and used 2 % of one core on Linux without a
+controller; reading a snapshot and the gyro on the emulation thread took at
+most 1.6 microseconds per controller sample, and no lock is held across an
+SDL call. The first controller read starts SDL's joystick subsystem and
+waits for it (once, at boot; on Windows that can take a fraction of a
+second). Windows-specific costs (XInput and HIDAPI polling) run on the SDL
+thread, not the emulation thread.
+
 ## Headless measurement
 
 The live runtime builds headless on Linux (CMake `JFG_HEADLESS_LIVE=ON`):
@@ -303,7 +442,15 @@ the name keyboard, then walks forward and turns in gameplay. It reaches the
 first level identically at every setting. `JFG_RGO_FRAME_TRACE` writes one
 row per game frame (VI, ticks, Count, wall time, front-end mode, level);
 `scripts/rgo_frame_rate.py` turns it into the numbers below.
-`JFG_RGO_COUNTER_LOG=1` prints the FPS counter to stderr.
+`JFG_RGO_COUNTER_LOG=1` prints the FPS counter to stderr, with the host
+line, the audio queue and underruns. The trace also has `busy_us` (host time
+of the frame that just ended), `true60` (0 off, 1 at 60, 2 holding 30) and
+`audio_underruns`. `JFG_RGO_WALL_AUDIO=1` (the script's default) plays into
+an exact wall-clock sink instead of SDL's dummy driver. The headless build
+runs the SDL gamepad thread like the Windows build. To simulate a slower
+PC, pin the run to two CPUs shared with two busy loops
+(`taskset -c 2,3 stress-ng --cpu 2` next to `taskset -c 2,3 python3
+scripts/rgo_headless_run.py ...`): about half this VM's speed.
 
 Keep the ROM, the generated code, the build and every output outside the
 repository.
@@ -397,6 +544,55 @@ Game frames per wall second, 15,000 VIs each:
   where this VM occasionally needs three VIs for a frame. With the 20 fps
   hysteresis still active (before the `gSkipVideoDeltaAdjust` change) the
   same run measured 21-28 in cutscenes and 26 overall.
+
+### After the input merge (rgo/framerate-fixes)
+
+Real time, True 60, 15,000 VIs from the title to the first levels, game
+frames per wall second. `main` is c96b25b with only the headless build fix;
+the branch adds the governor and squads changes. On this VM gameplay holds
+60 either way (no bugs on the autopilot's route); the cutscene shots vary
+by several fps from run to run.
+
+| Segment (first VI) | main | branch |
+|---|---|---|
+| Title and file select | 59.6 | 59.5 |
+| Opening cutscene, level 322 | 59.6 | 58.7 |
+| level 324 | 49.4 | 49.2 |
+| level 323 | 47.7 | 46.8 |
+| level 325 (heaviest) | 30.0 | 29.9 |
+| level 326 | 59.7 | 59.2 |
+| level 323 (second heaviest) | 39.0 | 31.2 |
+| level 327 | 42.5 | 38.8 |
+| level 323 | 48.0 | 49.7 |
+| Gameplay, levels 365 / 93 / 92 | 59.5 / 59.4 / 59.4 | 59.7 / 59.1 / 59.6 |
+
+The cutscene averages mix 60 and 30: `main`'s are a little higher because
+the old governor kept trying 60 there, in bursts of uneven frames.
+
+**A host half as fast** (the run pinned to two CPUs shared with two busy
+loops), True 60, two runs each of the old and the new governor (both with
+the new diagnostics and the exact audio sink):
+
+| | old governor | new governor |
+|---|---|---|
+| Gameplay: game frames per wall second | 30.9-31.6 | 29.9-30.1 |
+| Gameplay: switches between 1-VI and 2-VI frames | 443-456 | 193-248 |
+| Gameplay: frames of 3+ VIs | 7.5-9.5 % | 6.1-6.7 % |
+| Cutscenes: frames of 3+ VIs | 23.8-24.8 % | 26.5-28.1 % |
+| Heaviest shots (325, 323): game frames per wall second | 14.4-20.0 | 14.1-17.5 |
+| Heaviest shots: host busy per frame, median | 44-63 ms | 52-62 ms |
+| Audio underruns in 250 s | 8-9 | 6-13 |
+
+- In gameplay the new governor holds a steady 30 instead of mixing in 60
+  tries: half the switching and fewer 3-VI frames. Original (30) on the
+  same host: 29.2-29.9 in gameplay, 18 underruns.
+- The heaviest shots need 50-60 ms of host time per frame here, so they run
+  at 15-20 fps with either governor; only host speed changes that.
+- Underruns vary from run to run as much as between the governors. Game
+  time over emulated time stays 1.00 except in the heaviest shots (0.97-0.99
+  on this host with either governor: frames that need far more than three
+  VIs lose a little game time).
+- No trap in any run; every run reached its VI target.
 
 ## Frame interpolation above 60
 
@@ -665,9 +861,18 @@ before the first level; the old crash came about 1 min 50 s in.
    - The game must play at normal speed (walking, music and cutscene
      dialogue in step).
    - Heavy cutscene shots, if the PC cannot hold 60 there: `Game 30 | Render
-     30 | Display 30 | 33.x ms` for about 4 s, then it tries 60 again. A new
-     shot or level starts at 60. Detailed `ticks` stays at 60 either way.
+     30 | Display 30 | 33.x ms`, Detailed `True 60: holding 30`. It goes
+     back to 60 within about 2 s once Detailed `busy` is 15 ms or less. A
+     new shot or level starts at 60. Detailed `ticks` stays at 60 either
+     way.
    - The opening cutscene plays through to the first level without a crash.
+   - Quit and start the game again three times: every run must reach 60 in
+     the menus and the first level. If a run stays at 30, photograph the
+     Detailed counter (the `host` and `True 60` lines say why).
+   - **Bugs:** in the first level, fight a group of bugs (ants) at True 60,
+     then switch Frame rate to Original and fight again. They must run,
+     strafe, fire, fly back when hit and send reinforcements at the same
+     speed in both, and their legs must match their movement (no sliding).
 2. **Original, Original N64 slowdown Off:** `Game 30 | Render 30 | Display
    30 | 33.x ms` everywhere, including the cutscenes. A hitch (a load) may
    show one long frame; it must not stay at 20.
@@ -679,6 +884,18 @@ before the first level; the old crash came about 1 min 50 s in.
    turning: it should move as smoothly as the scenery (Blend moving objects On).
 5. **Live switching:** change Frame rate and N64 slowdown while playing; the
    counter changes within a second, no restart.
+
+6. **A firefight with several bugs, True 60, FPS counter Detailed:** read
+   the last two lines.
+   - `True 60: 60, late 0/60` with `host` below 15 ms: fine.
+   - `True 60: holding 30`: the PC needs more than a VI per frame there. It
+     must be a steady `Game 30` (game frame range near 33 ms), not 20s. If
+     it reads 20s, `host` will be above about 37 ms: note `host` and `gfx`
+     (tasks per frame and ms). A large `gfx` ms means the renderer (the
+     RDRAM copies and GPU waits per shadow mask) is the cost.
+7. **Audio:** play 10 minutes including the cutscenes. Note when it
+   crackles and what the counter shows then (a long `host` time or a
+   `holding 30` switch). If the game crashes, send `crash.log`.
 
 If something is off, the support ZIP and `crash.log`, plus a photo of the
 Detailed counter at that moment, show which part is wrong.
@@ -715,7 +932,25 @@ Detailed counter at that moment, show which part is wrong.
   a second, so this is now the largest single host cost there. Tracking
   written pages instead would need every native writer (DMA, audio, the
   renderer's writeback) to report its writes; not done yet.
-- **Not audited at one tick per frame:** most enemy and boss AI, the bodies
-  of `controlPlayer` and `sidekickControl`, the cutscene scripts, the HUD
-  instruments (still ASM in the decomp). Watch for anything that moves at
-  double speed or not at all at True 60.
+- **Not audited at one tick per frame:** boss AI, the bodies of
+  `controlPlayer` and `sidekickControl` (scanned: per-call timers at
+  `sidekickControl` +0x1C/+0x1E and the player aim timers at +0x1F4/+0x1F8
+  in `controlUpdatePlayerAim`, not checked by hand), `wakeUpdate`,
+  `rumbleTick`, the cutscene scripts, the HUD instruments. The bug AI is
+  fixed (runs at 30); splashes, shuriken spin and lens-flare fades still run
+  per call (minor). Watch for anything that moves at double speed or not at
+  all at True 60.
+- **Bug AI at 30.** Bugs now update 30 times a second at True 60, as on the
+  console. Anything that reads a bug's state between two of its updates
+  (the player's shots, collisions) sees the same state twice, as it would
+  at 30. If bugs ever look like they freeze or skip, the hook is
+  `squads_function` in `frame_interpolation.hpp`.
+- **The governor's busy time** includes everything the emulation thread does
+  for a frame, renderer work and audio included, minus only the VI waits. A
+  frame at 30 carries two VIs of audio work, so it slightly overstates what
+  60 would cost; the 15 ms / 20 ms thresholds leave for that.
+- **RDRAM copies per graphics task** are the largest host cost in heavy
+  scenes (above). A cheaper import (only the 4 KB pages the CPU wrote since
+  the last task) needs every native writer to report its writes and the
+  Windows renderer's own writes to RAM tracked; it should be done with the
+  renderer in hand, not blind.
