@@ -141,7 +141,10 @@ cost model unchanged (the faithful console timing, with its 20 fps drops).
   with rate 2, exactly their 30 fps inputs, so bugs behave as on the console
   and their positions update 30 times a second (RT64 blends them above 60).
   Only calls that pass the frame's rate are batched; the level setup
-  (`squadsInitialiseAfterObjects`) runs each bug once, untouched.
+  (`squadsInitialiseAfterObjects`) runs each bug once, untouched. The same
+  half-rate table and odd-tick compensations fix the other per-call code
+  the [True 60 audit](#true-60-audit) found (splashes, wakes, the aim
+  stance, shurikens, lens flares, the hover tank, the slug boss's bolts).
   See [the owner's report](#after-the-input-merge-owner-report-and-fixes).
 - **Governor** (`True60Governor`). As soon as 7 of the last 60 frames needed
   more than one VI (the host is too slow for 60 here), the game gets its own
@@ -383,13 +386,64 @@ bugs ran, strafed, tumbled, fired and got reinforcements twice as fast
 while their legs moved at normal speed (they slid). True 60 now runs the
 squads AI once per two ticks with rate 2 ([True 60](#true-60)). The
 headless autopilot does not meet bugs, so this needs the owner's test.
-Smaller per-call items found and left as they are: a water splash emits its
-(unchanged number of) droplets over half the time; thrown shurikens spin
-twice as fast; lens flares fade in and out twice as fast; the day/night
-clock may run slow (its rate rounds down at one tick). Not audited by hand
-yet: `sidekickControl`, the player aim timers in `controlUpdatePlayerAim`,
-`wakeUpdate`, `rumbleTick` and the special movers of overlays 146-155 (the
-last are called from the squads AI, so they now run at 30 too).
+The rest of the per-call code is covered by the
+[True 60 audit](#true-60-audit) below.
+
+### True 60 audit
+
+Everything else that could run twice as fast at one tick per frame, checked
+in the US asm (overlay calls resolved through the ROM's relocation tables):
+scans of every overlay and main-code function for fields changed by a
+constant per call, constant float steps, position += velocity, and control
+functions that never read their rate, then the hits read by hand.
+
+Rare's object code is rate-correct almost everywhere: integration runs in a
+loop once per tick, steps are multiplied by the rate, drag is
+`Powerf(decay, rate)`. Overlays never read `delayDat` themselves; they get
+the rate as an argument.
+
+Fixed (`frame_interpolation.hpp`, "True 60"):
+
+| What | Function | Per call | At 60 before | Fix |
+|---|---|---|---|---|
+| Bug enemies | squads AI, overlay 3 | movement, timers, fire delay, spawns | twice as fast, sliding | half rate |
+| Water splash | `splashControl` 0x80028034 | 3 droplets | burst in half the time | half rate |
+| Wakes | `wakeUpdateRipple` 0x8006B090 (and `wakeUpdate`) | fade ±64, one trail segment | half as long, fade twice as fast | half rate |
+| Aim stance and fire spin-up | `controlUpdatePlayerAim` 0x80039FCC | +0x1F4, +0x1F8, lock-on nibble -1 | stance drops after 0.25 s, not 0.5 s | counters raised by one on odd ticks |
+| Shuriken | `ShirukenControl` 0x07A004EC | spin +0x1D6B, tumble after a bounce | spins and tumbles twice as fast | step taken back on odd ticks |
+| Lens flares | `camlightVisibilityCheck` 0x80024044 | fade ±8, round-robin cursor | fade twice as fast | fades and cursor restored on odd ticks |
+| Hover tank | `hoovertankControl` 0x06A00290 | spin speed ±1 | spins up and down in half the time | one step taken back on odd ticks |
+| Slug boss bolt | `FlowerBoltControl` 0x09501450 | arming counter +1 | arms after 0.17 s, not 0.33 s | one step taken back on odd ticks |
+
+"Half rate" runs the function every other frame with rate 2 (its 30 fps
+inputs). "Odd ticks" are the frames those functions skip; functions that
+must still run every frame (aim angles, shuriken motion, the lens flares'
+z-buffer checks) run then with their per-call step undone, so the step
+happens once per two ticks. Only calls that pass the frame's rate are
+batched; a step is only taken back when the call made exactly that step.
+
+Checked and already rate-correct: `sidekickControl` (its +0x1C/+0x1E timers
+run in a loop once per tick), `rumbleTick` (only the motor's duty-cycle
+toggle runs per call, which you can't feel), the day/night clock
+(`dayUpdate`, overlay 23, gets exactly `delayDat` while `dayfactor` is 256
+and 0 when time is frozen; nothing is lost at one tick), Mizar and its
+attacks, Mantis, the boy/girl/dog boss fights, the bosses of overlays
+138-155 (their own per-call counters only run from the squads AI, which now
+runs at 30), FatBob, maggots, zombie flobs, spiders, cyborgs, missiles,
+laser bolts, mines, grenades, the hovership, the players' controls and
+`controlUpdateWeapon`, pickups, invincibility, chests, doors, bridges,
+texture scrollers, particles, sparks, droplets, blood, rain, the screen
+fade, the HUD message queue and the menus and pause screens.
+
+Left as they are (minor or meaning not established): a player state counter
+in overlays 15-17 (`+0x18A`, rises by one per call to 240, in what looks
+like a death or gasp state), `twisterControl` (overlay 131, +0x11),
+`refuelControl` (overlay 100, +0x10), `rockstormControl` (overlay 68,
++0x70), `mrhintsControl` (overlay 32, a two-call window), three 16-slot
+cache rings at the end of `objObjectsTick` (entries expire after 0.27 s
+instead of 0.53 s), the sprint and duck-shoot mini-games, and the insides
+of a few very large functions (`func_8002CF78`, `menuCamControl`, the
+reflection overlay) beyond what the scans cover.
 
 **3. The 20s in a firefight.** A game frame at 30 takes three VIs (20 fps)
 when the host needs more than about 37 ms for it; at that point no
@@ -896,10 +950,13 @@ before the first level; the old crash came about 1 min 50 s in.
      background while it starts: every run must reach 60 in the menus and
      the first level. If a run stays at 30, photograph the Detailed counter
      (the `host`, `VI wake` and `True 60` figures say why).
-   - **Bugs:** in the first level, fight a group of bugs (ants) at True 60,
-     then switch Frame rate to Original and fight again. They must run,
-     strafe, fire, fly back when hit and send reinforcements at the same
-     speed in both, and their legs must match their movement (no sliding).
+   - **Normal speed at 60:** compare True 60 against Original (switch live)
+     for: bugs (running, strafing, shots per second, how far they fly when
+     hit, reinforcements; legs match movement, no sliding); how long the
+     aim stance holds after a target lock drops; wakes behind you when
+     wading (length and fade); water splashes; lens flares fading in and
+     out; thrown shurikens' spin; later, the hover tank spinning up and the
+     slug boss's flower bolts. Each must look the same at both settings.
 2. **Original, Original N64 slowdown Off:** `Game 30 | Render 30 | Display
    30 | 33.x ms` everywhere, including the cutscenes. A hitch (a load) may
    show one long frame; it must not stay at 20.
@@ -966,19 +1023,16 @@ Detailed counter at that moment, show which part is wrong.
   a second, so this is now the largest single host cost there. Tracking
   written pages instead would need every native writer (DMA, audio, the
   renderer's writeback) to report its writes; not done yet.
-- **Not audited at one tick per frame:** boss AI, the bodies of
-  `controlPlayer` and `sidekickControl` (scanned: per-call timers at
-  `sidekickControl` +0x1C/+0x1E and the player aim timers at +0x1F4/+0x1F8
-  in `controlUpdatePlayerAim`, not checked by hand), `wakeUpdate`,
-  `rumbleTick`, the cutscene scripts, the HUD instruments. The bug AI is
-  fixed (runs at 30); splashes, shuriken spin and lens-flare fades still run
-  per call (minor). Watch for anything that moves at double speed or not at
-  all at True 60.
-- **Bug AI at 30.** Bugs now update 30 times a second at True 60, as on the
-  console. Anything that reads a bug's state between two of its updates
-  (the player's shots, collisions) sees the same state twice, as it would
-  at 30. If bugs ever look like they freeze or skip, the hook is
-  `squads_function` in `frame_interpolation.hpp`.
+- **One tick per frame:** see the [True 60 audit](#true-60-audit) for what
+  was fixed, what was checked and what was left. Watch for anything that
+  moves at double speed or not at all at True 60.
+- **Half rate.** Bugs, splashes and wakes update 30 times a second at True
+  60, as on the console. Anything that reads their state between two
+  updates (the player's shots, collisions) sees the same state twice, as it
+  would at 30. If something ever looks like it freezes or skips, the table
+  is `kHalfRateFunctions` in `frame_interpolation.hpp`; the odd-tick
+  compensations are `odd_tick_compensated` there and
+  `odd_tick_compensated_call` in `native_boot.cpp`.
 - **The governor's busy time** includes everything the emulation thread does
   for a frame, renderer work and audio included, minus only the VI waits. A
   frame at 30 carries two VIs of audio work, so it slightly overstates what

@@ -2131,10 +2131,11 @@ struct State : JfgOriginalTimingFast {
   // True 60: texture scroller ticks waiting to run in pairs, and whether the
   // previous frame ran at true 60 (to hand the game back its 30 fps mode).
   std::uint32_t scroller_pending_ticks = 0U;
-  // True 60: the squads AI (bug enemies) runs once per 2 ticks. Ticks waiting
-  // to run, and the rate it runs with this frame (0: skipped this frame).
-  std::uint32_t squads_pending_ticks = 0U;
-  std::uint32_t squads_rate = 0U;
+  // True 60: the half-rate functions (the bug AI and other per-call code)
+  // run once per 2 ticks. Ticks waiting to run, and the rate they run with
+  // this frame (0: skipped this frame).
+  std::uint32_t half_rate_pending_ticks = 0U;
+  std::uint32_t half_rate_ticks = 0U;
   std::uint64_t squaddie_calls = 0U;  // headless counter log: bugs are active
   bool true60_active = false;
   jfg::True60Governor true60_governor;
@@ -6717,7 +6718,7 @@ void leave_true60(State &state, std::uint8_t *rdram) {
       rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] == 1U)
     rdram[(jfg::kVideoDeltaTime - kKseg0) ^ 3U] = 2U;
   state.scroller_pending_ticks = 0U;
-  state.squads_pending_ticks = 0U;
+  state.half_rate_pending_ticks = 0U;
 }
 
 // RGO: how long the host was busy with the game frame that ends now: the wall
@@ -6772,8 +6773,9 @@ bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
   original(rdram, context);
   if (one_vi) {
     (void)memory.write_u32(jfg::kRunInOneFrame, saved);
-    // This frame's ticks for the squads AI: every other frame, two at once.
-    state.squads_rate = jfg::batch_ticks(state.squads_pending_ticks,
+    // This frame's ticks for the half-rate functions: every other frame, two
+    // at once.
+    state.half_rate_ticks = jfg::batch_ticks(state.half_rate_pending_ticks,
                                          static_cast<std::uint32_t>(context->r2));
   }
   // The governor sees every frame while True 60 is chosen, at 60 and while it
@@ -6783,6 +6785,121 @@ bool frame_sync_dispatch(State &state, std::uint8_t *rdram,
                                 busy_us);
   state.frame_logic_ticks += (std::min)(static_cast<std::uint32_t>(context->r2), 6U);
   return true;
+}
+
+// RGO true 60: guest bytes and halfwords for the odd-tick compensations
+// (native word layout; the caller checks the range).
+std::uint8_t guest_u8(const std::uint8_t *rdram, const std::uint32_t address) {
+  return rdram[((address & 0x1FFFFFFFU) ^ 3U)];
+}
+void guest_put8(std::uint8_t *rdram, const std::uint32_t address, const std::uint8_t value) {
+  rdram[((address & 0x1FFFFFFFU) ^ 3U)] = value;
+}
+std::uint16_t guest_u16(const std::uint8_t *rdram, const std::uint32_t address) {
+  return static_cast<std::uint16_t>((guest_u8(rdram, address) << 8U) |
+                                    guest_u8(rdram, address + 1U));
+}
+void guest_put16(std::uint8_t *rdram, const std::uint32_t address, const std::uint16_t value) {
+  guest_put8(rdram, address, static_cast<std::uint8_t>(value >> 8U));
+  guest_put8(rdram, address + 1U, static_cast<std::uint8_t>(value));
+}
+bool guest_range(const std::uint32_t address, const std::uint32_t bytes) {
+  const std::uint32_t segment = address & 0xE0000000U;
+  const std::uint32_t offset = address & 0x1FFFFFFFU;
+  return (segment == 0x80000000U || segment == 0xA0000000U) && offset <= kRdramSize &&
+         bytes <= kRdramSize - offset;
+}
+
+// RGO true 60: run a function that counts per call on a frame the half-rate
+// functions skip, with its per-call step undone (frame_interpolation.hpp).
+void odd_tick_compensated_call(const std::uint32_t target, std::uint8_t *rdram,
+                               recomp_context *context, recomp_func_t *original) {
+  if (target == jfg::kControlUpdatePlayerAim) {
+    // Raise the countdowns by one; the call takes them back down.
+    const auto control = static_cast<std::uint32_t>(context->r5);
+    if (guest_range(control, 0x542U)) {
+      const jfg::AimCounters counters = jfg::aim_counters_for_odd_tick(
+          {static_cast<std::int8_t>(guest_u8(rdram, control + 0x1F4U)),
+           static_cast<std::int8_t>(guest_u8(rdram, control + 0x1F8U)),
+           guest_u8(rdram, control + 0x541U)});
+      guest_put8(rdram, control + 0x1F4U, static_cast<std::uint8_t>(counters.hold));
+      guest_put8(rdram, control + 0x1F8U, static_cast<std::uint8_t>(counters.spin_up));
+      guest_put8(rdram, control + 0x541U, counters.lock);
+    }
+    original(rdram, context);
+    return;
+  }
+  if (const jfg::StateCounter *const counter = jfg::state_counter(target)) {
+    // An object control that steps one counter per call: take a one step back.
+    const auto object = static_cast<std::uint32_t>(context->r4);
+    std::uint32_t state_address = 0U;
+    if (guest_range(object, 0x6CU))
+      state_address = (static_cast<std::uint32_t>(guest_u16(rdram, object + 0x68U)) << 16U) |
+                      guest_u16(rdram, object + 0x6AU);
+    const std::uint32_t field = state_address + counter->offset;
+    const bool valid = guest_range(object, 0x6CU) && guest_range(field, counter->bytes) &&
+                       (counter->bytes == 1U || (field & 1U) == 0U);
+    const auto read = [&]() -> std::uint32_t {
+      return counter->bytes == 1U ? guest_u8(rdram, field) : guest_u16(rdram, field);
+    };
+    const std::uint32_t before = valid ? read() : 0U;
+    original(rdram, context);
+    if (valid && jfg::counter_stepped(before, read(), counter->bytes)) {
+      if (counter->bytes == 1U)
+        guest_put8(rdram, field, static_cast<std::uint8_t>(before));
+      else
+        guest_put16(rdram, field, static_cast<std::uint16_t>(before));
+    }
+    return;
+  }
+  if (target == jfg::kShirukenControl) {
+    // Take back the spin step, and the tumble step after a bounce, when the
+    // call made exactly those steps.
+    const auto object = static_cast<std::uint32_t>(context->r4);
+    std::uint32_t shuriken = 0U;
+    if (guest_range(object, 0x6CU))
+      shuriken = (static_cast<std::uint32_t>(guest_u16(rdram, object + 0x68U)) << 16U) |
+                 guest_u16(rdram, object + 0x6AU);
+    if (!guest_range(object, 0x6CU) || (shuriken & 3U) != 0U || !guest_range(shuriken, 0x84U)) {
+      original(rdram, context);
+      return;
+    }
+    const std::uint16_t spin = guest_u16(rdram, shuriken + 0x78U);
+    const std::uint8_t flags = guest_u8(rdram, shuriken + 0x82U);
+    std::array<std::uint16_t, 3> rotation{}, tumble{};
+    for (std::uint32_t axis = 0U; axis < 3U; ++axis) {
+      rotation[axis] = guest_u16(rdram, object + axis * 2U);
+      tumble[axis] = guest_u16(rdram, shuriken + 0x7AU + axis * 2U);
+    }
+    original(rdram, context);
+    if (jfg::angle_stepped(spin, guest_u16(rdram, shuriken + 0x78U), jfg::kShirukenSpinStep))
+      guest_put16(rdram, shuriken + 0x78U, spin);
+    if ((flags & 0x20U) != 0U && (guest_u8(rdram, shuriken + 0x82U) & 0x20U) != 0U) {
+      bool stepped = true;
+      for (std::uint32_t axis = 0U; axis < 3U; ++axis)
+        stepped = stepped && guest_u16(rdram, shuriken + 0x7AU + axis * 2U) == tumble[axis] &&
+            jfg::angle_stepped(rotation[axis], guest_u16(rdram, object + axis * 2U), tumble[axis]);
+      if (stepped)
+        for (std::uint32_t axis = 0U; axis < 3U; ++axis)
+          guest_put16(rdram, object + axis * 2U, rotation[axis]);
+    }
+    return;
+  }
+  // camlightVisibilityCheck: keep the lens flare fades and the round-robin
+  // cursor as they were; its z-buffer checks still run.
+  std::array<std::uint8_t, jfg::kCamlightCount> fades{};
+  std::array<std::uint8_t, 4> cursor{};
+  for (std::uint32_t light = 0U; light < jfg::kCamlightCount; ++light)
+    fades[light] = guest_u8(rdram, jfg::kCamlights + light * jfg::kCamlightStride +
+                                       jfg::kCamlightFadeOffset);
+  for (std::uint32_t byte = 0U; byte < 4U; ++byte)
+    cursor[byte] = guest_u8(rdram, jfg::kCamlightCursor + byte);
+  original(rdram, context);
+  for (std::uint32_t light = 0U; light < jfg::kCamlightCount; ++light)
+    guest_put8(rdram, jfg::kCamlights + light * jfg::kCamlightStride + jfg::kCamlightFadeOffset,
+               fades[light]);
+  for (std::uint32_t byte = 0U; byte < 4U; ++byte)
+    guest_put8(rdram, jfg::kCamlightCursor + byte, cursor[byte]);
 }
 
 // RGO true 60 fps logic: the scheduler releases each frame's done message
@@ -6795,7 +6912,8 @@ bool true60_dispatch(State &state, const std::uint32_t target,
                      std::uint8_t *rdram, recomp_context *context) {
   if (target != jfg::kAnimseqUpdateTextureScrollers &&
       target != jfg::kPartUpdateTriggers && target != jfg::kJoyRead &&
-      target != jfg::kScTaskComplete && !jfg::squads_function(target))
+      target != jfg::kScTaskComplete && !jfg::is_half_rate_function(target) &&
+      !jfg::odd_tick_compensated(target))
     return false;
   hle::GuestMemory memory({rdram, kRdramSize},
                           hle::GuestMemory::Layout::native_word_big_endian);
@@ -6814,22 +6932,33 @@ bool true60_dispatch(State &state, const std::uint32_t target,
     original(rdram, context);
     return true;
   }
-  if (jfg::squads_function(target)) {
-    // The bug AI counts per call: run it every other frame with both ticks.
-    // Only the per-frame calls, which pass the frame's rate; the level setup
-    // (squadsInitialiseAfterObjects) runs each bug once as it is.
+  if (const jfg::HalfRateFunction *const half_rate = jfg::half_rate_function(target)) {
+    // Game code that counts per call (the bug AI and others,
+    // frame_interpolation.hpp): run it every other frame with both ticks.
+    // Only the per-frame calls, which pass the frame's rate; level setup
+    // callers run it as it is.
     std::uint32_t frame_rate = 0U;
-    auto &rate = target == jfg::kSquadsModuleTick ? context->r4 : context->r5;
+    auto &rate = half_rate->rate_register == 4U ? context->r4
+               : half_rate->rate_register == 5U ? context->r5
+               : half_rate->rate_register == 6U ? context->r6 : context->r7;
     if (!memory.read_u32(jfg::kDelayDat, frame_rate) ||
-        static_cast<std::uint32_t>(rate) != frame_rate ||
-        jfg::squads_setup_call(static_cast<std::uint32_t>(context->r31)))
+        !jfg::half_rate_call(*half_rate, static_cast<std::uint32_t>(rate), frame_rate,
+                             static_cast<std::uint32_t>(context->r31)))
       return false;
     if (target == jfg::kSquaddieControl)
       ++state.squaddie_calls;
-    if (state.squads_rate == 0U)
+    if (state.half_rate_ticks == 0U)
       return true;  // Skipped: runs with the next frame's tick.
-    rate = state.squads_rate;
+    rate = state.half_rate_ticks;
     original(rdram, context);
+    return true;
+  }
+  if (jfg::odd_tick_compensated(target)) {
+    // Per-call steps that must still run every frame: on a frame the
+    // half-rate functions skip, take the step back (frame_interpolation.hpp).
+    if (state.half_rate_ticks != 0U)
+      return false;  // An even tick: the call's own step is the 30 fps one.
+    odd_tick_compensated_call(target, rdram, context, original);
     return true;
   }
   if (target == jfg::kAnimseqUpdateTextureScrollers) {

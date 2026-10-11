@@ -176,12 +176,60 @@ int main() {
         }
         require(total + pending == ticks, "no ticks lost");
     }
-    require(squads_function(kSquaddieControl) && squads_function(kSquadsModuleTick) &&
-                squads_function(kSquadronControl) && !squads_function(kJoyRead),
-        "the squads AI runs together at half rate");
-    require(squads_setup_call(0x80051F00U) && !squads_setup_call(0x80008FF8U) &&
-                !squads_setup_call(0x80052678U),
-        "the level setup's SquaddieControl calls are left alone");
+    {
+        const HalfRateFunction* squaddie = half_rate_function(kSquaddieControl);
+        const HalfRateFunction* module = half_rate_function(kSquadsModuleTick);
+        require(squaddie != nullptr && module != nullptr &&
+                    is_half_rate_function(kSquadronControl) && !is_half_rate_function(kJoyRead),
+            "the squads AI runs together at half rate");
+        require(squaddie->rate_register == 5U && module->rate_register == 4U,
+            "rate registers: a1 for controls, a0 for the module tick");
+        require(half_rate_call(*squaddie, 1U, 1U, 0x80008FF8U), "a per-frame call is batched");
+        require(!half_rate_call(*squaddie, 7U, 1U, 0x80008FF8U),
+            "a call that does not pass the frame's rate runs as it is");
+        require(!half_rate_call(*squaddie, 1U, 1U, 0x80051F00U) &&
+                    half_rate_call(*squaddie, 1U, 1U, kSquadsSetupEnd),
+            "the level setup's SquaddieControl calls are left alone");
+        for (const HalfRateFunction& entry : kHalfRateFunctions)
+            require(entry.rate_register >= 4U && entry.rate_register <= 7U &&
+                        half_rate_function(entry.address) == &entry,
+                "half-rate entries: argument registers, no duplicates");
+    }
+    require(is_half_rate_function(kSplashControl) && is_half_rate_function(kWakeUpdateRipple),
+        "splashes and wakes run at half rate");
+    require(odd_tick_compensated(kControlUpdatePlayerAim) && odd_tick_compensated(kShirukenControl) &&
+                odd_tick_compensated(kCamlightVisibilityCheck) && !odd_tick_compensated(kSplashControl),
+        "aim timers, shurikens and lens flares are compensated on odd ticks");
+    {
+        // The call decrements hold and spin-up when hold is set (spin-up
+        // clamped at 0) and the lock-on nibble when it is set.
+        require(aim_counters_for_odd_tick({15, 4, 0x3AU}) == AimCounters{16, 5, 0x3BU},
+            "aim: raise what the call counts down");
+        require(aim_counters_for_odd_tick({15, 0, 0x30U}) == AimCounters{16, 0, 0x30U},
+            "aim: a spin-up at 0 stays (the call clamps it)");
+        require(aim_counters_for_odd_tick({0, 4, 0x0FU}) == AimCounters{0, 4, 0x0FU},
+            "aim: nothing counts while the hold is 0; a full nibble is left alone");
+        require(aim_counters_for_odd_tick({127, 127, 0x01U}) == AimCounters{127, 127, 0x02U},
+            "aim: no overflow");
+    }
+    {
+        const StateCounter* tank = state_counter(0x06A00290U);
+        const StateCounter* bolt = state_counter(0x09501450U);
+        require(tank != nullptr && bolt != nullptr && tank->bytes == 1U && bolt->bytes == 2U &&
+                    odd_tick_compensated(0x06A00290U),
+            "hover tank spin ramp and flower bolt arming are compensated");
+        require(counter_stepped(0x1FU, 0x20U, 1U) && counter_stepped(0x20U, 0x1FU, 1U) &&
+                    counter_stepped(0xFFU, 0x00U, 1U) && counter_stepped(9U, 10U, 2U) &&
+                    counter_stepped(0U, 0xFFFFU, 2U),
+            "a one step either way is taken back");
+        require(!counter_stepped(5U, 5U, 1U) && !counter_stepped(0U, 0x20U, 1U) &&
+                    !counter_stepped(0x00U, 0x100U, 2U),
+            "anything else (a state change) is kept");
+    }
+    require(angle_stepped(0xFFF0U, static_cast<std::uint16_t>(0xFFF0U + kShirukenSpinStep),
+                          kShirukenSpinStep) &&
+                !angle_stepped(0x1000U, 0x1001U, kShirukenSpinStep),
+        "angle steps wrap at 16 bits");
     require(trigger_ticks(2U, 1U) == 1U, "literal 2 at one VI per frame");
     require(trigger_ticks(2U, 2U) == 2U, "unchanged at 30 fps");
     require(trigger_ticks(1U, 1U) == 1U && trigger_ticks(3U, 1U) == 3U,
