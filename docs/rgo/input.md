@@ -349,7 +349,33 @@ the new-game autopilot plays the title screens, then the script takes over
 as an SDL controller in slot 0 through the real mapping, scheme and hooks;
 `JFG_RGO_PLAYER_TRACE` writes one row per poll (movement state, heading,
 pitch, velocities, camera yaw, position). Profile files come from
-`JFG_CONTROLLER_CONFIG`'s folder. Results: HEADLESS_PLACEHOLDER
+`JFG_CONTROLLER_CONFIG`'s folder. Results (first level, Original and True 60 runs of the same script):
+
+| Check | Original (30) | True 60 |
+| --- | --- | --- |
+| Run forward: heading vs `0x8000 - camera yaw` | 21104 vs 21110 | 23219 vs 23238 |
+| Right stick full, standing: orbit rate | 200.0 deg/s | 200.0 deg/s |
+| Standing still: body turns with the camera | yes | yes |
+| L2: aim state | 11 (from 0) | 11 (from 0) |
+| Aim + left stick right: strafe speed | 2.5 | 2.5 |
+| Aim + right stick full: aim turn rate | 100.0 deg/s | 100.0 deg/s |
+| Aim + right stick up: pitch | to the game's limit | to the game's limit |
+| New aim after turning the camera: heading | `0x8000 - camera yaw` | `0x8000 - camera yaw` |
+| Release L2: back to state 0 | yes | yes |
+
+The game camera follows the orbit target with its own smoothing, so the
+view lags a fraction of a second behind the 200 deg/s target. A forward aim
+walk at upstream's 3.0 moved 25% faster at True 60 than at Original (the
+game clamps it to 2.0 only at 30), so twin-stick aim walking uses 2.0. In one
+run the character slid about 70 units while spinning in place on the spot
+where the level starts; not explained yet (no velocity was set); worth
+watching for in the owner test.
+
+**Possible follow-up: aim without aim mode.** Not implemented (the owner
+is not sold on it yet). It would fit the same design: outside aim mode the
+look rate already reaches the camera hook, so a "free aim" variant would
+feed the same rate into the aim heading/pitch through the aim hook's direct
+path (and draw the crosshair), behind its own setting.
 
 ### Owner test (DualSense on Windows)
 
