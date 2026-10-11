@@ -254,11 +254,18 @@ Experimental switch. `pc-input.ini` keys `scheme` (0/1) and
 - **Left stick: movement only**, always. Outside aiming the game already runs
   relative to the camera (see below), so turning the camera turns the
   controls with it. While aiming the left stick walks and strafes.
-- **Right stick: camera, and the aim while aiming.** Outside aiming it orbits
-  the camera (upstream's orbit hook at `levelGetCamera`, fed before the game's
-  scenery solver). While aiming it turns the aim heading and pitch directly
-  (the direct-aim path the mouse and gyro use), with nothing springing back.
-  Gyro adds to it.
+- **Right stick: look and turn, and the aim while aiming.** Outside aiming
+  it turns the camera left/right and tilts it up/down (upstream's orbit hook
+  at `levelGetCamera`, fed before the game's scenery solver); standing
+  still, the character turns in place with it. It never moves a crosshair
+  or changes where non-aimed shots go outside aim mode (the game's own
+  auto-aim stays). While aiming it turns the aim heading and pitch directly
+  (the direct-aim path the mouse and gyro use), with nothing springing
+  back. Gyro adds to it.
+- **Swap sticks (left-handed)**: the gamepad page's movement-stick switch
+  reads "Swap sticks" in the Modern scheme. Everything is written as "move
+  stick" and "look stick" (`ControllerMapping::stick` and
+  `pc_look_stick`), so the swap is that one setting.
 - **A new aim starts where the camera looks**: the first aim update after a
   break of a quarter of a second sets the body heading to the camera's
   direction, so after turning the camera, aiming points at what is on screen
@@ -286,20 +293,27 @@ Experimental switch. `pc-input.ini` keys `scheme` (0/1) and
   1/16 angle units per game tick, applied by the hooks times the ticks each
   update covers (`PcTwinTurn`), with fractions carried. The turn per second
   is identical at 20, 30 and True 60 (unit-tested).
-- Aim walking only worked in movement states 10/11. The decomp shows the aim
-  states are **5** (aim stance: `controlGetManualAim` is called from its
-  handler, velocities decay to 0) and **11** (aim walking); state 10 is not
-  an aim state. In the original game you walk in aim with the zoom-in /
-  zoom-out keys (Normal: A/B) and strafe with C-left/C-right
-  (`ControlModeNormal`/`ControlModeExpert` at `0x800A18B4`/`0x800A18D8`,
-  masks at +0x1C/+0x20 and +0x14/+0x18; strafe is overlay 15's
-  `0x00F04B4C`, +/-2.5 sideways). Now, in states 5/11, the left stick holds
-  those keys for the game (`pc_twin_aim_walk`), so the game itself enters
-  aim walking with its own animations, and the aim hook sets the analog
-  speed (`pc_aim_movement`). Not while the sniper scope is up (those keys
-  zoom; `controlGetManualAim` returns the scope state).
-- The camera hook ran in any state. Mode 6 only orbits the camera in the
-  movement states listed under Coverage.
+- Aim walking: upstream wrote the walking speed in movement states 10/11
+  without holding any of the game's walk keys. The decomp shows two states
+  whose handlers call `controlGetManualAim`: **5** (overlay 15 `0x00F0418C`,
+  velocities decay to 0) and **11** (`0x00F04658`, aim walking); the headless
+  trace shows aiming on foot entering 11 straight from 0. In the original
+  game you walk in aim with the zoom-in/zoom-out keys and strafe with
+  C-left/C-right (`ControlModeNormal`/`ControlModeExpert` at
+  `0x800A18B4`/`0x800A18D8`, masks at +0x1C/+0x20 and +0x14/+0x18; strafe is
+  overlay 15's `0x00F04B4C`, +/-2.5 sideways). Now, in states 5/11, the left
+  stick holds those keys for the game (`pc_twin_aim_walk`, read from the
+  active table), so the game walks and strafes with its own logic and
+  animations, and the aim hook sets the analog speed (`pc_aim_movement`).
+  Not while the sniper scope is up (those keys zoom; `controlGetManualAim`
+  returns the scope state).
+- The camera hook ran in any state. Mode 6 only orbits the camera on foot
+  (state 0, ground medium); see Coverage.
+- Turning in place: standing still (state 0, left stick at rest), the right
+  stick turns the character with the camera (the body heading follows the
+  camera, `pc_twin_turn_in_place`), so you can stand and turn. Moving, the
+  left stick steers relative to the camera, so you can run one way and turn
+  the view with the other stick.
 
 **How the game moves** (overlays 15/16/17 are Juno, Vela and Lupus; same
 code): before its state switch, `controlPlayer`'s character code computes the
@@ -312,7 +326,18 @@ heading `0x8000 - camera yaw` (`pc_camera_heading`).
 
 **Coverage** (what uses the modern path, what keeps the original):
 
-COVERAGE_PLACEHOLDER
+| Situation | Modern twin-stick | Checked |
+| --- | --- | --- |
+| On foot, standing/running (state 0, ground) | right stick camera + turn in place, left stick camera-relative run | headless |
+| Aiming on foot (states 5/11) | right stick aim, left stick walk/strafe (game's own keys) | headless (11) |
+| Sniper scope up | right stick aims; left stick does not walk (game: scope zoom keys) | decomp only |
+| Jumping/falling, hanging (6), grabbing (12), other states | game's own camera; left stick as the original | not tested |
+| Swimming, jetpack/flying (other medium) | game's own camera; left stick as the original | not tested |
+| Vehicles, other characters' overlays (49-53) | not hooked: original | not tested |
+| Cutscenes, scripted cameras, menus, pause | hooks off (`gameplay_active`, `scripted_camera_active`): original | existing upstream checks |
+| Split-screen multiplayer | upstream documents its hooks as single-player only; aim walking and the trace read Player 1 only | not tested |
+| Keyboard and mouse | unchanged (still behind Experimental) | - |
+
 
 **Recordings**: twin-stick input is recorded as look mode 6 in the v3 format
 (a recording is extended when Experimental or the twin-stick scheme is on
@@ -325,6 +350,39 @@ as an SDL controller in slot 0 through the real mapping, scheme and hooks;
 `JFG_RGO_PLAYER_TRACE` writes one row per poll (movement state, heading,
 pitch, velocities, camera yaw, position). Profile files come from
 `JFG_CONTROLLER_CONFIG`'s folder. Results: HEADLESS_PLACEHOLDER
+
+### Owner test (DualSense on Windows)
+
+1. Build and play as usual (`build_from_rom.py --rom ... --play`). Open
+   Controllers, pick Player 1 with the DualSense. Under the bindings header
+   set **Controller scheme** to **Modern twin-stick** (the button layout
+   changes to the one listed). If you play the game's Expert controls, press
+   **Expert controls**.
+2. In the first level (or any open on-foot area):
+   - Stand still and push the right stick left/right: the character and
+     camera turn in place. Up/down tilts the view. Try Camera Y invert.
+   - Run with the left stick while turning with the right stick: the run
+     direction follows the camera.
+   - Hold **L2** to aim: the aim starts where the camera was looking. The
+     right stick moves the aim (slower, precise); the left stick walks
+     forward/back and strafes without moving the crosshair. Release L2, turn
+     the camera, aim again. Fire with **R2**.
+   - Turn on gyro (device card, "while aiming"): gyro adds to the right
+     stick while aiming.
+   - Settings: camera speed, aim speed, deadzone, Precise curve, Aim Y
+     invert. **Swap sticks** moves walking to the right stick and looking to
+     the left.
+3. Check special states keep their original feel: swimming, the jetpack,
+   a vehicle, a cutscene, the pause menu and menus (the right stick does
+   nothing outside on-foot play in Modern; menus use the left stick and
+   D-pad as before).
+4. Switch to **Original**: everything must behave as before this PR.
+5. True 60 (Video settings): repeat a camera turn and an aim turn; the speed
+   should feel the same as at Original.
+
+Report anything that turns too fast/slow (the 100% speeds are a guess at
+console-shooter defaults), feels laggy, or a state where the right stick
+does something wrong.
 
 ## Plan: crosshair points where shots land (roadmap item 6)
 
