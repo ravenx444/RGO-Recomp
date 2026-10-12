@@ -1975,6 +1975,9 @@ struct State : JfgOriginalTimingFast {
   int pc_wheel_key = 0;
   std::atomic<bool> pc_mouse_captured{false};
   bool pc_input_blocked = true, pc_raw_available = false;
+  // RGO: raw mouse motion arrived during this mouse capture; without it the
+  // cursor's own motion is used (see the capture code in sample_live_controller).
+  bool pc_raw_seen = false, pc_cursor_fallback_logged = false;
   jfg::WindowInputMailbox window_input;
 #if defined(_WIN32)
   // RGO: SDL gamepads (DualShock 4, DualSense, Switch Pro, Xbox) and rumble.
@@ -2880,7 +2883,7 @@ void sample_live_controller(State &state) noexcept {
   {
     const auto input=state.window_input.take_motion();
     if(input.focus_lost){state.pc_mouse.clear();state.pc_wheel.clear();state.pc_input_blocked=true;}
-    if(state.pc_mouse_captured.load())state.pc_mouse.add(input.x,input.y);
+    if(state.pc_mouse_captured.load()){state.pc_mouse.add(input.x,input.y);if(input.x || input.y)state.pc_raw_seen=true;}
     state.pc_wheel.add(input.wheel);
   }
   const SlowHostWork timing(state, "host-controller");
@@ -3003,8 +3006,29 @@ void sample_live_controller(State &state) noexcept {
     if(state.native_window) {
       const HWND window=static_cast<HWND>(state.native_window);RECT rect{};GetClientRect(window,&rect);
       MapWindowPoints(window,nullptr,reinterpret_cast<POINT*>(&rect),2);ClipCursor(&rect);SetCursor(nullptr);
+#if defined(_WIN32)
+      // RGO: if no raw mouse motion has arrived during this capture (seen
+      // after switching Player 1 to the mouse while the game ran), use the
+      // cursor's motion from the window centre instead, re-centring it every
+      // poll. Raw input stays the source whenever it works.
+      if(!state.pc_raw_seen) {
+        const POINT centre{(rect.left+rect.right)/2,(rect.top+rect.bottom)/2};
+        POINT cursor{};
+        if(GetCursorPos(&cursor)) {
+          if(state.pc_mouse_captured.load() && (cursor.x!=centre.x || cursor.y!=centre.y)) {
+            state.pc_mouse.add(cursor.x-centre.x,cursor.y-centre.y);
+            if(!state.pc_cursor_fallback_logged) {
+              state.pc_cursor_fallback_logged=true;
+              jfg::support_event("mouse=raw-input-silent-cursor-fallback");
+            }
+          }
+          SetCursorPos(centre.x,centre.y);
+        }
+      }
+#endif
     }
   } else {
+    state.pc_raw_seen=false; // a new capture checks raw input again
     if(state.pc_mouse_captured){ClipCursor(nullptr);SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)));}
     state.pc_mouse.clear();
   }
@@ -3346,7 +3370,7 @@ void service_live_window(State &state) {
   {
     const auto input=state.window_input.take_motion();
     if(input.focus_lost){state.pc_mouse.clear();state.pc_wheel.clear();state.pc_input_blocked=true;}
-    if(state.pc_mouse_captured.load())state.pc_mouse.add(input.x,input.y);
+    if(state.pc_mouse_captured.load()){state.pc_mouse.add(input.x,input.y);if(input.x || input.y)state.pc_raw_seen=true;}
     state.pc_wheel.add(input.wheel);
   }
   const SlowHostWork window_service_timing(state,"host-window-service");
@@ -3398,7 +3422,7 @@ void service_live_window(State &state) {
   {
     const auto input=state.window_input.take_motion();
     if(input.focus_lost){state.pc_mouse.clear();state.pc_wheel.clear();state.pc_input_blocked=true;}
-    if(state.pc_mouse_captured.load())state.pc_mouse.add(input.x,input.y);
+    if(state.pc_mouse_captured.load()){state.pc_mouse.add(input.x,input.y);if(input.x || input.y)state.pc_raw_seen=true;}
     state.pc_wheel.add(input.wheel);
   }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
