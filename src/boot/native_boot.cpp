@@ -2330,6 +2330,8 @@ struct State : JfgOriginalTimingFast {
   // RGO diagnostics (JFG_RGO_STALL_DIAG=1): the last guest thread switches,
   // dumped once when game frames stop for 600 VIs.
   bool stall_diag = false, stall_dumped = false;
+  std::uint32_t pi_queue_max = 0U;
+  std::uint64_t pi_queue_full = 0U;
   std::uint64_t last_frame_vi = 0U;
   struct SwitchRecord { std::uint64_t vi, count; std::uint32_t from, to, pc; };
   std::array<SwitchRecord, 256U> switch_ring{};
@@ -12231,11 +12233,21 @@ int run_child(const char *path, const unsigned retrace_target,
           }, [&state](const GuestThreadTransport<recomp_context>::EretBoundary& edge,
                       const recomp_context& cpu) {
             if (state.stall_diag) {
+              {
+                // The PI manager's command queue fill (osPiStartDma posts
+                // NOBLOCK: a full queue drops the request).
+                std::uint32_t fill = 0U;
+                std::memcpy(&fill, state.rdram + (0x80102538U + 8U - 0x80000000U), 4U);
+                state.pi_queue_max = (std::max)(state.pi_queue_max, fill);
+                if (fill >= 8U) ++state.pi_queue_full;
+              }
               state.switch_ring[state.switch_next++ % state.switch_ring.size()] =
                   {state.vi_retraces, state.cpu_count, edge.from_thread, edge.to_thread, edge.target_pc};
               if (!state.stall_dumped && state.last_frame_vi != 0U &&
                   state.vi_retraces > state.last_frame_vi + 600U) {
                 state.stall_dumped = true;
+                std::fprintf(stderr, "stall: pi cmd queue max fill %u, seen full %llu times\n",
+                             state.pi_queue_max, static_cast<unsigned long long>(state.pi_queue_full));
                 std::fprintf(stderr, "stall: no game frame since VI %llu (now %llu); last switches:\n",
                              static_cast<unsigned long long>(state.last_frame_vi),
                              static_cast<unsigned long long>(state.vi_retraces));
@@ -12252,8 +12264,27 @@ int run_child(const char *path, const unsigned retrace_target,
                                pi ? static_cast<long long>(*pi) : -1LL, mm.pi_dma.interrupt() ? 1 : 0,
                                mm.mi_pending, static_cast<unsigned long long>(mm.vi_next));
                 }
+                {
+                  // The main thread's DMA queue: its waiters, and the main
+                  // thread's stack words that look like code addresses.
+                  const std::uint32_t q = 0x800FE000U;
+                  std::fprintf(stderr, "stall: dmaq mtqueue %08x fullqueue %08x valid %u first %u | runqueue %08x running %08x\n",
+                               word(q), word(q + 4U), word(q + 8U), word(q + 0xCU),
+                               word(0x800A9E88U), word(0x800A9E90U));
+                  for (std::uint32_t t = word(q), guard = 0U; t != 0U && t != 0x800A9E80U && guard < 16U; ++guard) {
+                    std::fprintf(stderr, "stall: dmaq waiter %08x\n", t);
+                    t = word(t);
+                  }
+                  const std::uint32_t sp = word(0x800F92A0U + 0x20U + 26U * 8U + 4U);
+                  std::fprintf(stderr, "stall: main sp %08x ra %08x code:", sp, word(0x800F92A0U + 0x20U + 28U * 8U + 4U));
+                  for (std::uint32_t offset = 0U; offset < 0x400U; offset += 4U) {
+                    const std::uint32_t value = word(sp + offset);
+                    if (value >= 0x80000400U && value < 0x800C0000U) std::fprintf(stderr, " %08x", value);
+                  }
+                  std::fprintf(stderr, "\n");
+                }
                 std::vector<std::uint32_t> all_threads;
-                for (std::uint32_t t = word(0x800A9E8CU), guard = 0U; t != 0U && guard < 64U; ++guard) {
+                for (std::uint32_t t = word(0x800A9E8CU), guard = 0U; t != 0U && t != 0x800A9E80U && guard < 64U; ++guard) {
                   all_threads.push_back(t);
                   t = word(t + 0x0CU);
                 }
