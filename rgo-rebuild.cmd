@@ -27,7 +27,7 @@ cd /d "%RGO_REPO%"
 
 rem ---- Settings you may edit -------------------------------------------------
 rem Branch built when you just press Enter.
-set "DEFAULT_BRANCH=rgo/next"
+set "DEFAULT_BRANCH=main"
 rem ROM used the first time if it exists. After that the ROM path is remembered
 rem in %LOCALAPPDATA%\RGO\rebuild-rom.txt (delete that file to pick another ROM),
 rem or set the RGO_ROM environment variable to override it.
