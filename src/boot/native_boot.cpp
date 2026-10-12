@@ -2555,14 +2555,18 @@ private:
       default:break;
       }
       if(key) {
-        if(down){SetFocus(window);SetCapture(window);}
+        // RGO: capture only once. SetCapture on the window that already has
+        // capture still sends WM_CAPTURECHANGED, which released every held
+        // button: firing (left) while aiming (right held) dropped the aim.
+        if(down){SetFocus(window);if(GetCapture()!=window)SetCapture(window);}
         self->buttons_[static_cast<std::size_t>(key)]=down;self->input_.key(static_cast<std::size_t>(key),down);
         if(!down && GetCapture()==window && !self->buttons_[VK_LBUTTON] && !self->buttons_[VK_RBUTTON] &&
             !self->buttons_[VK_MBUTTON] && !self->buttons_[VK_XBUTTON1] && !self->buttons_[VK_XBUTTON2])ReleaseCapture();
         return message==WM_XBUTTONDOWN || message==WM_XBUTTONUP?TRUE:0;
       }
     }
-    if(message==WM_CAPTURECHANGED)for(auto key:{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2}){
+    if(message==WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam)!=window)
+      for(auto key:{VK_LBUTTON,VK_RBUTTON,VK_MBUTTON,VK_XBUTTON1,VK_XBUTTON2}){
       self->buttons_[static_cast<std::size_t>(key)]=false;self->input_.key(static_cast<std::size_t>(key),false);
     }
     if ((message == WM_KEYDOWN || message == WM_KEYUP) && wparam < 256U) {
