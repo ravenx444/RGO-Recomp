@@ -2280,7 +2280,13 @@ public:
               rectangle.bottom-rectangle.top,parent,nullptr,instance_,this);
         }
         if(window_) {
-          RAWINPUTDEVICE mouse{0x01,0x02,0,window_};
+          // RGO: INPUTSINK, so raw mouse motion keeps arriving after focus
+          // went to another process (the Controllers window) and back: this
+          // window is a child of the frontend's, in another process, and
+          // without it mouse look could stop until the game was restarted.
+          // Motion is only used while the game captures the mouse (focused,
+          // no settings open), so background input is never applied.
+          RAWINPUTDEVICE mouse{0x01,0x02,RIDEV_INPUTSINK,window_};
           raw_available_=RegisterRawInputDevices(&mouse,1,sizeof(mouse))!=FALSE;
           if(parent)PostMessageW(GetAncestor(parent,GA_ROOT),WM_APP+20,reinterpret_cast<WPARAM>(window_),0);
           if(visible){ShowWindow(window_,SW_SHOW);UpdateWindow(window_);}
