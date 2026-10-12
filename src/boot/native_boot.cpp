@@ -23,6 +23,7 @@
 #include "jfg/runtime/async_diagnostic_file.hpp"
 #include "jfg/runtime/async_volume_file.hpp"
 #include "jfg/audio/master_volume.hpp"
+#include "jfg/audio/audio_ring.hpp"
 #include "jfg/audio/playback_buffer.hpp"
 #include "jfg/audio/vi_playback_clock.hpp"
 #include "jfg/runtime/window_input_mailbox.hpp"
@@ -867,7 +868,8 @@ public:
 
   void set_gameplay_trace(GameplayTrace *trace) noexcept { gameplay_trace_ = trace; }
   void frontend_pause(bool paused) noexcept {
-    if (device_ != 0U && device_playing_) SDL_PauseAudioDevice(device_, paused ? 1 : 0);
+    if (device_ != 0U && (callback_ ? started_ : device_playing_))
+      SDL_PauseAudioDevice(device_, paused ? 1 : 0);
     rate_meter_.restart();  // the device does not play while paused
     production_meter_.restart();
   }
@@ -919,6 +921,23 @@ public:
         return false;
     }
     master_volume_.apply(converted_);
+    if (callback_) {
+      // RGO callback device: resample into the ring (push_to_ring). Only a
+      // queue more than a second above the cushion is cleared; the fill
+      // controller keeps it at the cushion otherwise.
+      if (current_queued_bytes_ > resume_bytes_ + frequency_ * 4U && !drop_pending_) {
+        clear_queue();
+        ++resyncs_;
+      }
+      push_to_ring(length);
+      ++submitted_buffers_;
+      queued_bytes_ += length;
+      emulated_dma_lengths_.push_back(length);
+      update_metrics();
+      capture_event("queue");
+      update_playback_state();
+      return true;
+    }
     // RGO: hard upper bound on the queue (jfg::audio::queue_bound_action):
     // skip the game's audio while the queue is far above the cushion, clear
     // it when it is more than a second above.
@@ -1048,7 +1067,8 @@ public:
   // VI's deadline should be to hold the queue at the cushion over a long
   // session (jfg::audio::QueueLevelTrim). Zero while the device is not playing.
   [[nodiscard]] std::int64_t level_trim(const std::int64_t vi_nanoseconds) noexcept {
-    if (!device_playing_ || frequency_ == 0U || (device_ == 0U && !wall_sink_)) {
+    // The callback device corrects drift by resampling instead.
+    if (callback_ || !device_playing_ || frequency_ == 0U || (device_ == 0U && !wall_sink_)) {
       level_trim_.reset();
       return 0;
     }
@@ -1068,6 +1088,9 @@ public:
   }
   // The queue level the trim works from (smoothed over about half a second).
   [[nodiscard]] std::uint32_t smoothed_queue_milliseconds() const noexcept {
+    if (callback_)
+      return output_rate_ == 0U || !device_playing_ ? 0U : static_cast<std::uint32_t>(
+          fill_controller_.smoothed() * 1000.0 / static_cast<double>(output_rate_));
     return frequency_ == 0U || !device_playing_ ? 0U : static_cast<std::uint32_t>(
         level_trim_.smoothed_bytes() * 1000.0 / (static_cast<double>(frequency_) * 4.0));
   }
@@ -1128,9 +1151,17 @@ private:
       // million fast (negative: slow), like a sound card's crystal.
       if (const char *ppm = std::getenv("JFG_RGO_WALL_AUDIO_PPM"); ppm != nullptr)
         wall_rate_ = 1.0 + std::strtod(ppm, nullptr) / 1e6;
+      // The sink drives the callback path at 48 kHz on the wall clock, as a
+      // real device would (JFG_RGO_AUDIO_QUEUE=1: the queue path instead).
+      if (!queue_requested()) {
+        callback_ = true;
+        wall_callback_ = true;
+        output_rate_ = 48000U;
+        callback_buffer_.assign(4096U, 0U);
+      }
     } else
 #endif
-    device_ = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
+    open_device(desired, obtained);
     if (wall_sink_) {
       // The wall-clock sink stands in for the device.
     } else if (device_ == 0U || obtained.freq != desired.freq ||
@@ -1152,10 +1183,110 @@ private:
     // host latency bounded independently of the emulated AI DMA clock.
     prebuffer_bytes_ = frequency_ * 4U / 10U;
     resume_bytes_ = frequency_ * 4U / 10U;
+    if (callback_) {
+      resampler_.configure(frequency_, output_rate_);
+      resume_frames_.store(ring_frames_for(resume_bytes_), std::memory_order_release);
+    }
     pacing_bytes_ = frequency_ * 4U / 5U;
     overrun_bytes_ = frequency_ * 4U * 2U;
     initialized_ = true;
     return true;
+  }
+
+  // RGO: open the device in callback mode at its own rate (48 kHz asked; the
+  // device's rate is accepted), fed from our ring buffer. SDL's queued audio
+  // at the game's ~22 kHz is the fallback, and JFG_RGO_AUDIO_QUEUE=1 forces it.
+  void open_device(const SDL_AudioSpec &desired, SDL_AudioSpec &obtained) {
+    if (!queue_requested()) {
+      SDL_AudioSpec want{};
+      want.freq = 48000;
+      want.format = AUDIO_S16SYS;
+      want.channels = 2U;
+      want.samples = 512U;
+      want.callback = &HostAudioDevice::device_callback;
+      want.userdata = this;
+      SDL_AudioSpec got{};
+      device_ = SDL_OpenAudioDevice(nullptr, 0, &want, &got, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+      if (device_ != 0U && got.format == AUDIO_S16SYS && got.channels == 2U &&
+          got.freq >= 8000 && got.freq <= 384000) {
+        callback_ = true;
+        output_rate_ = static_cast<std::uint32_t>(got.freq);
+        callback_buffer_.assign((std::max)(std::size_t{got.samples} * 2U, std::size_t{4096U}), 0U);
+        obtained = desired;  // the game-side format is unchanged
+        return;
+      }
+      if (device_ != 0U) SDL_CloseAudioDevice(device_);
+      device_ = 0U;
+    }
+    device_ = SDL_OpenAudioDevice(nullptr, 0, &desired, &obtained, 0);
+  }
+
+  [[nodiscard]] static bool queue_requested() noexcept {
+    char *value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, "JFG_RGO_AUDIO_QUEUE") != 0 || value == nullptr)
+      return false;
+    const bool requested = value[0] == '1' && value[1] == '\0';
+    std::free(value);
+    return requested;
+  }
+
+  [[nodiscard]] std::uint32_t ring_frames_for(const std::uint32_t game_bytes) const noexcept {
+    return frequency_ == 0U ? 0U : static_cast<std::uint32_t>(
+        std::uint64_t{game_bytes} / 4U * output_rate_ / frequency_);
+  }
+
+  // The game's buffer (converted_, little-endian 16-bit stereo) resampled
+  // into the ring, with the fill controller's correction.
+  void push_to_ring(const std::uint32_t length) {
+    frames_in_.resize(length / 4U);
+    for (std::size_t index = 0U; index < frames_in_.size(); ++index) {
+      const std::uint8_t *const bytes = converted_.data() + index * 4U;
+      frames_in_[index] = jfg::audio::stereo_frame(
+          static_cast<std::int16_t>(static_cast<std::uint16_t>(bytes[0] | (bytes[1] << 8U))),
+          static_cast<std::int16_t>(static_cast<std::uint16_t>(bytes[2] | (bytes[3] << 8U))));
+    }
+    frames_out_.clear();
+    const double correction = device_playing_
+        ? fill_controller_.update(ring_.fill(), ring_frames_for(resume_bytes_)) : 0.0;
+    resampler_.process(frames_in_, correction, frames_out_);
+    const std::size_t written = ring_.push(frames_out_);
+    if (written < frames_out_.size()) ++ring_overflows_;
+  }
+
+  // SDL's audio thread: play from the ring at the device clock. An empty
+  // ring plays silence and rebuffers to the cushion (an underrun).
+  static void SDLCALL device_callback(void *userdata, Uint8 *stream, int length) {
+    auto *const self = static_cast<HostAudioDevice *>(userdata);
+    auto frames = static_cast<std::size_t>(length > 0 ? length : 0) / 4U;
+    if (self->drop_request_.exchange(false, std::memory_order_acq_rel))
+      self->ring_.drop_all();
+    if (self->rebuffering_.load(std::memory_order_acquire)) {
+      if (self->ring_.fill() < self->resume_frames_.load(std::memory_order_acquire)) {
+        std::memset(stream, 0, static_cast<std::size_t>(length));
+        return;
+      }
+      self->rebuffering_.store(false, std::memory_order_release);
+    }
+    std::uint8_t *out = stream;
+    bool short_read = false;
+    while (frames != 0U) {
+      const std::size_t chunk = (std::min)(frames, self->callback_buffer_.size());
+      const std::size_t got = self->ring_.pop(std::span(self->callback_buffer_).first(chunk));
+      std::memcpy(out, self->callback_buffer_.data(), got * 4U);
+      self->callback_frames_.fetch_add(got, std::memory_order_relaxed);
+      if (got < chunk) {
+        std::memset(out + got * 4U, 0, (frames - got) * 4U);
+        short_read = true;
+        break;
+      }
+      out += chunk * 4U;
+      frames -= chunk;
+    }
+    if (short_read) {
+      self->callback_underruns_.fetch_add(1U, std::memory_order_acq_rel);
+      self->rebuffering_.store(true, std::memory_order_release);
+    }
   }
 
   [[nodiscard]] static bool null_sink_requested() noexcept {
@@ -1172,6 +1303,18 @@ private:
   // RGO: drop everything queued and refill to the cushion before playing
   // again (queue bound). Not an underrun: the cushion does not grow.
   void clear_queue() noexcept {
+    if (callback_) {
+      // The callback drops the ring on its next call and rebuffers to the
+      // cushion; the producer may not touch the ring's read side.
+      drop_pending_ = true;
+      drop_request_.store(true, std::memory_order_release);
+      rebuffering_.store(true, std::memory_order_release);
+      fill_controller_.reset();
+      rate_meter_.restart();
+      production_meter_.restart();
+      capture_event("resync-clear");
+      return;
+    }
     if (device_ != 0U) {
       SDL_PauseAudioDevice(device_, 1);
       SDL_ClearQueuedAudio(device_);
@@ -1192,7 +1335,11 @@ private:
       const auto now_us = static_cast<std::uint64_t>(
           std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::steady_clock::now().time_since_epoch()).count());
-      rate_meter_.sample(consumed_bytes_, now_us, frequency_ * 4U);
+      if (callback_)
+        rate_meter_.sample(callback_frames_.load(std::memory_order_relaxed) * 4U, now_us,
+                           output_rate_ * 4U);
+      else
+        rate_meter_.sample(consumed_bytes_, now_us, frequency_ * 4U);
       production_meter_.sample(queued_bytes_ + dropped_bytes_, now_us, frequency_ * 4U);
     } else {
       rate_meter_.restart();
@@ -1201,6 +1348,43 @@ private:
   }
 
   void update_device_metrics() noexcept {
+    if (wall_callback_) {
+      // Headless: play the ring at exactly the output rate while started.
+      const auto now = std::chrono::steady_clock::now();
+      if (started_ && wall_mark_ != std::chrono::steady_clock::time_point{}) {
+        wall_owed_ += std::chrono::duration<double>(now - wall_mark_).count() *
+                      static_cast<double>(output_rate_) * wall_rate_;
+        while (wall_owed_ >= 1.0) {
+          const auto frames = static_cast<std::size_t>((std::min)(wall_owed_, 512.0));
+          std::array<std::uint8_t, 512U * 4U> sink{};
+          device_callback(this, sink.data(), static_cast<int>(frames * 4U));
+          wall_owed_ -= static_cast<double>(frames);
+        }
+      }
+      wall_mark_ = now;
+    }
+    if (callback_) {
+      const std::uint64_t fill = ring_.fill();
+      current_queued_bytes_ = static_cast<std::uint32_t>((std::min)(
+          fill * frequency_ / output_rate_ * 4U, std::uint64_t{UINT32_MAX}));
+      consumed_bytes_ = queued_bytes_ >= current_queued_bytes_ ? queued_bytes_ - current_queued_bytes_ : 0U;
+      if (drop_pending_ && !drop_request_.load(std::memory_order_acquire))
+        drop_pending_ = false;
+      const std::uint64_t underruns = callback_underruns_.load(std::memory_order_acquire);
+      if (underruns != seen_callback_underruns_) {
+        // The ring ran dry: rebuffer a larger cushion, as the queue path does.
+        underruns_ += underruns - seen_callback_underruns_;
+        seen_callback_underruns_ = underruns;
+        resume_bytes_ = jfg::audio::grown_cushion(resume_bytes_, frequency_ * 4U / 20U,
+                                                  frequency_ * 4U / 5U);
+        prebuffer_bytes_ = resume_bytes_;
+        resume_frames_.store(ring_frames_for(resume_bytes_), std::memory_order_release);
+        fill_controller_.reset();
+        capture_event("underrun");
+      }
+      device_playing_ = started_ && !rebuffering_.load(std::memory_order_acquire);
+      return;
+    }
     if (wall_sink_) {
       // Consume at exactly the output rate while playing.
       const auto now = std::chrono::steady_clock::now();
@@ -1252,6 +1436,15 @@ private:
   }
 
   void update_playback_state() noexcept {
+    if (callback_) {
+      if (!started_ && renderer_ready_ && current_queued_bytes_ >= prebuffer_bytes_) {
+        started_ = true;
+        SDL_PauseAudioDevice(device_, 0);
+        capture_event("start");
+      }
+      device_playing_ = started_ && !rebuffering_.load(std::memory_order_acquire);
+      return;
+    }
     if (device_ == 0U && !wall_sink_) {
       if (null_sink_ && !started_ &&
           current_queued_bytes_ >= prebuffer_bytes_)
@@ -1342,6 +1535,22 @@ private:
   std::uint32_t frequency_ = 0U;
   std::uint64_t throttled_us_ = 0U;
   jfg::audio::QueueLevelTrim level_trim_;
+  // RGO callback device (audio_ring.hpp).
+  bool callback_ = false, wall_callback_ = false;
+  double wall_owed_ = 0.0;
+  std::uint32_t output_rate_ = 0U;
+  jfg::audio::AudioRing ring_{17U};
+  jfg::audio::StreamResampler resampler_;
+  jfg::audio::FillController fill_controller_;
+  std::vector<jfg::audio::StereoFrame> frames_in_, frames_out_, callback_buffer_;
+  std::atomic<std::uint64_t> callback_frames_{0U};
+  std::atomic<std::uint64_t> callback_underruns_{0U};
+  std::atomic<std::uint32_t> resume_frames_{0U};
+  std::atomic<bool> rebuffering_{true};
+  std::atomic<bool> drop_request_{false};
+  bool drop_pending_ = false;
+  std::uint64_t seen_callback_underruns_ = 0U;
+  std::uint64_t ring_overflows_ = 0U;
   jfg::audio::PlaybackRateMeter rate_meter_;
   jfg::audio::PlaybackRateMeter production_meter_;
   bool dropping_ = false;
