@@ -1248,3 +1248,37 @@ Detailed counter at that moment, show which part is wrong.
   60 would cost; the 15 ms / 20 ms thresholds leave for that.
 - **RDRAM copies per graphics task:** the renderer side is now a delta
   (above); the copy into the snapshot itself still compares 4 MB per task.
+
+### Audio through a callback device (rgo/audio-callback)
+
+Owner report on `rgo/next` with the queue bound: the queue no longer grows,
+but the sound is "peaking and scratchy every ~5 seconds" on every device: the
+bound was skipping audio regularly, because SDL's queued audio (the game's
+~22 kHz resampled by SDL) was consumed slower than nominal on Windows.
+
+Now the device is opened in **callback mode at its own rate** (48 kHz asked,
+the device's rate accepted). The game's audio is resampled once, by us
+(`jfg/audio/audio_ring.hpp`: linear interpolation, continuous across
+buffers), into a lock-free single-producer single-consumer ring; the callback
+reads the ring at exactly the device clock. A **fill controller** nudges the
+resampling ratio by up to 0.5 % (inaudible) to hold the ring at the cushion,
+so drift is corrected continuously instead of by skips. An empty ring plays
+silence and rebuffers to the cushion (a dropout, the cushion grows as
+before); only a queue more than a second above the cushion is cleared. The
+VI trim is off in this mode (the resampler corrects drift). Pausing pauses
+the device; the startup drain still gives up after a second.
+`JFG_RGO_AUDIO_QUEUE=1` goes back to SDL's queued audio.
+
+Headless, the exact wall-clock sink now drives the same callback at 48 kHz:
+2 min of True 60 with an exact sink read `card 100.0 %`, no resyncs; with a
+sink 0.3 % slow, `card 99.7 %`, no resyncs, the queue held near the cushion.
+
+Owner test (FPS counter Detailed, True 60):
+1. Play 10 minutes, levels and cutscenes: no scratches or peaks. The audio
+   line's level stays near the cushion, `resyncs 0`, `card` close to 100 %
+   (now the device's real clock).
+2. Background the game for a few minutes and return: the game responds, the
+   sound comes back without a long delay.
+3. If anything is worse, set `JFG_RGO_AUDIO_QUEUE=1` (the old path) and
+   compare.
+
