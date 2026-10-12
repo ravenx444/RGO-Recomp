@@ -12244,8 +12244,20 @@ int run_child(const char *path, const unsigned retrace_target,
                   std::memcpy(&value, state.rdram + (address & 0x007FFFFCU), 4U);
                   return value;
                 };
-                for (const std::uint32_t thread : {0x800F92A0U, 0x800F9070U, 0x800F17C0U, 0x800FB4F0U,
-                                                   0x80104200U, 0x80105410U}) {
+                {
+                  auto &mm = *state.mmio_trace;
+                  const auto pi = mm.pi_dma.deadline();
+                  std::fprintf(stderr, "stall: count %llu pi deadline %lld pi irq %d mi pending %08x vi_next %llu\n",
+                               static_cast<unsigned long long>(state.cpu_count),
+                               pi ? static_cast<long long>(*pi) : -1LL, mm.pi_dma.interrupt() ? 1 : 0,
+                               mm.mi_pending, static_cast<unsigned long long>(mm.vi_next));
+                }
+                std::vector<std::uint32_t> all_threads;
+                for (std::uint32_t t = word(0x800A9E8CU), guard = 0U; t != 0U && guard < 64U; ++guard) {
+                  all_threads.push_back(t);
+                  t = word(t + 0x0CU);
+                }
+                for (const std::uint32_t thread : all_threads) {
                   const std::uint32_t queue = word(thread + 8U);
                   std::fprintf(stderr, "stall: thread %08x pri %u state %04x queue %08x pc %08x ra %08x"
                                " | queue valid %u count %u first %u msg %08x\n",
