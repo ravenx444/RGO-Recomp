@@ -8230,6 +8230,12 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
             // Modern mouse (mode 7): angle deltas, as mode 3.
             if(frame.pc_mode==jfg::kPcTwinStickMode)look=state.pc_twin_camera[port].apply(look,ticks);
             else if(frame.pc_mode!=jfg::kPcTwinMouseMode)look=jfg::pc_camera_delta(frame.pc_mode,look,ticks);
+            // RGO Modern mouse: the camera orbit and the aim count pitch in
+            // opposite directions. The aim already turns the right way
+            // (mouse up = aim up with Invert Y off), so flip the camera's
+            // pitch to match: Invert Y off is up = up for look and aim alike,
+            // on is flight-style for both.
+            if(frame.pc_mode==jfg::kPcTwinMouseMode)look.y=-look.y;
             state.pc_camera_actor=actor;state.pc_camera_control=control;
             state.pc_camera_stack=static_cast<std::uint32_t>(context->r29)-0xF0U;
             state.pc_camera_look=jfg::pc_add_look(look,take_direct(state,port));
@@ -8265,11 +8271,6 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
           auto look=jfg::PcLookDelta{frame.look_x,frame.look_y};
           if(mouse && state.pc_mouse_used[port])look={};
           if(mouse)state.pc_mouse_used[port]=true;
-          // RGO Modern mouse: the camera orbit and the aim count pitch in
-          // opposite directions, so the same mouse delta looks up but aims
-          // down. Flip it here so one invert-Y setting means the same thing
-          // in look and in aim.
-          if(frame.pc_mode==jfg::kPcTwinMouseMode)look.y=-look.y;
           const auto stack=static_cast<std::uint32_t>(context->r29);
           const bool valid_limits=pc_memory.valid(stack,0x24U);
           if(frame.pc_mode==4)look=jfg::pc_camera_delta(frame.pc_mode,look,
