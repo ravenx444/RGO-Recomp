@@ -8271,7 +8271,13 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
             // (mouse up = aim up with Invert Y off), so flip the camera's
             // pitch to match: Invert Y off is up = up for look and aim alike,
             // on is flight-style for both.
-            if(frame.pc_mode==jfg::kPcTwinMouseMode)look.y=-look.y;
+            if(frame.pc_mode==jfg::kPcTwinMouseMode) {
+              // Undo the mouse's aim invert (mouse_invert_y) and apply the
+              // camera's own (mouse_camera_invert_y): the two are separate.
+              const auto &mouse_config=state.pc_input[port];
+              if(!mouse_config.mouse_invert_y)look.y=-look.y;
+              if(mouse_config.mouse_camera_invert_y)look.y=-look.y;
+            }
             state.pc_camera_actor=actor;state.pc_camera_control=control;
             state.pc_camera_stack=static_cast<std::uint32_t>(context->r29)-0xF0U;
             state.pc_camera_look=jfg::pc_add_look(look,take_direct(state,port));

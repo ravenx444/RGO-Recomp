@@ -318,7 +318,11 @@ struct Ui : Rml::EventListener {
       if(keyboard)html+="<div class=\"row\"><span>Aim button</span>"+button("pc-aim-toggle",c.aim_toggle?"Toggle":"Hold")+
         "<span class=\"muted\">Toggle: press R / aim once to start aiming, again to stop.</span></div>";
       if(!keyboard)html+="<div class=\"row\"><span>Stick response</span>"+button("pc-curve",c.aim_curve==0?"Linear":c.aim_curve==1?"Precise":"Extra precise")+"<span class=\"muted\">Precise response slows small movements near the center.</span></div>";
-      html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
+      if(keyboard && jfg::pc_twin_stick(c))
+        html+="<div class=\"row\">"+button("pc-invert-mouse-camera",c.mouse_camera_invert_y?"Camera Y: inverted":"Camera Y: normal")+
+          button("pc-invert-mouse",c.mouse_invert_y?"Aim Y: inverted":"Aim Y: normal")+"</div>";
+      else
+        html+="<div class=\"row\">"+button(keyboard?"pc-invert-mouse":"pc-invert-stick",keyboard?(c.mouse_invert_y?"Mouse Y: inverted":"Mouse Y: normal"):(c.aim_invert_y?"Aim stick Y: inverted":"Aim stick Y: normal"))+"</div>";
     }
     if(!keyboard)return html;
     html+="<div class=\"label\">KEYBOARD AND MOUSE BINDINGS</div>"+gameControlsHtml(c);
@@ -1564,6 +1568,7 @@ struct Ui : Rml::EventListener {
       else if(a=="pc-mouse")c.mouse_aim=!c.mouse_aim;
       else if(a=="pc-dual")c.dual_stick=!c.dual_stick;
       else if(a=="pc-invert-mouse")c.mouse_invert_y=!c.mouse_invert_y;
+      else if(a=="pc-invert-mouse-camera")c.mouse_camera_invert_y=!c.mouse_camera_invert_y;
       else if(a=="pc-aim-toggle")c.aim_toggle=!c.aim_toggle;
       else if(a=="pc-invert-stick")c.aim_invert_y=!c.aim_invert_y;
       else return;

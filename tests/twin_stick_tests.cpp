@@ -139,6 +139,9 @@ int main() {
   {
     jfg::PcInputConfig labels;labels.game_controls=1;
     check(jfg::parse_pc_input(jfg::serialize_pc_input(labels),roundtrip) && roundtrip.game_controls==1,"game control option roundtrips");
+    jfg::PcInputConfig camera_invert;camera_invert.mouse_camera_invert_y=1;
+    check(jfg::parse_pc_input(jfg::serialize_pc_input(camera_invert),roundtrip) && roundtrip.mouse_camera_invert_y==1 &&
+          roundtrip.mouse_invert_y==0,"mouse camera invert roundtrips separately from the aim's");
   }
   // Headless scripted controller, mouse and keyboard.
   {

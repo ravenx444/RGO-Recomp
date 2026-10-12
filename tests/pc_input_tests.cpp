@@ -70,7 +70,7 @@ int main() {
   check(gate.blocked(true,raw),"settings capture");raw[0].buttons=1;check(gate.blocked(false,raw),"aim deflection prevents premature release");raw[0].buttons=0;check(!gate.blocked(false,raw),"neutral release");
   config=jfg::pc_keyboard_preset();check(config.modern==1,"modern keyboard preset");
   auto old=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
     const auto at=old.find(std::string(name)+"=");old.erase(at,old.find('\n',at)-at+1);
   }
   old.replace(old.find("version=4"),9,"version=1");
@@ -120,7 +120,7 @@ int main() {
   pad.axes[2]=0;check(jfg::pc_aim_stick(config,pad,0)==jfg::N64StickSample{},"curve neutral stays neutral");
   config={};config.mouse_sensitivity=175;config.aim_sensitivity=125;
   auto v2=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
     const auto at=v2.find(std::string(name)+"=");v2.erase(at,v2.find('\n',at)-at+1);
   }
   v2.replace(v2.find("version=4"),9,"version=2");
@@ -135,7 +135,7 @@ int main() {
   {
     auto v3=text;v3.replace(v3.find("version=4"),9,"version=3");
     invalid(v3);
-    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls"}) {
+    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
       const auto at=v3.find(std::string(name)+"=");v3.erase(at,v3.find('\n',at)-at+1);
     }
     check(jfg::parse_pc_input(v3,roundtrip)&&roundtrip.rumble==100,"v3 profile loads with default rumble");
