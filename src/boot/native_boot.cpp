@@ -2355,7 +2355,7 @@ struct State : JfgOriginalTimingFast {
   bool pc_input_blocked = true, pc_raw_available = false;
   // RGO: raw mouse motion arrived during this mouse capture; without it the
   // cursor's own motion is used (see the capture code in sample_live_controller).
-  bool pc_raw_seen = false, pc_cursor_fallback_logged = false;
+  bool pc_raw_seen = false, pc_cursor_fallback_logged = false, pc_cursor_centred = false;
   jfg::WindowInputMailbox window_input;
 #if defined(_WIN32) || defined(JFG_HEADLESS_LIVE)
   // RGO: SDL gamepads (DualShock 4, DualSense, Switch Pro, Xbox) and rumble.
@@ -2675,6 +2675,10 @@ struct State : JfgOriginalTimingFast {
 State *g_active_child_state = nullptr;
 
 #if defined(_WIN32)
+// RGO: raw mouse messages the game window received: all, absolute-position
+// ones (ignored), and relative ones that arrived while the mouse was not
+// captured (dropped). Written to the support log if motion goes missing.
+std::atomic<std::uint32_t> g_raw_mouse_messages{0U}, g_raw_mouse_absolute{0U}, g_raw_mouse_uncaptured{0U};
 class LiveRt64Window final {
 public:
   static constexpr UINT kAspectMessage = WM_APP + 22U;
@@ -2758,8 +2762,18 @@ private:
     if(message==WM_INPUT) {
       RAWINPUT raw{};UINT size=sizeof(raw);
       if(GetRawInputData(reinterpret_cast<HRAWINPUT>(lparam),RID_INPUT,&raw,&size,sizeof(RAWINPUTHEADER))!=UINT(-1) &&
-         raw.header.dwType==RIM_TYPEMOUSE && !(raw.data.mouse.usFlags&MOUSE_MOVE_ABSOLUTE) && self->captured_.load())
-        self->input_.motion(raw.data.mouse.lLastX,raw.data.mouse.lLastY);
+         raw.header.dwType==RIM_TYPEMOUSE) {
+        // RGO: counted for the support log when mouse motion goes missing.
+        g_raw_mouse_messages.fetch_add(1U,std::memory_order_relaxed);
+        if(raw.data.mouse.usFlags&MOUSE_MOVE_ABSOLUTE)g_raw_mouse_absolute.fetch_add(1U,std::memory_order_relaxed);
+        else if(!self->captured_.load())g_raw_mouse_uncaptured.fetch_add(1U,std::memory_order_relaxed);
+        else self->input_.motion(raw.data.mouse.lLastX,raw.data.mouse.lLastY);
+      }
+    }
+    if(message==kRawMouseMessage) { // RGO: take the raw mouse registration back
+      RAWINPUTDEVICE mouse{0x01,0x02,RIDEV_INPUTSINK,window};
+      jfg::support_event(RegisterRawInputDevices(&mouse,1,sizeof(mouse))!=FALSE?"mouse=raw-input-reregistered":"mouse=raw-input-reregister-failed");
+      return 0;
     }
     if(message==WM_SETCURSOR && self->captured_.load()){SetCursor(nullptr);return TRUE;}
     if(message>=WM_MOUSEFIRST && message<=WM_MOUSELAST) {
@@ -2819,6 +2833,9 @@ private:
     return DefWindowProcW(window,message,wparam,lparam);
   }
   static constexpr UINT kStopMessage = WM_APP+23U;
+public:
+  static constexpr UINT kRawMouseMessage = WM_APP+24U;
+private:
   static constexpr wchar_t kClassName[] = L"JfgPhase8LiveRt64Window";
   jfg::WindowInputMailbox& input_;
   std::atomic<bool>& captured_;
@@ -3443,20 +3460,39 @@ void sample_live_controller(State &state) noexcept {
         const POINT centre{(rect.left+rect.right)/2,(rect.top+rect.bottom)/2};
         POINT cursor{};
         if(GetCursorPos(&cursor)) {
-          if(state.pc_mouse_captured.load() && (cursor.x!=centre.x || cursor.y!=centre.y)) {
+          // Only motion since this code last centred the cursor counts, so
+          // where the cursor was when capture began is never a jump.
+          if(state.pc_cursor_centred && (cursor.x!=centre.x || cursor.y!=centre.y)) {
             state.pc_mouse.add(cursor.x-centre.x,cursor.y-centre.y);
             if(!state.pc_cursor_fallback_logged) {
+              // Record why: which window holds the process's raw mouse
+              // registration, and what raw messages did arrive; take the
+              // registration back if another window has it.
               state.pc_cursor_fallback_logged=true;
-              jfg::support_event("mouse=raw-input-silent-cursor-fallback");
+              RAWINPUTDEVICE devices[16]{};UINT count=16;HWND target=nullptr;bool registered=false;
+              const UINT found=GetRegisteredRawInputDevices(devices,&count,sizeof(RAWINPUTDEVICE));
+              for(UINT i=0;found!=UINT(-1) && i<found;++i)
+                if(devices[i].usUsagePage==0x01 && devices[i].usUsage==0x02){registered=true;target=devices[i].hwndTarget;}
+              char target_class[64]="none";
+              if(target)GetClassNameA(target,target_class,static_cast<int>(sizeof(target_class)));
+              std::ostringstream line;
+              line<<"mouse=raw-input-silent-cursor-fallback registered="<<(registered?1:0)
+                  <<" target="<<(target==window?"game-window":target_class)
+                  <<" raw="<<g_raw_mouse_messages.load()<<" absolute="<<g_raw_mouse_absolute.load()
+                  <<" uncaptured="<<g_raw_mouse_uncaptured.load();
+              jfg::support_event(line.str());
+              if(!registered || target!=window)PostMessageW(window,LiveRt64Window::kRawMouseMessage,0,0);
             }
           }
           SetCursorPos(centre.x,centre.y);
+          state.pc_cursor_centred=true;
         }
       }
 #endif
     }
   } else {
     state.pc_raw_seen=false; // a new capture checks raw input again
+    state.pc_cursor_centred=false;
     if(state.pc_mouse_captured){ClipCursor(nullptr);SetCursor(LoadCursorW(nullptr,MAKEINTRESOURCEW(32512)));}
     state.pc_mouse.clear();
   }

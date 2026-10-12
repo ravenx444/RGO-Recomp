@@ -421,6 +421,38 @@ Experimental switch:
 The headless pad script can drive the keyboard and mouse too
 (`k:<virtual keys>` and `m:<dx>,<dy>` fields).
 
+### Mouse motion after switching devices mid-game
+
+Owner report: start with Player 1 on the DualSense, switch Player 1 to
+Mouse and keyboard (Modern) in Controllers while the game runs, and the
+mouse is captured and its buttons work, but mouse motion does nothing until
+a restart. Launching with Mouse and keyboard already chosen works.
+
+What it is not: device and scheme reload every 250 ms, and every per-player
+flag on the mouse path (look mode, Modern flags, effective config) is
+recomputed each poll, so nothing from the pad session is kept. SDL is only
+started for audio and game controllers here, and SDL 2.26.3 registers raw
+input only for joysticks, which is off (`SDL_HINT_JOYSTICK_RAWINPUT=0`);
+RT64 and the runtime register none. Adding `RIDEV_INPUTSINK` did not help.
+So raw `WM_INPUT` motion stops reaching the game window, cause not proven
+(no Windows machine to reproduce on).
+
+What the game does now:
+- If no raw motion arrives during a mouse capture, it reads the cursor's
+  movement from the window centre and re-centres it every poll (only
+  motion since it last centred the cursor counts, so capture never starts
+  with a jump). Raw input stays the source whenever it arrives.
+- The first time that happens it writes one support-log line,
+  `mouse=raw-input-silent-cursor-fallback registered=<0|1> target=<window>
+  raw=<n> absolute=<n> uncaptured=<n>`: whether the process still has a raw
+  mouse registration and which window holds it, and how many raw mouse
+  messages the game window got in total, with absolute positions (ignored),
+  and while not captured (dropped). If another window holds the
+  registration, the game takes it back (`mouse=raw-input-reregistered`).
+  That line tells which of the three causes it is: registration lost,
+  messages arriving in a form the game ignores, or arriving only while
+  the game thought the mouse was not captured.
+
 ### Button labels
 
 Owner request: name each binding by what it does, with the N64 button in
