@@ -86,6 +86,15 @@ The decomp carries no observed license, so this is a maintainer-approved
 research consultation of factual metadata, not a grant of copy rights; it
 does not affect the underlying game copyright.
 
+RGO (this fork) also consults the decompilation, the same way, to understand
+game functions it hooks or replaces (widescreen, frame rate, input, gore).
+Only facts are used: function names, ROM/RAM addresses, structure field
+offsets and descriptions of behaviour. RGO's hooks and replacements are
+independently written; no decomp source, headers or implementation are
+copied. The build also clones the decomp at the commit pinned in
+`dependencies.lock.json` and builds it locally on the user's machine to
+produce a symbol map; neither the decomp nor its output is distributed.
+
 Pinned dependency records and build-tool inventory are in the
 [dependency inventory](docs/legal/dependency-license-inventory.md).
 

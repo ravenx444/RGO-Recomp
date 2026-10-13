@@ -28,10 +28,11 @@ cd /d "%RGO_REPO%"
 rem ---- Settings you may edit -------------------------------------------------
 rem Branch built when you just press Enter.
 set "DEFAULT_BRANCH=main"
-rem ROM used the first time if it exists. After that the ROM path is remembered
+rem Optional: a ROM path to use the first time, if it exists. After that the ROM
+rem path is remembered
 rem in %LOCALAPPDATA%\RGO\rebuild-rom.txt (delete that file to pick another ROM),
 rem or set the RGO_ROM environment variable to override it.
-set "DEFAULT_ROM=D:\GameDev\Modding\rgo-source\baserom.us.z64"
+set "DEFAULT_ROM="
 rem ----------------------------------------------------------------------------
 
 set "ROM_SETTING=%LOCALAPPDATA%\RGO\rebuild-rom.txt"
@@ -47,7 +48,7 @@ if exist "%ROM%" goto :haverom
 echo The remembered ROM was not found: "%ROM%"
 set "ROM="
 :defaultrom
-if exist "%DEFAULT_ROM%" set "ROM=%DEFAULT_ROM%"
+if defined DEFAULT_ROM if exist "%DEFAULT_ROM%" set "ROM=%DEFAULT_ROM%"
 :askrom
 if defined ROM goto :haverom
 echo Where is your Jet Force Gemini ROM (US .z64)? You can drag the file into this window.
