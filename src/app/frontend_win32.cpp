@@ -624,9 +624,9 @@ void uiAction(const std::string &a) {
   else if (a == "guide")
     command = Guide;
   else if (a == "project" || a == "known-issues" || a == "notices") {
-    const wchar_t *url = a == "project" ? L"https://github.com/TK22-26/JetForceGemini-Recomp"
-        : a == "known-issues" ? L"https://github.com/TK22-26/JetForceGemini-Recomp/blob/main/docs/known-issues.md"
-        : L"https://github.com/TK22-26/JetForceGemini-Recomp/blob/main/THIRD_PARTY_NOTICES.md";
+    const wchar_t *url = a == "project" ? L"https://github.com/ravenx444/RGO-Recomp"
+        : a == "known-issues" ? L"https://github.com/ravenx444/RGO-Recomp/blob/main/docs/known-issues.md"
+        : L"https://github.com/ravenx444/RGO-Recomp/blob/main/THIRD_PARTY_NOTICES.md";
     ShellExecuteW(app.window, L"open", url, nullptr, nullptr, SW_SHOWNORMAL);
   }
   else if (a == "mods")
@@ -923,6 +923,9 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       DWORD exitCode = 1;
       GetExitCodeProcess(app.session.handle, &exitCode);
       const bool startAfterInit = app.initializing && app.quickPlay && exitCode == 0;
+      // RGO: a finished setup starts the game by itself.
+      const bool startAfterSetup = !app.playing && !app.initializing && exitCode == 0 &&
+                                   !app.closing;
       app.quickPlay = false;
       app.session.release();
       app.render = nullptr;
@@ -935,7 +938,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       SetWindowTextW(app.runtime, read(L"frontend-runtime.txt").c_str());
       if (app.closing)
         DestroyWindow(window);
-      else if (startAfterInit)
+      else if (startAfterInit || startAfterSetup)
         PostMessageW(window, WM_COMMAND, Play, 0);
     }
     if (app.dialog.handle && !app.dialog.running()) {
@@ -959,9 +962,13 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       if (LOWORD(wparam) == Setup &&
           MessageBoxW(
               window,
-              L"Setup downloads source and missing build tools. The first "
-              L"setup may download several GB and require administrator "
-              L"approval or a restart. Your ROM stays on this PC. Continue?",
+              L"First-time setup takes about an hour. It has not crashed. "
+              L"Please don't close this window: leave it open, and the game "
+              L"will start by itself when it's done. Later starts take "
+              L"seconds; rebuilds after an update take minutes.\n\n"
+              L"Setup downloads the source and any missing build tools "
+              L"(several GB) and may ask for administrator approval or a "
+              L"restart. Your ROM stays on this PC. Continue?",
               L"Set up game", MB_OKCANCEL | MB_ICONINFORMATION) != IDOK)
         break;
       persist();
@@ -1015,8 +1022,8 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       break;
     case Guide:
       ShellExecuteW(window, L"open",
-                    L"https://github.com/TK22-26/JetForceGemini-Recomp/blob/"
-                    L"main/docs/getting-started.md",
+                    L"https://github.com/ravenx444/RGO-Recomp/blob/"
+                    L"main/docs/rgo/PLAYER_GUIDE.md",
                     nullptr, nullptr, SW_SHOWNORMAL);
       break;
     case Mods:
@@ -1114,7 +1121,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   LocalFree(argv);
   if (!validArguments || (!app.quickPlay && (!app.inputReplay.empty() || !app.progressOutput.empty()))) {
     MessageBoxW(nullptr,
-                L"Use JFG-Launcher.exe [--play] [--profile <folder>]. "
+                L"Use RGO-Launcher.exe [--play] [--profile <folder>]. "
                 L"Diagnostic --input-replay <file> and --progress-output <file> require --play.",
                 L"Jet Force Gemini", MB_OK | MB_ICONERROR);
     return 2;

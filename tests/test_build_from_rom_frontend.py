@@ -22,7 +22,7 @@ class SourceBuildFrontendTests(unittest.TestCase):
         self.assertEqual(command[command.index("-NativeBuildDirectory") + 1], str(output / "n"))
 
     def test_play_starts_the_frontend_with_quick_play_and_profile(self):
-        launcher = Path("C:/JFG/b/0123456789ab/f/JFG-Launcher.exe")
+        launcher = Path("C:/JFG/b/0123456789ab/f/RGO-Launcher.exe")
         profile = Path("D:/JFGRecomp/profiles/default")
         self.assertEqual(build_from_rom.frontend_play_command(launcher, profile),
                          [str(launcher), "--play", "--profile", str(profile)])

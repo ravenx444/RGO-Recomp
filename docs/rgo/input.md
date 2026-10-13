@@ -39,7 +39,7 @@ gameplay behaviour below needs a test on the owner's PC.
 - There is **no rumble**. The runtime emulates a Controller Pak on port 0 and
   never calls `XInputSetState`.
 - The launcher's Controllers page (`launcher/ui/native_ui.cpp`, RmlUi, opened
-  as a separate "controllers" window by `JFG-Launcher.exe`) also discovers and
+  as a separate "controllers" window by `RGO-Launcher.exe`) also discovers and
   learns bindings through XInput, and names buttons "A / Cross" etc.
 
 ### Game side (decomp)

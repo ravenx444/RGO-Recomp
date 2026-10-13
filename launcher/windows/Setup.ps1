@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $script:SetupRoot = Join-Path $env:LOCALAPPDATA 'JFGRecomp'
+# RGO: the launcher builds the RGO-Recomp revision it was packaged from.
+$script:SourceRepository = 'https://github.com/ravenx444/RGO-Recomp.git'
 $script:Distro = 'Ubuntu-24.04'
 $script:LinuxPackages = @('build-essential', 'gcc-multilib', 'binutils-mips-linux-gnu',
     'python3-venv', 'python3-pip', 'pkg-config', 'cmake', 'ninja-build', 'git', 'wget')
@@ -158,7 +160,7 @@ function Get-PinnedSource([string]$Commit) {
         Invoke-Checked $git @('init', $temporary)
         Invoke-Checked $git @('-C', $temporary, 'config', 'core.autocrlf', 'false')
         Invoke-Checked $git @('-C', $temporary, 'config', 'core.longpaths', 'true')
-        Invoke-Checked $git @('-C', $temporary, 'remote', 'add', 'origin', 'https://github.com/TK22-26/JetForceGemini-Recomp.git')
+        Invoke-Checked $git @('-C', $temporary, 'remote', 'add', 'origin', $script:SourceRepository)
         Invoke-Checked $git @('-C', $temporary, 'fetch', '--depth=1', 'origin', $Commit)
         Invoke-Checked $git @('-C', $temporary, 'checkout', '--detach', $Commit)
         # Both resolved paths must stay inside the explicitly owned source cache.
@@ -201,8 +203,10 @@ function Invoke-Setup {
         }
         $python = Find-Python
         Write-Output 'JFG-SUPPORT stage=build-game'
-        Write-Output 'Building the game locally from your ROM...'
-        Invoke-Checked $python @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath)
+        Write-Output 'Building the game locally from your ROM. This is the long part; it has not crashed.'
+        # The launcher is the frontend and it is open, so the build must not
+        # rebuild it (build_from_rom.py refuses while the frontend is running).
+        Invoke-Checked $python @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath, '--no-frontend')
     } finally { Stop-Transcript | Out-Null }
 }
 

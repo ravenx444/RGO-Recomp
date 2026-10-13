@@ -56,7 +56,7 @@ def find_cmake() -> str:
     raise ValueError("Install Visual Studio 2022 C++ desktop tools with CMake support.")
 
 
-# RGO: source builds also build the unified frontend (JFG-Launcher.exe), so
+# RGO: source builds also build the unified frontend (RGO-Launcher.exe), so
 # --play gets the same menu bar and settings as the release launcher.
 FRONTEND_MUTEX = "Local\\JFGUnifiedFrontend"
 
@@ -146,7 +146,7 @@ def main() -> int:
     parser.add_argument("--play", action="store_true",
                         help="Start the game through the frontend (menu bar, Video settings) after building")
     parser.add_argument("--no-frontend", action="store_true",
-                        help="Skip building JFG-Launcher.exe; with --play, start the bare game window")
+                        help="Skip building RGO-Launcher.exe; with --play, start the bare game window")
     parser.add_argument("--regenerate", action="store_true",
                         help="Generate again from the ROM even if a cached generation matches "
                              "(the game code is then compiled from zero too)")
@@ -172,7 +172,7 @@ def main() -> int:
     rom = args.rom.resolve()
     rom_sha1 = validate_rom(rom)  # Reject before downloads or build output.
     if not args.no_frontend and frontend_is_open():
-        raise ValueError("Close the JFG frontend (JFG-Launcher.exe) before a source build, or pass --no-frontend.")
+        raise ValueError("Close the RGO launcher (RGO-Launcher.exe) before a source build, or pass --no-frontend.")
     cmake = find_cmake()
     for tool in ("git", "wsl"):
         if not shutil.which(tool):
@@ -322,9 +322,9 @@ def main() -> int:
         if args.clean and frontend.exists():
             cache_tools.delete_tree(frontend)
         run("frontend", frontend_build_command(ROOT, frontend))
-        launcher = frontend / "JFG-Launcher.exe"
+        launcher = frontend / "RGO-Launcher.exe"
         if not launcher.is_file():
-            raise RuntimeError("Frontend build finished without JFG-Launcher.exe.")
+            raise RuntimeError("Frontend build finished without RGO-Launcher.exe.")
         print("Frontend: " + str(launcher), flush=True)
     print(f"Build finished in {(time.monotonic() - started_build) / 60:.0f} min", flush=True)
     # The build is done; a rebuild started from the frontend must not wait on it.

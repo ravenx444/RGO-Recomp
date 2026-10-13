@@ -105,11 +105,21 @@ Compared with upstream:
 Every feature is an option; the original behaviour is still available. The
 roadmap and current status are in [docs/rgo/ROADMAP.md](docs/rgo/ROADMAP.md).
 
-## Status
+## Install and play (Windows 10/11, 64-bit)
 
-There is no RGO release yet. The first release is planned in
-[docs/rgo/RELEASE_PLAN.md](docs/rgo/RELEASE_PLAN.md). Until then, RGO is
-built from source on Windows.
+1. Download `RGO-Launcher-<version>-windows-x64.zip` from
+   [Releases](https://github.com/ravenx444/RGO-Recomp/releases) and extract
+   it to a folder you can write to, such as `C:\Games\RGO`.
+2. Open `RGO-Launcher.exe`, pick your ROM (the North American 32 MiB
+   big-endian `.z64`; the launcher checks it), and click **Play**.
+3. The first time, the launcher installs what it needs (Git, Python, Visual
+   Studio Build Tools, WSL with Ubuntu), downloads the RGO source and builds
+   the game from your ROM. **First-time setup takes about an hour. It has not
+   crashed.** Leave the launcher open and the game starts by itself when it's
+   done. Later starts take seconds.
+
+The [player guide](docs/rgo/PLAYER_GUIDE.md) has the details, settings and
+what to do if something goes wrong.
 
 Known issues:
 - The heaviest cutscene shots fall back to 30 fps in True 60 mode, and big
@@ -117,27 +127,7 @@ Known issues:
 - Upstream's own [known issues](docs/known-issues.md) also apply, including
   the open Windows 10 setup problems.
 
-## Building from source (Windows x64)
-
-You need:
-- Windows 10 or 11, x64, with WSL2 and virtualization enabled.
-- Visual Studio 2022 (or its Build Tools) with the C++ workload, Git and
-  Python 3.
-- WSL2 with Ubuntu 24.04.
-- The supported ROM: the 32 MiB US big-endian `.z64`, SHA-1
-  `493ced9008dbe932d6e91179b68e8630cf23a023`. Other regions, modified ROMs
-  and byte-swapped files are not supported.
-
-Then either double-click `rgo-rebuild.cmd` in the repository root (it asks for
-your ROM the first time), or run:
-
-```bat
-python scripts/build_from_rom.py --rom C:\path\to\your\rom.z64 --play
-```
-
-The first build takes about an hour. Later builds reuse what hasn't changed
-and take minutes ([docs/rgo/build.md](docs/rgo/build.md)). Upstream's
-[source build guide](docs/development/rom-bootstrap.md) covers the details.
+Working on RGO itself? See [docs/rgo/build.md](docs/rgo/build.md).
 
 ## Licence
 

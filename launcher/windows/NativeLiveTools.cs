@@ -71,9 +71,9 @@ internal sealed class NativeLiveTools {
     string launcher = Environment.GetEnvironmentVariable("JFG_LAUNCHER_EXE");
     if (String.IsNullOrEmpty(launcher) || !File.Exists(launcher))
       launcher = Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                              "JFG-Launcher.exe");
+                              "RGO-Launcher.exe");
     if (!File.Exists(launcher))
-      throw new IOException("Open live tools from the current JFG launcher.");
+      throw new IOException("Open live tools from the current RGO launcher.");
     string helper = System.Reflection.Assembly.GetExecutingAssembly().Location;
     return Process.Start(new ProcessStartInfo(
         launcher,

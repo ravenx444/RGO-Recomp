@@ -1,7 +1,14 @@
 # RGO first public release: plan
 
-Status: planned, not started. Agreed with the owner on 2026-10-12, to start
-after the freeze/fibers work lands. Each section is a separate PR.
+Status (2026-10-13): in progress. Agreed with the owner on 2026-10-12.
+- Done: 2 (first-run message, game starts by itself after setup),
+  3 (RGO-Launcher.exe, builds the RGO-Recomp revision it was packaged from,
+  batch files removed), 4 (README credits, About page, notices), 5 (audit of
+  the repo, its history and the release ZIP contents), 6 (README, player
+  guide, docs).
+- Not done: 1 (portable install; saves stay in `%LOCALAPPDATA%` for now),
+  7 (build, test and package on the owner's PC, tag `rgo-v0.1.0`, make the
+  repo public).
 
 ## Goal
 
@@ -58,8 +65,8 @@ runs) a plain message:
 - Name `RGO-Launcher.exe`, window titles, About page.
 - The release pins an **RGO-Recomp** revision (the release tag), not
   upstream's. `dependencies.lock.json` stays the dependency source of truth.
-- `rgo-rebuild.cmd` keeps working for developers; remove the owner's
-  personal default ROM path from it.
+- No batch files: players only use the launcher. `rgo-rebuild.cmd` was
+  removed; developers use `scripts/build_from_rom.py` (`docs/rgo/build.md`).
 
 ### 4. Credit and licences (must be complete before going public)
 - Keep upstream `LICENSE` (MIT, upstream copyright line) intact; add the RGO

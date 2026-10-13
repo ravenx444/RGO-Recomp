@@ -19,7 +19,7 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'launcher/windows').mkdir(parents=True)
         self.version('1.0.0')
         (self.root / 'CMakeLists.txt').write_text('project( jfg_recomp VERSION 1.0.0 LANGUAGES C CXX)', encoding='utf-8')
-        self.metadata = {'tag': 'v1.0.0', 'version': '1.0.0', 'commit': 'a' * 40, 'prerelease': False}
+        self.metadata = {'tag': 'rgo-v1.0.0', 'version': '1.0.0', 'commit': 'a' * 40, 'prerelease': False}
 
     def version(self, version):
         (self.root / 'launcher/windows/Launcher.cs').write_text(
@@ -27,7 +27,7 @@ class ReleaseTests(unittest.TestCase):
 
     def assets(self):
         name = package.package_name(self.metadata['version'])
-        members = {'JFG-Launcher.exe': b'MZ synthetic test fixture', 'LICENSE': b'fixture',
+        members = {'RGO-Launcher.exe': b'MZ synthetic test fixture', 'LICENSE': b'fixture',
                    'THIRD-PARTY.txt': b'licenses/fixture.txt', 'licenses/fixture.txt': b'fixture notice',
                    'licenses/font-manifest.json': b'{}', 'licenses/provenance.json': b'{}'}
         with zipfile.ZipFile(self.root / name, 'w') as z:
@@ -37,12 +37,12 @@ class ReleaseTests(unittest.TestCase):
         inventory = {'source_commit': self.metadata['commit'], 'package': name, 'sha256': digest,
                      'members': {path: hashlib.sha256(data).hexdigest() for path, data in members.items()}}
         (self.root / 'package-inventory.json').write_text(json.dumps(inventory), encoding='utf-8')
-        (self.root / 'SHA256SUMS.txt').write_text(digest + '  ' + name + '\n' + inventory['members']['JFG-Launcher.exe'] + '  JFG-Launcher.exe\n', encoding='ascii')
+        (self.root / 'SHA256SUMS.txt').write_text(digest + '  ' + name + '\n' + inventory['members']['RGO-Launcher.exe'] + '  RGO-Launcher.exe\n', encoding='ascii')
         return inventory
 
     def test_package_version_follows_source(self):
         self.version('1.2.3-rc.1')
-        self.assertEqual(package.package_name(package.launcher_version(self.root)), 'JFG-Launcher-1.2.3-rc.1-windows-x64.zip')
+        self.assertEqual(package.package_name(package.launcher_version(self.root)), 'RGO-Launcher-1.2.3-rc.1-windows-x64.zip')
 
     def test_invalid_versions_rejected(self):
         for version in ('01.0.0', '1.0', '1.0.0/evil', '1.0.0-rc.01', ''):
@@ -53,31 +53,31 @@ class ReleaseTests(unittest.TestCase):
 
     def test_stable_tag_on_main(self):
         with mock.patch.object(release, 'command', side_effect=['a' * 40, 'a' * 40]), mock.patch.object(release.subprocess, 'run') as git:
-            self.assertEqual(release.release_metadata(self.root, 'v1.0.0', 'tag'), self.metadata)
+            self.assertEqual(release.release_metadata(self.root, 'rgo-v1.0.0', 'tag'), self.metadata)
             self.assertIn('origin/main', git.call_args.args[0])
 
     def test_preview_tag_classified_separately(self):
         self.version('1.0.0-rc.1')
         with mock.patch.object(release, 'command', side_effect=['a' * 40, 'a' * 40]), mock.patch.object(release.subprocess, 'run'):
-            self.assertTrue(release.release_metadata(self.root, 'v1.0.0-rc.1', 'tag')['prerelease'])
+            self.assertTrue(release.release_metadata(self.root, 'rgo-v1.0.0-rc.1', 'tag')['prerelease'])
 
     def test_branches_and_mismatched_tags_rejected(self):
-        for tag, ref in [('main', 'branch'), ('v0.4.0-preview.4', 'tag'), ('v1.0', 'tag')]:
+        for tag, ref in [('main', 'branch'), ('rgo-v0.4.0-preview.4', 'tag'), ('rgo-v1.0', 'tag'), ('v1.0.0', 'tag')]:
             with self.subTest(tag=tag), self.assertRaises(ValueError):
                 release.release_metadata(self.root, tag, ref)
 
     def test_mismatched_cmake_version_rejected(self):
         (self.root / 'CMakeLists.txt').write_text('project(jfg_recomp VERSION 2.0.0)', encoding='utf-8')
         with self.assertRaises(ValueError):
-            release.release_metadata(self.root, 'v1.0.0', 'tag')
+            release.release_metadata(self.root, 'rgo-v1.0.0', 'tag')
 
     def test_moved_tag_rejected(self):
         with mock.patch.object(release, 'command', side_effect=['a' * 40, 'b' * 40]), self.assertRaises(ValueError):
-            release.release_metadata(self.root, 'v1.0.0', 'tag')
+            release.release_metadata(self.root, 'rgo-v1.0.0', 'tag')
 
     def test_commit_outside_main_rejected(self):
         with mock.patch.object(release, 'command', side_effect=['a' * 40, 'a' * 40]), mock.patch.object(release.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, ['git'])), self.assertRaises(subprocess.CalledProcessError):
-            release.release_metadata(self.root, 'v1.0.0', 'tag')
+            release.release_metadata(self.root, 'rgo-v1.0.0', 'tag')
 
     def test_written_package_keeps_archive_name_in_inventory_and_checksums(self):
         self.assets()

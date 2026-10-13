@@ -12,10 +12,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("JFG Launcher")]
-[assembly: AssemblyDescription("Local ROM build and launcher for JFG")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyInformationalVersion("1.0.0")]
+[assembly: AssemblyTitle("RGO Launcher")]
+[assembly: AssemblyDescription("Local ROM build and launcher for RGO")]
+[assembly: AssemblyVersion("0.1.0.0")]
+[assembly: AssemblyInformationalVersion("0.1.0")]
 
 namespace JfgLauncher
 {
@@ -43,7 +43,7 @@ namespace JfgLauncher
     {
         internal const long RomSize = 33554432;
         internal const string RomSha1 = "493ced9008dbe932d6e91179b68e8630cf23a023";
-        internal static readonly string Guide = "https://github.com/TK22-26/JetForceGemini-Recomp/blob/" + BuildInfo.SourceCommit + "/docs/development/launcher.md";
+        internal static readonly string Guide = "https://github.com/ravenx444/RGO-Recomp/blob/" + BuildInfo.SourceCommit + "/docs/rgo/PLAYER_GUIDE.md";
 
         internal static string ProfileRoot
         {

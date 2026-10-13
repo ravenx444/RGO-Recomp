@@ -11,6 +11,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / 'build' / 'launcher'
+LAUNCHER_EXE = 'RGO-Launcher.exe'
 VERSION = re.compile(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?')
 
 
@@ -27,15 +28,16 @@ def launcher_version(root: Path) -> str:
 
 
 def package_name(version: str) -> str:
-    return 'JFG-Launcher-' + version + '-windows-x64.zip'
+    return 'RGO-Launcher-' + version + '-windows-x64.zip'
 
 
 def package_members(root: Path, output: Path) -> dict[str, Path]:
     members = {
-        'JFG-Launcher.exe': output / 'JFG-Launcher.exe',
-        'README.md': root / 'docs/development/launcher.md',
-        'BUILD-SETUP.md': root / 'docs/development/rom-bootstrap.md',
+        LAUNCHER_EXE: output / LAUNCHER_EXE,
+        'README.md': root / 'docs/rgo/PLAYER_GUIDE.md',
         'LICENSE': root / 'LICENSE',
+        'THIRD_PARTY_NOTICES.md': root / 'THIRD_PARTY_NOTICES.md',
+        'CREDITS.md': root / 'CREDITS.md',
     }
     for folder in ('licenses', 'fonts'):
         for path in (root / 'launcher/ui' / folder).glob('*.txt'):
@@ -70,7 +72,7 @@ def write_package(output: Path, archive_name: str, payloads: dict[str, bytes], r
             if package.read(name) != payload:
                 raise SystemExit('Archive member changed')
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    (output / 'SHA256SUMS.txt').write_text(digest + '  ' + archive_name + '\n' + hashlib.sha256(payloads['JFG-Launcher.exe']).hexdigest() + '  JFG-Launcher.exe\n', encoding='ascii')
+    (output / 'SHA256SUMS.txt').write_text(digest + '  ' + archive_name + '\n' + hashlib.sha256(payloads[LAUNCHER_EXE]).hexdigest() + '  ' + LAUNCHER_EXE + '\n', encoding='ascii')
     (output / 'package-inventory.json').write_text(json.dumps({
         'package': archive_name,
         'source_commit': revision,
@@ -84,7 +86,7 @@ def write_package(output: Path, archive_name: str, payloads: dict[str, bytes], r
 def main() -> int:
     name = package_name(launcher_version(ROOT))
     members = package_members(ROOT, OUTPUT)
-    binary = members['JFG-Launcher.exe'].read_bytes()
+    binary = members[LAUNCHER_EXE].read_bytes()
     if not binary.startswith(b'MZ') or len(binary) > 33_554_432:
         raise SystemExit('Unexpected launcher executable')
     receipt = json.loads((OUTPUT / 'launcher-build.json').read_text(encoding='utf-8-sig'))

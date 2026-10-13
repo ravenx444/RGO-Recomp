@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $launcherCompiler -PathType Leaf)) {
 }
 New-Item -ItemType Directory -Path $launcherOutput -Force | Out-Null
 $launcherSource = Join-Path $launcherRepoRoot 'launcher\windows\Launcher.cs'
-$launcherExe = Join-Path $launcherOutput 'JFG-Launcher.exe'
+$launcherExe = Join-Path $launcherOutput 'RGO-Launcher.exe'
 $launcherHelper = Join-Path $launcherOutput 'JFG-Setup.exe'
 $launcherFirstRun = Join-Path $launcherRepoRoot 'launcher\windows\FirstRun.cs'
 $launcherSetup = Join-Path $launcherRepoRoot 'launcher\windows\Setup.ps1'
@@ -45,9 +45,9 @@ $frontendCmake = Join-Path $frontendVs 'Common7/IDE/CommonExtensions/Microsoft/C
 $frontendBuild = if ($NativeBuildDirectory) { [IO.Path]::GetFullPath($NativeBuildDirectory) } else { Join-Path $launcherOutput 'native' }
 & $frontendCmake -S (Join-Path $launcherRepoRoot 'launcher/native') -B $frontendBuild -G 'Visual Studio 17 2022' -A x64 "-DJFG_FRONTEND_HELPER=$launcherHelper"
 if ($LASTEXITCODE -ne 0) { throw 'Native frontend configuration failed.' }
-& $frontendCmake --build $frontendBuild --config Release --target JFG-Launcher --parallel 4
+& $frontendCmake --build $frontendBuild --config Release --target RGO-Launcher --parallel 4
 if ($LASTEXITCODE -ne 0) { throw 'Native frontend compilation failed.' }
-Copy-Item -LiteralPath (Join-Path $frontendBuild 'Release/JFG-Launcher.exe') -Destination $launcherExe -Force
+Copy-Item -LiteralPath (Join-Path $frontendBuild 'Release/RGO-Launcher.exe') -Destination $launcherExe -Force
 
 $launcherInputs = [ordered]@{}
 foreach ($relative in @('launcher/windows/Launcher.cs', 'launcher/windows/FrontendBridge.cs', 'src/app/frontend_win32.cpp', 'launcher/native/CMakeLists.txt', 'launcher/windows/FirstRun.cs',

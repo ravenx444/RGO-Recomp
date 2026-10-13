@@ -1,23 +1,23 @@
-# Building RGO quickly
+# Building RGO (developers)
 
-`rgo-rebuild.cmd` (repo root) updates a branch, builds it and plays it. Double-click
-it, or run it from a terminal with extra options:
+Players never build by hand: the launcher installs the tools, downloads the
+RGO source it was packaged from and builds the game (see
+[PLAYER_GUIDE.md](PLAYER_GUIDE.md)). This page is for working on RGO itself.
 
-```bat
-rgo-rebuild.cmd                rem normal build
-rgo-rebuild.cmd --clean        rem reuse nothing (full build, about an hour)
-rgo-rebuild.cmd --regenerate   rem generate the game code from the ROM again
-rgo-rebuild.cmd --no-frontend  rem play in the bare game window
+From a checkout, with the prerequisites installed (Visual Studio 2022 C++
+tools, Python 3, WSL2 Ubuntu 24.04; or run the launcher's setup once):
+
+```powershell
+python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --play         # build, then play through the launcher UI
+python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --clean        # reuse nothing (full build, about an hour)
+python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --regenerate   # generate the game code from the ROM again
+python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --no-frontend  # skip the launcher; with --play, bare game window
 ```
 
-Any option is passed on to `scripts/build_from_rom.py`.
-
-The first run asks for the ROM (or uses `DEFAULT_ROM` from the script if that
-file exists) and remembers it in `%LOCALAPPDATA%\RGO\rebuild-rom.txt`. Delete
-that file to choose another ROM, or set the `RGO_ROM` environment variable. You
-never need to edit the script, so it never shows up as a local change. The
-script runs from a copy in `%TEMP%`, because `git checkout` can rewrite the
-script while it is running.
+A source build also builds the launcher (`RGO-Launcher.exe`) unless
+`--no-frontend` is given; with `--play` it starts the game through it, and the
+launcher's *Set up and build* then rebuilds from that checkout. Close the
+launcher before a source build that builds it.
 
 ## What gets reused
 

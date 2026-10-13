@@ -1,7 +1,7 @@
-<rml><head><title>Jet Force Gemini Recomp</title><link type="text/rcss" href="theme.rcss"/><link type="text/rcss" href="about.rcss"/></head><body>
+<rml><head><title>RGO</title><link type="text/rcss" href="theme.rcss"/><link type="text/rcss" href="about.rcss"/></head><body>
 <div class="home-art"><home-scene id="home-scene"/><div class="space-readout"><div id="coordinates"/><div id="heading"/></div></div>
 <div class="menu"><button id="menu-game" data-action="menu-game">Game</button><button id="menu-controllers" data-action="menu-controllers">Controllers</button><button id="menu-video" data-action="menu-video">Video</button><button id="menu-audio" data-action="menu-audio">Audio</button><button id="menu-tools" data-action="menu-tools">Tools</button><button id="menu-help" data-action="menu-help">Help</button><div class="ports"><span class="pause-label">PAUSED</span><span class="port" id="p1">P1</span><span class="port" id="p2">P2</span><span class="port" id="p3">P3</span><span class="port" id="p4">P4</span></div></div>
-<div class="content"><div class="kicker title-font">NATIVE PC RECOMPILATION</div><h1>JET FORCE GEMINI</h1>
+<div class="content"><div class="kicker title-font">RGO · NATIVE PC RECOMPILATION</div><h1>JET FORCE GEMINI</h1>
 <div class="card"><div class="grow"><div class="label">GAME ROM <span id="rom-badge"/></div><div class="name" id="rom-name">Choose your game ROM</div><div class="muted" id="rom-folder">Required to set up and play.</div></div><button data-action="rom">Change</button></div>
 <div class="actions"><button class="primary play" data-action="play">PLAY</button><div class="muted">The game starts in this window.<br/>Settings stay in the menu bar while you play.</div></div></div>
 <div class="footer"><span id="status">Preparing your game profile...</span><span class="footer-right"><span class="key">A</span> Play &nbsp; <span class="key">Esc</span> Menu &nbsp; <span class="key">F11</span> Fullscreen</span></div>

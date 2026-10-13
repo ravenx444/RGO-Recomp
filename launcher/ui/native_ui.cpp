@@ -1082,7 +1082,7 @@ struct Ui : Rml::EventListener {
         loadAudio();
         menu = button("audio", "Audio settings...") + button("mute", muted ? "Unmute" : "Mute", false, "Ctrl+M");
       } else if (menuName == "help") {
-        menu = button("guide", "Setup guide") + button("support", "Support report...") + "<div class=\"separator\"/>" + button("help", "About Jet Force Gemini...");
+        menu = button("guide", "Setup guide") + button("support", "Support report...") + "<div class=\"separator\"/>" + button("help", "About RGO...");
       } else if (menuName == "tools") {
         menu = button("map", "Live map") +
                button("inventory", "Live inventory");
@@ -1113,7 +1113,7 @@ struct Ui : Rml::EventListener {
                           : page == "video"     ? "VIDEO"
                           : page == "audio"     ? "AUDIO"
                           : page == "gameplay"  ? "GAMEPLAY"
-                                                : "JFG RECOMP");
+                                                : "RGO");
     el("dialog")->SetProperty("width", page == "controllers" || page == "video" ? "880dp"
                                        : page == "audio"     ? "480dp"
                                        : page == "setup"     ? "640dp"
@@ -1241,6 +1241,15 @@ struct Ui : Rml::EventListener {
                                                  : "Your game build") +
              "</div><p class=\"muted\">Verify your ROM and prepare the game on "
              "this PC. Setup downloads any missing build tools.</p>";
+      // RGO: say up front how long the first build takes, and keep saying it
+      // while setup runs, so nobody closes the window thinking it hung.
+      if (state.busy || state.runtime.empty())
+        html += "<p class=\"first-run\"><span class=\"first-run-lead\">"
+                "First-time setup takes about an hour. It has not "
+                "crashed.</span> Please don't close this window: "
+                "leave it open, and the game will start by itself when it's "
+                "done. Later starts take seconds; rebuilds after an update "
+                "take minutes.</p>";
       html += "<div class=\"setup-log\" id=\"setup-status\"><span>" +
               escape(u8(state.status)) + "</span></div>";
       if (!state.runtime.empty())
@@ -1291,7 +1300,7 @@ struct Ui : Rml::EventListener {
       note = "Nothing is uploaded automatically.";
     } else {
       html = aboutHtml();
-      el("dialog-title")->SetInnerRML("JFG RECOMP<span class=\"about-title-divider\">/</span><span class=\"about-title-section\">About</span>");
+      el("dialog-title")->SetInnerRML("RGO<span class=\"about-title-divider\">/</span><span class=\"about-title-section\">About</span>");
     }
     if(controllerWindow) {
       el("dialog")->SetProperty("width","100%");el("dialog")->SetProperty("height","100%");

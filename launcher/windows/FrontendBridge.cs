@@ -109,7 +109,7 @@ internal static class FrontendBridge
         if (!String.Equals(Path.GetExtension(path), ".lnk", StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Choose a Windows shortcut (.lnk) filename.");
         if (String.IsNullOrWhiteSpace(launcher) || !File.Exists(launcher))
-            throw new InvalidDataException("Open JFG-Launcher.exe to save a quick-launch shortcut.");
+            throw new InvalidDataException("Open RGO-Launcher.exe to save a quick-launch shortcut.");
         launcher = LocalSetup.FullPath(launcher);
         object shell = null, shortcut = null;
         try

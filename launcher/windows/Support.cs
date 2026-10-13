@@ -133,7 +133,7 @@ namespace JfgLauncher
                     using (StreamWriter writer = new StreamWriter(zip.CreateEntry(name).Open(), new UTF8Encoding(false)))
                         writer.Write(SanitizeFile(Path.Combine(selected, name)));
                 using (StreamWriter writer = new StreamWriter(zip.CreateEntry("README.txt").Open(), new UTF8Encoding(false)))
-                    writer.Write("Attach this ZIP to an issue at https://github.com/TK22-26/JetForceGemini-Recomp/issues\n" +
+                    writer.Write("Attach this ZIP to an issue at https://github.com/ravenx444/RGO-Recomp/issues\n" +
                         "Describe what you were doing, the level/menu, expected behavior, and steps to reproduce.\n" +
                         "No automatic upload occurs. Report: selected session, build/symbol identity, GPU driver IDs, settings, setup codes, recent progress and available crash/freeze stacks.\n" +
                         "It excludes ROMs, saves, paths, raw console logs and memory dumps. Inspect the text files before sharing. Empty files mean the diagnostic was unavailable. Stack snapshots are not Windows memory dumps.\n");

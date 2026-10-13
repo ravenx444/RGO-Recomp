@@ -1,8 +1,23 @@
 # Known issues
 
-Check this page before opening a report. It summarizes confirmed limitations
-and links to current reports; [GitHub issues](https://github.com/TK22-26/JetForceGemini-Recomp/issues)
-contain the ongoing discussion.
+Check this page before opening a report. Report RGO problems at
+[RGO issues](https://github.com/ravenx444/RGO-Recomp/issues), with the
+launcher's support ZIP.
+
+## RGO
+
+- In **True 60**, the heaviest cutscene shots fall back to 30 fps, and big
+  firefights can dip below 60.
+- First-time setup takes about an hour (installing tools and building the
+  game from your ROM). It has not crashed; leave the launcher open.
+- The launcher currently keeps saves, settings and its build cache in the
+  same `%LOCALAPPDATA%` folders as upstream JetForceGemini-Recomp
+  (`JFGRecomp`, `JFG`), so the two share saves and settings.
+
+The sections below come from upstream JetForceGemini-Recomp and still apply
+(links to issues and releases point at upstream). Upstream's
+[GitHub issues](https://github.com/TK22-26/JetForceGemini-Recomp/issues)
+contain the ongoing discussion there.
 
 ## Windows 10 setup
 

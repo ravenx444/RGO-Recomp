@@ -12,11 +12,13 @@ import subprocess
 import zipfile
 
 try:
-    from .package_launcher import launcher_version, package_name
+    from .package_launcher import LAUNCHER_EXE, launcher_version, package_name
 except ImportError:
-    from package_launcher import launcher_version, package_name
+    from package_launcher import LAUNCHER_EXE, launcher_version, package_name
 
 ROOT = Path(__file__).resolve().parents[1]
+# RGO releases are tagged rgo-v<version>, apart from upstream's v<version> tags.
+TAG_PREFIX = 'rgo-v'
 
 
 def command(*args: str, cwd: Path = ROOT) -> str:
@@ -27,8 +29,8 @@ def release_metadata(root: Path, tag: str, ref_type: str) -> dict:
     if ref_type != 'tag':
         raise ValueError('Run this workflow on an existing version tag, not a branch')
     version = launcher_version(root)
-    if tag != 'v' + version:
-        raise ValueError('Tag must match the launcher version: v' + version)
+    if tag != TAG_PREFIX + version:
+        raise ValueError('Tag must match the launcher version: ' + TAG_PREFIX + version)
     cmake = (root / 'CMakeLists.txt').read_text(encoding='utf-8')
     match = re.search(r'project\(\s*jfg_recomp\s+VERSION\s+([0-9.]+)', cmake)
     if not match or match[1] != version.split('-', 1)[0]:
@@ -58,7 +60,7 @@ def verify_assets(output: Path, metadata: dict) -> list[Path]:
     with zipfile.ZipFile(archive) as z:
         if len(z.namelist()) != len(set(z.namelist())) or set(z.namelist()) != set(inventory['members']) or z.testzip():
             raise ValueError('Release ZIP membership or integrity check failed')
-        required = {'JFG-Launcher.exe', 'LICENSE', 'THIRD-PARTY.txt', 'licenses/font-manifest.json', 'licenses/provenance.json'}
+        required = {LAUNCHER_EXE, 'LICENSE', 'THIRD-PARTY.txt', 'licenses/font-manifest.json', 'licenses/provenance.json'}
         if not required <= set(z.namelist()):
             raise ValueError('Release ZIP lacks the launcher or required license records')
         notices = z.read('THIRD-PARTY.txt').decode('utf-8')
@@ -68,8 +70,8 @@ def verify_assets(output: Path, metadata: dict) -> list[Path]:
         for member, expected in inventory['members'].items():
             if hashlib.sha256(z.read(member)).hexdigest() != expected:
                 raise ValueError('Release ZIP member hash mismatch: ' + member)
-        executable_digest = hashlib.sha256(z.read('JFG-Launcher.exe')).hexdigest()
-    expected_sums = digest + '  ' + name + '\n' + executable_digest + '  JFG-Launcher.exe\n'
+        executable_digest = hashlib.sha256(z.read(LAUNCHER_EXE)).hexdigest()
+    expected_sums = digest + '  ' + name + '\n' + executable_digest + '  ' + LAUNCHER_EXE + '\n'
     if sums.read_text(encoding='ascii') != expected_sums:
         raise ValueError('Release checksum file does not match the ZIP and embedded launcher')
     return assets
@@ -91,15 +93,15 @@ def publish(root: Path, output: Path, metadata: dict, repo: str) -> str:
         raise ValueError('Cannot confirm that the release is absent; check GitHub authentication or API availability')
     notes = output / 'release-notes.md'
     notes.write_text(
-        f'Windows x64 launcher for Jet Force Gemini Recomp {metadata["version"]}.\n\n'
+        f'Windows x64 launcher for RGO {metadata["version"]}.\n\n'
         f'Download **{assets[0].name}** and extract the complete ZIP, including its license files. '
-        'Supply your own supported North American ROM; game content is built locally.\n\n'
-        f'[Setup guide](https://github.com/{repo}/blob/{metadata["tag"]}/docs/getting-started.md) · '
+        'Supply your own supported North American ROM; the launcher downloads what it needs and builds the game locally. First-time setup takes about an hour.\n\n'
+        f'[Setup guide](https://github.com/{repo}/blob/{metadata["tag"]}/docs/rgo/PLAYER_GUIDE.md) · '
         f'[Known issues](https://github.com/{repo}/blob/{metadata["tag"]}/docs/known-issues.md)\n\n'
         f'Source commit: `{metadata["commit"]}`. Checksums and the package inventory are attached.\n', encoding='utf-8')
     # Keep the release private until every requested asset has uploaded.
     command('gh', 'release', 'create', metadata['tag'], *map(str, assets), '--repo', repo,
-            '--verify-tag', '--draft', '--title', 'Jet Force Gemini Recomp ' + metadata['tag'],
+            '--verify-tag', '--draft', '--title', 'RGO ' + metadata['tag'],
             '--notes-file', str(notes), cwd=root)
     prerelease = 'true' if metadata['prerelease'] else 'false'
     latest = 'false' if metadata['prerelease'] else 'true'

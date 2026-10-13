@@ -21,6 +21,8 @@ h1 { font-family:Chakra Petch; font-weight:bold; font-size:58dp; margin:10dp 0 3
 .label { font-family:Chakra Petch; font-weight:bold; font-size:12dp; letter-spacing:2dp; color:#8691a8; }
 .name { margin:8dp 0 4dp; font-size:19dp; font-weight:bold; }
 .muted { color:#8691a8; font-size:14dp; }
+.first-run { color:#d9dfeb; font-size:14dp; margin-top:8dp; padding:10dp 12dp; border-width:1dp; border-color:#3a4560; background-color:#1a2133; }
+.first-run-lead { color:#ffd27a; }
 .actions { margin-top:28dp; display:flex; align-items:center; gap:24dp; }
 .primary { background:#ffb23e; color:#1a1206; border-color:#ffb23e; font-weight:bold; }
 .primary:hover, .primary:focus { background:#ffc872; color:#1a1206; border-color:#fff0c0; }
