@@ -54,20 +54,24 @@ int wmain(int argc, wchar_t **argv) {
     if (error != ERROR_SUCCESS) { char line[64]{}; std::snprintf(line, sizeof(line), "capture_error=0x%08lx\n", static_cast<unsigned long>(error)); jfg::support_line(output, line); CloseHandle(process); return 5; }
     PSS_VA_CLONE_INFORMATION clone{};
     error = PssQuerySnapshot(snapshot, PSS_QUERY_VA_CLONE_INFORMATION, &clone, sizeof(clone));
+    // RGO: 256 frames ran out before the game's own threads (they come last),
+    // so freezes showed only driver and helper threads. 900 frames of at most
+    // 32 per thread keep the output under the launcher's 64 KiB limit.
+    constexpr unsigned kMaxFrames = 900, kMaxThreads = 128, kMaxDepth = 32;
     unsigned frames = 0, threads = 0;
     SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS | SYMOPT_IGNORE_NT_SYMPATH);
     if (error == ERROR_SUCCESS && SymInitialize(clone.VaCloneHandle, "", TRUE)) {
         HPSSWALK marker = nullptr;
         if (PssWalkMarkerCreate(nullptr, &marker) == ERROR_SUCCESS) {
             PSS_THREAD_ENTRY entry{};
-            while (threads < 64 && frames < 256 && PssWalkSnapshot(snapshot, PSS_WALK_THREADS, marker, &entry, sizeof(entry)) == ERROR_SUCCESS) {
+            while (threads < kMaxThreads && frames < kMaxFrames && PssWalkSnapshot(snapshot, PSS_WALK_THREADS, marker, &entry, sizeof(entry)) == ERROR_SUCCESS) {
                 ++threads; if (entry.ContextRecord == nullptr) continue;
                 CONTEXT context = *entry.ContextRecord;
                 STACKFRAME64 stack{};
                 stack.AddrPC.Offset = context.Rip; stack.AddrPC.Mode = AddrModeFlat;
                 stack.AddrStack.Offset = context.Rsp; stack.AddrStack.Mode = AddrModeFlat;
                 stack.AddrFrame.Offset = context.Rbp; stack.AddrFrame.Mode = AddrModeFlat;
-                for (unsigned i = 0; i < 48 && frames < 256; ++i) {
+                for (unsigned i = 0; i < kMaxDepth && frames < kMaxFrames; ++i) {
                     if (jfg::support_frame(output, clone.VaCloneHandle, entry.ThreadId, i, stack.AddrPC.Offset)) ++frames;
                     const auto previous_pc = stack.AddrPC.Offset, previous_sp = stack.AddrStack.Offset;
                     if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, clone.VaCloneHandle, nullptr, &stack, &context, nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr)) break;

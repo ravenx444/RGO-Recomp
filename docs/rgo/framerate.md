@@ -1282,3 +1282,27 @@ Owner test (FPS counter Detailed, True 60):
 3. If anything is worse, set `JFG_RGO_AUDIO_QUEUE=1` (the old path) and
    compare.
 
+
+## Real-time stall on the owner's PC (2026-10-13)
+
+The owner's support reports show the same stall without fibers (OS-thread
+guest threads, builds 5ef8791, 33453e5 and 6314635): after 2, 5 and 10
+minutes of play the breadcrumbs keep counting VIs and retraces at 60 a second
+while controller polls stop, so the game's main thread no longer runs and
+the window stays alive. The three freeze captures agree: the emulation
+thread waits in `BatonExecutor::wait_until_holder` (from
+`GuestThreadTransport::run`), which is its normal state while a guest thread
+holds the baton. The guest threads themselves were never captured, because
+`jfg-support-capture` stopped at 256 frames before reaching them.
+
+Two changes to find the cause:
+- `jfg-support-capture` now records up to 900 frames (32 per thread, 128
+  threads), still under the launcher's 64 KiB limit, so guest threads
+  appear in `hang.log`.
+- The stall diagnostic from `rgo/guest-fibers` is on in play
+  (`JFG_RGO_STALL_DIAG=0` turns it off). When game frames stop for 600 VIs
+  while guest threads still switch, it writes `stall.log` once into the
+  support session (Help > Open reports folder): every OSThread's state and
+  the queue it waits on, the main thread's DMA queue and stack code
+  addresses, PI command queue fill and the last 256 guest switches. Its
+  cost while playing is one ring-buffer write per guest switch.

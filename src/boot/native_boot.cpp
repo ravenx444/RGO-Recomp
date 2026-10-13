@@ -2575,6 +2575,17 @@ struct State : JfgOriginalTimingFast {
   // turns it off) and the net trim so far (positive: ran ahead).
   bool audio_level_trim = true;
   std::int64_t audio_trim_ns = 0;
+  // RGO stall diagnostic (on in play; JFG_RGO_STALL_DIAG=0 turns it off): the
+  // last guest thread switches, written once to stall.log in the support
+  // session (and stderr) when game frames stop for 600 VIs while guest
+  // threads keep switching.
+  bool stall_diag = false, stall_dumped = false;
+  std::uint32_t pi_queue_max = 0U;
+  std::uint64_t pi_queue_full = 0U;
+  std::uint64_t last_frame_vi = 0U;
+  struct SwitchRecord { std::uint64_t vi, count; std::uint32_t from, to, pc; };
+  std::array<SwitchRecord, 256U> switch_ring{};
+  std::size_t switch_next = 0U;
   std::uint32_t graphics_color_image = 0U;
   bool graphics_frame_ready = false;
   std::array<std::uint32_t, 64U> recent_graphics_color_images{};
@@ -7350,6 +7361,94 @@ bool hud_aligned_call(State &state, hle::GuestMemory &memory,
 // frame was simulated with, gVideoDeltaTime, emulated Count, guest
 // instructions, host microseconds since the trace started, front-end mode and
 // level number. Logic rate = rows per 60 VIs; see scripts/rgo_frame_rate.py.
+// RGO stall diagnostic: keeps the last guest thread switches and, once game
+// frames have stopped for 600 VIs while guest threads still switch, writes
+// the guest OS state once (stall.log next to the support log, and stderr):
+// every OSThread's priority, state, the queue it waits on and that queue's
+// fill, the main thread's DMA queue and code addresses on its stack, the PI
+// command queue fill and the last 256 switches. Addresses are US 1.0.
+void record_guest_switch(State &state, std::uint32_t from, std::uint32_t to, std::uint32_t pc) {
+  {
+    // The PI manager's command queue fill (osPiStartDma posts NOBLOCK: a
+    // full queue drops the request).
+    std::uint32_t fill = 0U;
+    std::memcpy(&fill, state.rdram + (0x80102538U + 8U - 0x80000000U), 4U);
+    state.pi_queue_max = (std::max)(state.pi_queue_max, fill);
+    if (fill >= 8U) ++state.pi_queue_full;
+  }
+  state.switch_ring[state.switch_next++ % state.switch_ring.size()] =
+      {state.vi_retraces, state.cpu_count, from, to, pc};
+  if (state.stall_dumped || state.last_frame_vi == 0U || state.vi_retraces <= state.last_frame_vi + 600U)
+    return;
+  state.stall_dumped = true;
+  std::string out;
+  char line[256];
+  const auto add = [&out, &line](int length) {
+    if (length > 0) out.append(line, (std::min)(static_cast<std::size_t>(length), sizeof(line) - 1U));
+  };
+  const auto word = [&state](std::uint32_t address) {
+    std::uint32_t value = 0U;
+    std::memcpy(&value, state.rdram + (address & 0x007FFFFCU), 4U);
+    return value;
+  };
+  add(std::snprintf(line, sizeof(line), "stall: no game frame since VI %llu (now %llu)\n",
+                    static_cast<unsigned long long>(state.last_frame_vi),
+                    static_cast<unsigned long long>(state.vi_retraces)));
+  add(std::snprintf(line, sizeof(line), "stall: pi cmd queue max fill %u, seen full %llu times\n",
+                    state.pi_queue_max, static_cast<unsigned long long>(state.pi_queue_full)));
+  if (state.mmio_trace != nullptr) {
+    auto &mm = *state.mmio_trace;
+    const auto pi = mm.pi_dma.deadline();
+    add(std::snprintf(line, sizeof(line), "stall: count %llu pi deadline %lld pi irq %d mi pending %08x vi_next %llu\n",
+                      static_cast<unsigned long long>(state.cpu_count),
+                      pi ? static_cast<long long>(*pi) : -1LL, mm.pi_dma.interrupt() ? 1 : 0,
+                      mm.mi_pending, static_cast<unsigned long long>(mm.vi_next)));
+  }
+  {
+    // The main thread's DMA queue: its waiters, and the main thread's stack
+    // words that look like code addresses.
+    const std::uint32_t q = 0x800FE000U;
+    add(std::snprintf(line, sizeof(line), "stall: dmaq mtqueue %08x fullqueue %08x valid %u first %u | runqueue %08x running %08x\n",
+                      word(q), word(q + 4U), word(q + 8U), word(q + 0xCU),
+                      word(0x800A9E88U), word(0x800A9E90U)));
+    for (std::uint32_t t = word(q), guard = 0U; t != 0U && t != 0x800A9E80U && guard < 16U; ++guard) {
+      add(std::snprintf(line, sizeof(line), "stall: dmaq waiter %08x\n", t));
+      t = word(t);
+    }
+    const std::uint32_t sp = word(0x800F92A0U + 0x20U + 26U * 8U + 4U);
+    add(std::snprintf(line, sizeof(line), "stall: main sp %08x ra %08x code:", sp,
+                      word(0x800F92A0U + 0x20U + 28U * 8U + 4U)));
+    for (std::uint32_t offset = 0U; offset < 0x400U; offset += 4U) {
+      const std::uint32_t value = word(sp + offset);
+      if (value >= 0x80000400U && value < 0x800C0000U) add(std::snprintf(line, sizeof(line), " %08x", value));
+    }
+    out += "\n";
+  }
+  for (std::uint32_t t = word(0x800A9E8CU), guard = 0U; t != 0U && t != 0x800A9E80U && guard < 64U; ++guard) {
+    const std::uint32_t queue = word(t + 8U);
+    add(std::snprintf(line, sizeof(line), "stall: thread %08x pri %u state %04x queue %08x pc %08x ra %08x"
+                      " | queue valid %u count %u first %u msg %08x\n",
+                      t, word(t + 4U), word(t + 0x10U) >> 16U, queue, word(t + 0x11CU), word(t + 0x104U),
+                      queue ? word(queue + 8U) : 0U, queue ? word(queue + 0x10U) : 0U,
+                      queue ? word(queue + 0xCU) : 0U, queue ? word(queue + 0x14U) : 0U));
+    t = word(t + 0x0CU);
+  }
+  for (std::size_t index = 0U; index < state.switch_ring.size(); ++index) {
+    const auto &record = state.switch_ring[(state.switch_next + index) % state.switch_ring.size()];
+    add(std::snprintf(line, sizeof(line), "stall: vi %llu count %llu thread %08x -> %08x pc %08x\n",
+                      static_cast<unsigned long long>(record.vi), static_cast<unsigned long long>(record.count),
+                      record.from, record.to, record.pc));
+  }
+  std::fputs(out.c_str(), stderr);
+#if defined(_WIN32)
+  const HANDLE file = jfg::support_file(L"stall.log");
+  if (file != INVALID_HANDLE_VALUE) {
+    jfg::support_line(file, out.c_str());
+    CloseHandle(file);
+  }
+#endif
+}
+
 void write_rgo_frame_trace(State &state, const std::uint8_t *rdram) {
   hle::GuestMemory memory({const_cast<std::uint8_t *>(rdram), kRdramSize},
                           hle::GuestMemory::Layout::native_word_big_endian);
@@ -8120,6 +8219,7 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
   // with.
   if (target == jfg::kViFrameSync) {
     ++state.logic_frames;
+    state.last_frame_vi = state.vi_retraces;
     state.frame_busy_last_us = frame_busy_microseconds(state);
     if (state.rgo_frame_trace != nullptr)
       write_rgo_frame_trace(state, rdram);
@@ -11605,6 +11705,11 @@ int run_child(const char *path, const unsigned retrace_target,
                                  flag[0] == '0');
     }
     {
+      char flag[2]{};
+      state.stall_diag = play_mode &&
+          !(GetEnvironmentVariableA("JFG_RGO_STALL_DIAG", flag, 2U) == 1U && flag[0] == '0');
+    }
+    {
       // RGO: JFG_RGO_BATON_SPIN_US sets how long a waiting guest thread spins
       // before it sleeps (jfg::boot::set_baton_spin; 0 to 100000).
       char spin[16]{};
@@ -12864,6 +12969,7 @@ int run_child(const char *path, const unsigned retrace_target,
             set_cop1_cs(cpu.fcr31);
           }, [&state](const GuestThreadTransport<recomp_context>::EretBoundary& edge,
                       const recomp_context& cpu) {
+            if (state.stall_diag) record_guest_switch(state, edge.from_thread, edge.to_thread, edge.target_pc);
             if (!state.eret_transfer_stream.is_open() && !state.instruction_effect_stream.is_open()) return;
             if (!state.guest_eret_boundary || state.guest_epc != edge.target_pc)
               fail_closed_dispatch(state, "eret-transfer-probe", "uncommitted-return", state.guest_last_pc);
