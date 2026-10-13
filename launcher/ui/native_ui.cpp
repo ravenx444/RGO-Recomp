@@ -1082,7 +1082,7 @@ struct Ui : Rml::EventListener {
         loadAudio();
         menu = button("audio", "Audio settings...") + button("mute", muted ? "Unmute" : "Mute", false, "Ctrl+M");
       } else if (menuName == "help") {
-        menu = button("guide", "Setup guide") + button("support", "Support report...") + "<div class=\"separator\"/>" + button("help", "About RGO...");
+        menu = button("guide", "Setup guide") + button("support", "Support report...") + button("reports", "Open reports folder") + "<div class=\"separator\"/>" + button("help", "About RGO...");
       } else if (menuName == "tools") {
         menu = button("map", "Live map") +
                button("inventory", "Live inventory");
@@ -1288,6 +1288,7 @@ struct Ui : Rml::EventListener {
                 "to create a session report.</p>";
       html +=
           "</div>" + button("refresh-sessions", "Refresh sessions") +
+          button("reports", "Open reports folder") +
           "</div><div class=\"about\"><div class=\"label\">THE ZIP "
           "INCLUDES</div><p>Game and launcher logs</p><p>Settings and "
           "mapping</p><p>System and GPU info</p><p class=\"muted\">No ROM or "
@@ -1709,7 +1710,7 @@ struct Ui : Rml::EventListener {
                a == "help")
       modal(a);
     else {
-      if (a == "pause" || a == "resume" || a == "play" || a == "stop" || a == "map" || a == "inventory" || a == "saves" || a == "quit" || a == "guide" || a == "rom" || a == "fullscreen" || a == "shortcut")
+      if (a == "pause" || a == "resume" || a == "play" || a == "stop" || a == "map" || a == "inventory" || a == "saves" || a == "reports" || a == "quit" || a == "guide" || a == "rom" || a == "fullscreen" || a == "shortcut")
         close();
       action(a);
     }

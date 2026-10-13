@@ -71,7 +71,7 @@ Everything RGO creates stays inside its own folder, in `data` next to
 | `data\profile` | your saves and settings (**Game > Open save folder**) |
 | `data\source` | the RGO source the launcher downloaded |
 | `data\b` | the game build made from your ROM (several GB) |
-| `data\reports`, `data\setup.log` | logs and support reports |
+| `data\reports`, `data\setup.log` | logs, freeze captures and support reports (**Help > Open reports folder**) |
 
 To move RGO, move the whole folder. To uninstall, back up `data\profile` if
 you want your saves, then delete the folder.
@@ -84,6 +84,9 @@ Apps if you don't need them.
 ## If something goes wrong
 
 - Read the [known issues](../known-issues.md) first.
+- If the game crashes or freezes, use **Capture freeze** (in **Help > Support
+  report**) before closing the game. **Help > Open reports folder** shows the
+  logs.
 - If setup stops, use **Help > Support report**, create the ZIP, and
   attach it to an issue on
   [GitHub](https://github.com/ravenx444/RGO-Recomp/issues). The ZIP holds

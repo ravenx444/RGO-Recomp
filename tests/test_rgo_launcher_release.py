@@ -57,6 +57,14 @@ class RgoLauncherReleaseTests(unittest.TestCase):
         self.assertEqual(build_paths.MAX_BINARY_ROOT, 80)
         self.assertLessEqual(len(str(base)) + len("/0123456789ab/w/000000000000/n"), build_paths.MAX_BINARY_ROOT)
 
+    def test_open_reports_folder(self):
+        frontend = (ROOT / "src/app/frontend_win32.cpp").read_text(encoding="utf-8")
+        ui = (ROOT / "launcher/ui/native_ui.cpp").read_text(encoding="utf-8")
+        self.assertIn('else if (a == "reports")', frontend)
+        self.assertIn('app.dataRoot / L"reports"', frontend)
+        self.assertIn('button("reports", "Open reports folder")', ui)
+        self.assertIn('a == "reports"', ui)
+
     def test_wsl_scratch_is_removed(self):
         generate = (ROOT / "scripts/generate_from_rom.py").read_text(encoding="utf-8")
         self.assertIn("atexit.register(shutil.rmtree, scratch, ignore_errors=True)", generate)

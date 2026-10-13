@@ -43,6 +43,7 @@ enum : UINT {
   Inventory,
   Support,
   Saves,
+  Reports,
   Guide,
   Quit,
   Mods
@@ -70,7 +71,7 @@ struct App {
   HMENU menu = nullptr;
   HFONT font = nullptr, titleFont = nullptr;
   HBRUSH background = CreateSolidBrush(RGB(18, 27, 40));
-  fs::path profile, helper;
+  fs::path profile, helper, dataRoot;
   std::wstring inputReplay, progressOutput;
   bool quickPlay = false;
   Process session, dialog;
@@ -556,7 +557,8 @@ void menus() {
   add(L"&Tools", {{Map, L"Live map"},
                   {Inventory, L"Live inventory"},
                   {Support, L"Support report"},
-                  {Saves, L"Open saves"}});
+                  {Saves, L"Open saves"},
+                  {Reports, L"Open reports folder"}});
   add(L"&Help", {{Guide, L"Setup guide"}});
 #ifndef JFG_RML_UI
   SetMenu(app.window, app.menu);
@@ -621,6 +623,8 @@ void uiAction(const std::string &a) {
     command = Inventory;
   else if (a == "saves")
     command = Saves;
+  else if (a == "reports")
+    command = Reports;
   else if (a == "guide")
     command = Guide;
   else if (a == "project" || a == "known-issues" || a == "notices") {
@@ -1020,6 +1024,15 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       ShellExecuteW(window, L"open", app.profile.c_str(), nullptr, nullptr,
                     SW_SHOWNORMAL);
       break;
+    case Reports: {
+      // RGO: support sessions (logs, freeze captures) and exported ZIPs.
+      const fs::path reports = app.dataRoot / L"reports";
+      std::error_code reportsError;
+      fs::create_directories(reports, reportsError);
+      ShellExecuteW(window, L"open", reports.c_str(), nullptr, nullptr,
+                    SW_SHOWNORMAL);
+      break;
+    }
     case Guide:
       ShellExecuteW(window, L"open",
                     L"https://github.com/ravenx444/RGO-Recomp/blob/"
@@ -1112,6 +1125,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     return 1;
   }
   SetEnvironmentVariableW(L"RGO_DATA_ROOT", dataRoot.c_str());
+  app.dataRoot = dataRoot;
   app.profile = dataRoot / L"profile";
   int argc = 0;
   LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
