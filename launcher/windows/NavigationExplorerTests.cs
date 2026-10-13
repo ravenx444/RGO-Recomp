@@ -67,8 +67,17 @@ namespace JfgLauncher {
         }
         private static void WriteSnapshot(string directory,MapSnapshot map) {
             map.Live.timestamp_ms=NavigationExplorer.Clock;++map.Live.update;
-            using(FileStream file=File.Create(Path.Combine(directory,"mesh.json")))new DataContractJsonSerializer(typeof(MapGeometry)).WriteObject(file,map.Mesh);
-            using(FileStream file=File.Create(Path.Combine(directory,"live.json")))new DataContractJsonSerializer(typeof(MapLive)).WriteObject(file,map.Live);
+            WriteExclusive(Path.Combine(directory,"mesh.json"),delegate(Stream file){new DataContractJsonSerializer(typeof(MapGeometry)).WriteObject(file,map.Mesh);});
+            WriteExclusive(Path.Combine(directory,"live.json"),delegate(Stream file){new DataContractJsonSerializer(typeof(MapLive)).WriteObject(file,map.Live);});
+        }
+        // RGO: the map window under test reads these files on its own refresh;
+        // File.Create fails while its read handle is open, so wait for it (up
+        // to 2 s) instead of failing the test on a timing collision.
+        private static void WriteExclusive(string path,Action<Stream> write) {
+            for(int attempt=0;;attempt++) {
+                try {using(FileStream file=File.Create(path))write(file);return;}
+                catch(IOException) {if(attempt>=80)throw;System.Threading.Thread.Sleep(25);}
+            }
         }
         private static string[] Command(string directory) {
             using(var file=new FileStream(Path.Combine(directory,"ai-command.txt"),FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete))
