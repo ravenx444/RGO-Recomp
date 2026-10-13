@@ -2,11 +2,18 @@
 param(
     [string]$RomPath,
     [ValidatePattern('^[0-9a-f]{40}$')][string]$SourceCommit,
+    [string]$DataRoot,
     [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-$script:SetupRoot = Join-Path $env:LOCALAPPDATA 'JFGRecomp'
+# RGO: the launcher passes its portable data folder (data\ next to
+# RGO-Launcher.exe); source, build cache and logs all stay in it.
+$script:Portable = [bool]$DataRoot
+$script:SetupRoot = if ($DataRoot) { [IO.Path]::GetFullPath($DataRoot) } else { Join-Path $env:LOCALAPPDATA 'JFGRecomp' }
+$script:BuildRoot = Join-Path $script:SetupRoot 'b'
+# scripts/build_paths.py allows 80 characters for <build root>\<12>\w\<12>\n.
+$script:MaxBuildRoot = 80 - 30
 # RGO: the launcher builds the RGO-Recomp revision it was packaged from.
 $script:SourceRepository = 'https://github.com/ravenx444/RGO-Recomp.git'
 $script:Distro = 'Ubuntu-24.04'
@@ -152,7 +159,20 @@ function Get-PinnedSource([string]$Commit) {
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'The launcher has no valid source revision.' }
     $git = Find-Git
     $cache = [IO.Path]::GetFullPath((Join-Path $script:SetupRoot 'source'))
-    $destination = Join-Path $cache $Commit
+    # RGO (portable): one source folder, moved to the new revision on update.
+    # The build cache is keyed by the source path, so a stable path lets an
+    # update reuse the previous build instead of starting from zero.
+    $destination = if ($script:Portable) { Join-Path $cache 'current' } else { Join-Path $cache $Commit }
+    if ($script:Portable -and (Test-Path -LiteralPath $destination)) {
+        $current = @(& $git -C $destination rev-parse HEAD)
+        if ($LASTEXITCODE -eq 0 -and $current.Count -eq 1 -and $current[0] -ne $Commit) {
+            $changes = @(& $git -C $destination status --porcelain)
+            if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) { throw 'Cached source has local changes. Existing files were preserved.' }
+            Write-Output 'Updating the source to the version bundled with this launcher...'
+            Invoke-Checked $git @('-C', $destination, 'fetch', '--depth=1', 'origin', $Commit)
+            Invoke-Checked $git @('-C', $destination, 'checkout', '--detach', $Commit)
+        }
+    }
     if (-not (Test-Path -LiteralPath $destination)) {
         New-Item -ItemType Directory -Path $cache -Force | Out-Null
         $temporary = Join-Path $cache ('download-' + [Guid]::NewGuid().ToString('N'))
@@ -190,6 +210,10 @@ function Invoke-Setup {
         (Get-FileHash -LiteralPath $RomPath -Algorithm SHA1).Hash -ne '493ced9008dbe932d6e91179b68e8630cf23a023') {
         throw 'Select the supported 32 MiB North American big-endian ROM.'
     }
+    if ($script:Portable -and $script:BuildRoot.Length -gt $script:MaxBuildRoot) {
+        throw ('The RGO folder is too deep for the build (Windows path limits). Move the whole folder somewhere ' +
+            'with a short path, such as C:\Games\RGO, and open RGO-Launcher.exe from there.')
+    }
     New-Item -ItemType Directory -Path $script:SetupRoot -Force | Out-Null
     Start-Transcript -Path (Join-Path $script:SetupRoot 'setup.log') -Append | Out-Null
     try {
@@ -198,7 +222,7 @@ function Invoke-Setup {
         # Keep status output visible without mixing it into the returned path.
         Write-Output 'JFG-SUPPORT stage=download-source'
         $source = Get-PinnedSource $SourceCommit | ForEach-Object {
-            if ($_ -eq (Join-Path (Join-Path $script:SetupRoot 'source') $SourceCommit)) { $_ }
+            if ($_ -eq (Join-Path (Join-Path $script:SetupRoot 'source') $(if ($script:Portable) { 'current' } else { $SourceCommit }))) { $_ }
             else { Write-Host $_ }
         }
         $python = Find-Python
@@ -206,7 +230,9 @@ function Invoke-Setup {
         Write-Output 'Building the game locally from your ROM. This is the long part; it has not crashed.'
         # The launcher is the frontend and it is open, so the build must not
         # rebuild it (build_from_rom.py refuses while the frontend is running).
-        Invoke-Checked $python @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath, '--no-frontend')
+        $build = @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath, '--no-frontend')
+        if ($script:Portable) { $build += @('--build-root', $script:BuildRoot) }
+        Invoke-Checked $python $build
     } finally { Stop-Transcript | Out-Null }
 }
 

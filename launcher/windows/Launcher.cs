@@ -47,8 +47,13 @@ namespace JfgLauncher
 
         internal static string ProfileRoot
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "JFGRecomp", "profiles", "default"); }
+            get
+            {
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable("RGO_DATA_ROOT")))
+                    return Path.Combine(FirstRun.Root, "profile");
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "JFGRecomp", "profiles", "default");
+            }
         }
 
         internal static string PreferredRuntime(string directory, string savedRuntime)
@@ -579,7 +584,7 @@ namespace JfgLauncher
                     }
                     if (process.ExitCode != 0 || built == null)
                     {
-                        status.Text = "Build stopped. " + (failure ?? "Open the setup guide or read %LOCALAPPDATA%\\JFGRecomp\\setup.log.");
+                        status.Text = "Build stopped. " + (failure ?? "Open the setup guide or read " + Path.Combine(FirstRun.Root, "setup.log") + ".");
                         return;
                     }
                 }

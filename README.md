@@ -118,8 +118,10 @@ roadmap and current status are in [docs/rgo/ROADMAP.md](docs/rgo/ROADMAP.md).
    crashed.** Leave the launcher open and the game starts by itself when it's
    done. Later starts take seconds.
 
-The [player guide](docs/rgo/PLAYER_GUIDE.md) has the details, settings and
-what to do if something goes wrong.
+Everything RGO creates (saves, settings, the downloaded source and the build)
+stays in a `data` folder next to the launcher; delete the folder to remove
+it. The [player guide](docs/rgo/PLAYER_GUIDE.md) has the details, settings
+and what to do if something goes wrong.
 
 Known issues:
 - The heaviest cutscene shots fall back to 30 fps in True 60 mode, and big

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 from dataclasses import asdict, replace
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -133,6 +135,11 @@ def main() -> int:
     # Linux directory also prevents reuse of any pre-generated game output.
     scratch = Path(tempfile.mkdtemp(prefix="jfg-rom-build-"))
     (workspace / "linux-workspace.txt").write_text(str(scratch) + "\n")
+    # RGO: the scratch copy (decomp with the extracted ROM, recompiler build)
+    # is several GB inside the WSL disk; remove it when this stage exits.
+    # Everything later steps need is written to the workspace.
+    if os.environ.get("JFG_KEEP_LINUX_WORKSPACE") != "1":
+        atexit.register(shutil.rmtree, scratch, ignore_errors=True)
 
     def run(name: str, command: list[str], cwd: Path = ROOT) -> None:
         print(name, flush=True)

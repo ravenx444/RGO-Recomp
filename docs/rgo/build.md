@@ -20,6 +20,17 @@ it, builds it with the options above and plays it. It remembers the ROM in
 set `RGO_ROM`), and runs from a copy in `%TEMP%` because `git checkout` can
 rewrite it.
 
+To test as a player, double-click `scripts\dev\make-release-zip.cmd`. It
+builds and tests the launcher from the checked-out commit (which must be
+pushed, since the launcher downloads it from GitHub), packages the release
+ZIP into `build\launcher` and opens Explorer on it. Extract it to a short,
+empty folder such as `D:\RGO-Test` and use it like a player would; delete
+the folder afterwards.
+
+Source builds (above) keep using `%LOCALAPPDATA%\JFG\b` and the profile in
+`%LOCALAPPDATA%\JFGRecomp\profiles\default`. A launcher from the release ZIP
+keeps everything in `data\` next to itself.
+
 A source build also builds the launcher (`RGO-Launcher.exe`) unless
 `--no-frontend` is given; with `--play` it starts the game through it, and the
 launcher's *Set up and build* then rebuilds from that checkout. Close the

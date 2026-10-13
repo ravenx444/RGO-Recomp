@@ -16,7 +16,7 @@ class RgoLauncherReleaseTests(unittest.TestCase):
         # build_from_rom.py refuses to build the frontend while it is running,
         # and during setup the launcher (the frontend) is always running.
         setup = (ROOT / "launcher/windows/Setup.ps1").read_text(encoding="utf-8")
-        build = re.search(r"Invoke-Checked \$python @\([^\n]*build_from_rom\.py[^\n]*\)", setup)
+        build = re.search(r"\$build = @\([^\n]*build_from_rom\.py[^\n]*\)", setup)
         self.assertIsNotNone(build)
         self.assertIn("'--no-frontend'", build.group(0))
 
@@ -33,6 +33,37 @@ class RgoLauncherReleaseTests(unittest.TestCase):
         self.assertIn('L"First-time setup takes about an hour. It has not crashed. "', frontend)
         self.assertIn("First-time setup takes about an hour. It has not ", ui)
         self.assertIn(message, (ROOT / "docs/rgo/PLAYER_GUIDE.md").read_text(encoding="utf-8").replace("**", ""))
+
+    def test_portable_install_keeps_files_next_to_the_launcher(self):
+        frontend = (ROOT / "src/app/frontend_win32.cpp").read_text(encoding="utf-8")
+        self.assertIn('fs::path(module).parent_path() / L"data"', frontend)
+        self.assertIn('SetEnvironmentVariableW(L"RGO_DATA_ROOT"', frontend)
+        self.assertNotIn("FOLDERID_LocalAppData", frontend)
+        first_run = (ROOT / "launcher/windows/FirstRun.cs").read_text(encoding="utf-8")
+        self.assertIn('GetEnvironmentVariable("RGO_DATA_ROOT")', first_run)
+        self.assertIn('" -DataRoot "', first_run)
+        setup = (ROOT / "launcher/windows/Setup.ps1").read_text(encoding="utf-8")
+        self.assertIn("[string]$DataRoot", setup)
+        self.assertIn("$build += @('--build-root', $script:BuildRoot)", setup)
+        images = (ROOT / "launcher/windows/InventoryImages.cs").read_text(encoding="utf-8")
+        self.assertNotIn("LocalApplicationData", images)
+
+    def test_portable_build_root_fits_build_paths_limit(self):
+        import sys
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import build_paths
+        # The launcher allows data\b up to 50 characters; build_paths must accept it.
+        base = Path("C:/" + "x" * (50 - len("C:/")))
+        self.assertEqual(build_paths.MAX_BINARY_ROOT, 80)
+        self.assertLessEqual(len(str(base)) + len("/0123456789ab/w/000000000000/n"), build_paths.MAX_BINARY_ROOT)
+
+    def test_wsl_scratch_is_removed(self):
+        generate = (ROOT / "scripts/generate_from_rom.py").read_text(encoding="utf-8")
+        self.assertIn("atexit.register(shutil.rmtree, scratch, ignore_errors=True)", generate)
+
+    def test_batch_files_use_crlf(self):
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("*.cmd text eol=crlf", attributes)
 
     def test_no_batch_files_for_players(self):
         tracked = [p for p in ROOT.iterdir() if p.suffix.lower() in (".cmd", ".bat")]

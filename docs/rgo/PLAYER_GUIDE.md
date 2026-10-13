@@ -23,9 +23,10 @@ builds the game from it on your PC.
 
 1. Download `RGO-Launcher-<version>-windows-x64.zip` from the
    [releases page](https://github.com/ravenx444/RGO-Recomp/releases).
-2. Extract the whole ZIP to a folder you can write to, for example
-   `C:\Games\RGO`. Don't use `Program Files`, and keep the licence files
-   next to the launcher.
+2. Extract the whole ZIP into a new folder with a **short path** that you
+   can write to, for example `C:\Games\RGO`. Don't use `Program Files`, and
+   don't run it straight from Downloads (that path is usually too long for
+   the build; the launcher tells you if it is).
 3. Open `RGO-Launcher.exe`.
 4. Click **Change** next to *Game ROM* and pick your ROM.
 5. Click **Play**. The first time, this opens *Set up and build*: click
@@ -60,8 +61,25 @@ Use the launcher's menu bar (or press Esc or F10 in game):
 
 Keys: F11 fullscreen, Esc or F10 menu, Ctrl+M mute.
 
-Your saves and settings are stored in `%LOCALAPPDATA%\JFGRecomp\profiles\default`
-(**Game > Open save folder** opens it).
+## Where RGO keeps its files
+
+Everything RGO creates stays inside its own folder, in `data` next to
+`RGO-Launcher.exe`:
+
+| Folder | What it holds |
+|---|---|
+| `data\profile` | your saves and settings (**Game > Open save folder**) |
+| `data\source` | the RGO source the launcher downloaded |
+| `data\b` | the game build made from your ROM (several GB) |
+| `data\reports`, `data\setup.log` | logs and support reports |
+
+To move RGO, move the whole folder. To uninstall, back up `data\profile` if
+you want your saves, then delete the folder.
+
+The build tools the launcher installs are normal Windows programs and stay
+installed: Git, Python, Visual Studio 2022 Build Tools and WSL with Ubuntu
+24.04. Other programs may use them too; remove them from Windows Settings >
+Apps if you don't need them.
 
 ## If something goes wrong
 

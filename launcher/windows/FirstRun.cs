@@ -9,7 +9,15 @@ namespace JfgLauncher
     {
         internal static string Root
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JFGRecomp"); }
+            // RGO: the launcher passes its portable data folder (data\ next to
+            // RGO-Launcher.exe). Without it (tests, the old standalone window)
+            // fall back to upstream's per-user folder.
+            get
+            {
+                string portable = Environment.GetEnvironmentVariable("RGO_DATA_ROOT");
+                if (!String.IsNullOrEmpty(portable)) return LocalSetup.FullPath(portable);
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JFGRecomp");
+            }
         }
 
         internal static byte[] SetupScript()
@@ -34,6 +42,8 @@ namespace JfgLauncher
                 "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
             info.Arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + LocalSetup.Quote(script) +
                 " -SourceCommit " + LocalSetup.Quote(BuildInfo.SourceCommit) + " -RomPath " + LocalSetup.Quote(selectedRom);
+            if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable("RGO_DATA_ROOT")))
+                info.Arguments += " -DataRoot " + LocalSetup.Quote(Root);
             info.WorkingDirectory = setupRoot;
             info.UseShellExecute = false;
             info.CreateNoWindow = true;

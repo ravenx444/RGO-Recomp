@@ -1097,11 +1097,22 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   SetEnvironmentVariableW(L"JFG_LAUNCHER_EXE",module);
 #endif
   app.helper = fs::path(module).parent_path() / L"JFG-Setup.exe";
-  PWSTR local = nullptr;
-  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local)))
+  // RGO: portable install. Everything the launcher creates (profile and saves,
+  // downloaded source, build, logs, reports) lives in data\ next to it, so
+  // deleting the folder removes it all.
+  const fs::path dataRoot = fs::path(module).parent_path() / L"data";
+  std::error_code dataError;
+  fs::create_directories(dataRoot, dataError);
+  if (dataError) {
+    MessageBoxW(nullptr,
+                L"RGO cannot write to the folder it is in. Move the whole RGO "
+                L"folder somewhere you can write to, such as C:\\Games\\RGO, "
+                L"and open RGO-Launcher.exe from there.",
+                L"RGO", MB_OK | MB_ICONERROR);
     return 1;
-  app.profile = fs::path(local) / L"JFGRecomp" / L"profiles" / L"default";
-  CoTaskMemFree(local);
+  }
+  SetEnvironmentVariableW(L"RGO_DATA_ROOT", dataRoot.c_str());
+  app.profile = dataRoot / L"profile";
   int argc = 0;
   LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   bool validArguments = argv != nullptr;

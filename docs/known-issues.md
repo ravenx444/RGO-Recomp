@@ -10,9 +10,9 @@ launcher's support ZIP.
   firefights can dip below 60.
 - First-time setup takes about an hour (installing tools and building the
   game from your ROM). It has not crashed; leave the launcher open.
-- The launcher currently keeps saves, settings and its build cache in the
-  same `%LOCALAPPDATA%` folders as upstream JetForceGemini-Recomp
-  (`JFGRecomp`, `JFG`), so the two share saves and settings.
+- The launcher's folder must have a short path (for example `C:\Games\RGO`),
+  because the build hits Windows path-length limits; the launcher says so
+  before setup starts.
 
 The sections below come from upstream JetForceGemini-Recomp and still apply
 (links to issues and releases point at upstream). Upstream's

@@ -10,7 +10,7 @@ namespace JfgLauncher {
     // read from the owner's verified ROM, never embedded or downloaded.
     internal static class InventoryImages {
         internal const string Version="inventory-v5";
-        internal static string CacheDirectory { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"JFGRecomp","asset-cache",LocalSetup.RomSha1,Version); } }
+        internal static string CacheDirectory { get { return Path.Combine(FirstRun.Root,"asset-cache",LocalSetup.RomSha1,Version); } }
         private static byte[] Read(Stream stream,long offset,int count) {
             if(offset<0||count<0||count>1048576||offset>stream.Length-count)throw new InvalidDataException("Invalid inventory asset range.");
             stream.Position=offset;byte[] data=new byte[count];int used=0,n;

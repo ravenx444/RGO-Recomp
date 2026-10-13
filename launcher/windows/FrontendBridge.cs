@@ -249,10 +249,17 @@ internal static class FrontendBridge
             {
                 if (action == "setup")
                 {
-                    string built = null;
+                    string built = null, lastError = null;
                     using (var process = new Process())
                     {
                         string sourceRoot = Environment.GetEnvironmentVariable("JFG_SOURCE_ROOT");
+                        // RGO: the portable build lives in data\b next to the launcher;
+                        // say before installing anything if that path is too long
+                        // (scripts/build_paths.py allows 80 characters including
+                        // 30 for its own folders).
+                        if (String.IsNullOrEmpty(sourceRoot) && Path.Combine(FirstRun.Root, "b").Length > 50)
+                            throw new InvalidDataException("The RGO folder is too deep for the build (Windows path limits). " +
+                                "Move the whole folder somewhere with a short path, such as C:\\Games\\RGO, and open RGO-Launcher.exe from there.");
                         process.StartInfo = String.IsNullOrEmpty(sourceRoot)
                             ? FirstRun.StartInfo(rom, Path.Combine(FirstRun.Root, "setup", BuildInfo.SourceCommit))
                             : LocalSetup.SourceSetupStartInfo(sourceRoot, rom);
@@ -268,6 +275,8 @@ internal static class FrontendBridge
                         process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
                         {
                             support.Session.SetupLine(e.Data);
+                            if (!String.IsNullOrWhiteSpace(e.Data))
+                                lastError = e.Data.Trim();
                         };
                         process.Start();
                         process.BeginOutputReadLine();
@@ -280,7 +289,9 @@ internal static class FrontendBridge
                             return 3010;
                         }
                         if (process.ExitCode != 0 || built == null)
-                            throw new IOException("Setup stopped. Open the support report for details.");
+                            // RGO: show why (setup's last error line), not a generic file error.
+                            throw new InvalidDataException("Setup stopped" + (lastError == null ? "." : ": " + lastError) +
+                                " Open Help > Support report for details.");
                     }
                     string runtime = LocalSetup.ValidateRuntime(built);
                     Write("frontend-runtime.txt", runtime);

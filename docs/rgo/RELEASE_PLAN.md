@@ -1,13 +1,15 @@
 # RGO first public release: plan
 
 Status (2026-10-13): in progress. Agreed with the owner on 2026-10-12.
-- Done: 2 (first-run message, game starts by itself after setup),
+- Done: 1 (portable: everything in `data\` next to the launcher; WSL scratch
+  deleted after each build), 2 (first-run message, game starts by itself
+  after setup),
   3 (RGO-Launcher.exe, builds the RGO-Recomp revision it was packaged from,
   batch files removed), 4 (README credits, About page, notices), 5 (audit of
   the repo, its history and the release ZIP contents), 6 (README, player
   guide, docs).
-- Not done: 1 (portable install; saves stay in `%LOCALAPPDATA%` for now),
-  7 (build, test and package on the owner's PC, tag `rgo-v0.1.0`, make the
+- Not done: migrating existing `%LOCALAPPDATA%` saves (copy them into
+  `data\profile` by hand), 7 (build, test and package on the owner's PC, tag `rgo-v0.1.0`, make the
   repo public).
 
 ## Goal
