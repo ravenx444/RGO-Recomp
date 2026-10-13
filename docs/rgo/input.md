@@ -42,7 +42,7 @@ gameplay behaviour below needs a test on the owner's PC.
   as a separate "controllers" window by `JFG-Launcher.exe`) also discovers and
   learns bindings through XInput, and names buttons "A / Cross" etc.
 
-### Game side (decomp, ravenx444/Rocket-Group-Orion)
+### Game side (decomp)
 
 | Address | Name | Role |
 | --- | --- | --- |

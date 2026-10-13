@@ -93,7 +93,7 @@ runs) a plain message:
 ### 6. Repo cleanup before making it public
 - Write the README (removed in #18).
 - Decide on `CLAUDE.md`, `AGENTS.md` (upstream's), and mentions of the
-  owner's private repos (`RGO-source`, `Rocket-Group-Orion`) in docs.
+  owner's private repos in docs (`CLAUDE.md` only, now).
 - Commit messages contain Claude session links (harmless; leave or note).
 - `docs/getting-started.md`, `docs/known-issues.md`: RGO versions.
 

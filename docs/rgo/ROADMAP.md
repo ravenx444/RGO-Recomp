@@ -83,5 +83,5 @@ The recompiled game code is generated from the ROM on the owner's PC (and
 cached there between builds) and is never committed. Changes go into this
 repo's runtime/renderer code, or replace or hook specific game functions with
 hand-written C. Understanding those functions comes from the decomp
-(ravenx444/Rocket-Group-Orion). Replacements only need to behave correctly;
+(Ryan-Myers/Jet-Force-Gemini). Replacements only need to behave correctly;
 they don't have to match byte for byte.

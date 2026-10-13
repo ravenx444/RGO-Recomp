@@ -859,7 +859,7 @@ the new diagnostics and the exact audio sink):
 
 ## Frame interpolation above 60
 
-### How the game makes a frame (decomp, ravenx444/Rocket-Group-Orion)
+### How the game makes a frame (decomp)
 
 - **One logic step per rendered frame.**
   - `viFrameSync` (0x80054FBC, `gameVi.c`) waits for at least

@@ -72,7 +72,7 @@ depends on gameplay still needs a test on the owner's PC.
 - **Banjo** (also Rare) draws HUD counters as 3D models and anchors them with
   viewport alignment. JFG's HUD is built the same way (below).
 
-### The game (decomp, ravenx444/Rocket-Group-Orion)
+### The game (decomp)
 
 - **Projection:** `camSetFOV` (0x8003F7F4) calls a modified `guPerspectiveF`
   with a constant 4:3 aspect (`CAMERA_ASPECT`, camera.h), near 10, far 15000.
