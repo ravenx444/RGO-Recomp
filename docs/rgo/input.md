@@ -549,5 +549,8 @@ and the hit point disagree. Plan:
 - PR 2 (direct mouse/keyboard aim): merged (#10).
 - PR 3 (gyro): merged (#11).
 - PR 4 (dual input): merged (#12).
-- PS5 fixes (choosing a controller, gyro settings): in review.
-- Modern twin-stick scheme: in review (based on the PS5 fixes).
+- PS5 fixes (choosing a controller, gyro settings): merged.
+- Modern twin-stick scheme: merged (#20).
+- Modern mouse and keyboard scheme and mouse fixes: merged (#23 and
+  follow-ups).
+- Gears-style aim (crosshair points where shots land): planned, see above.
