@@ -14,6 +14,12 @@ python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --regenerate   # gener
 python scripts/build_from_rom.py --rom C:\path\to\rom.z64 --no-frontend  # skip the launcher; with --play, bare game window
 ```
 
+Or double-click `scripts\dev\rgo-rebuild.cmd`: it asks for a branch, updates
+it, builds it with the options above and plays it. It remembers the ROM in
+`%LOCALAPPDATA%\RGO\rebuild-rom.txt` (delete that file to choose another, or
+set `RGO_ROM`), and runs from a copy in `%TEMP%` because `git checkout` can
+rewrite it.
+
 A source build also builds the launcher (`RGO-Launcher.exe`) unless
 `--no-frontend` is given; with `--play` it starts the game through it, and the
 launcher's *Set up and build* then rebuilds from that checkout. Close the
