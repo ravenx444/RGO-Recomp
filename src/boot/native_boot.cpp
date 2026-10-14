@@ -24,6 +24,7 @@
 #include "jfg/runtime/async_volume_file.hpp"
 #include "jfg/audio/master_volume.hpp"
 #include "jfg/audio/audio_ring.hpp"
+#include "jfg/audio/dma_backpressure.hpp"
 #include "jfg/audio/playback_buffer.hpp"
 #include "jfg/audio/vi_playback_clock.hpp"
 #include "jfg/runtime/window_input_mailbox.hpp"
@@ -2582,6 +2583,8 @@ struct State : JfgOriginalTimingFast {
   bool stall_diag = false, stall_dumped = false;
   std::uint32_t pi_queue_max = 0U;
   std::uint64_t pi_queue_full = 0U;
+  std::uint64_t pi_request_count = 0U, pi_request_failures = 0U;
+  std::uint64_t audio_dma_waits = 0U;
   std::uint64_t last_frame_vi = 0U;
   struct SwitchRecord { std::uint64_t vi, count; std::uint32_t from, to, pc; };
   std::array<SwitchRecord, 256U> switch_ring{};
@@ -4527,6 +4530,11 @@ void write_private_progress(State &state,
          << ",\"generated_calls\":" << state.generated_calls
          << ",\"sync_print_sink_calls\":" << state.sync_print_sink_calls
          << ",\"sound_queue_recoveries\":" << state.sound_queue_recoveries
+         << ",\"pi_request_count\":" << state.pi_request_count
+         << ",\"pi_request_failures\":" << state.pi_request_failures
+         << ",\"audio_dma_waits\":" << state.audio_dma_waits
+         << ",\"pi_queue_max\":" << state.pi_queue_max
+         << ",\"pi_queue_full\":" << state.pi_queue_full
          << ",\"mapped_calls\":" << state.mapped_calls
          << ",\"interrupt_timeslices\":" << state.interrupt_timeslices
          << ",\"receive_successes\":" << state.receive_successes
@@ -9244,7 +9252,40 @@ int dispatch(void *opaque, std::int32_t address, std::uint8_t *rdram,
     if (state.guest_clock_trace.is_open() && state.observed_guest_instructions < 1000000U)
       state.guest_clock_trace << "call\t" << std::hex << target << '\t' << a0 << '\t'
           << a1 << '\t' << a2 << std::dec << '\t' << state.cpu_count << '\n';
+    if (target == original_os_entry("osJamMesg") && state.fast_clock != 0U &&
+        a2 == static_cast<std::uint32_t>(hle::kOsMesgNoBlock)) {
+      std::uint32_t pi_queue = 0U, reply_queue = 0U, header = 0U;
+      std::uint32_t pending = 0U, capacity = 0U;
+      if (memory.read_u32(0x800A6F78U, pi_queue) &&
+          memory.read_u32(a1, header) && memory.read_u32(a1 + 4U, reply_queue) &&
+          memory.read_u32(a0 + 8U, pending) && memory.read_u32(a0 + 16U, capacity) &&
+          jfg::audio::requires_audio_dma_wait({true,
+              static_cast<std::uint32_t>(context->r31), a0, pi_queue, reply_queue,
+              header >> 16U, (header >> 8U) & 0xffU, a2, pending, capacity})) {
+        // Let the guest kernel wait for queue space rather than lose sample data.
+        context->r6 = hle::kOsMesgBlock;
+        ++state.audio_dma_waits;
+      }
+    }
     generated(rdram, context);
+    if (target == original_os_entry("osPiStartDma")) {
+      ++state.pi_request_count;
+      if (static_cast<std::int32_t>(context->r2) != 0) {
+        ++state.pi_request_failures;
+        if (state.timing_trace) {
+          std::uint32_t active = 0U, queue = 0U, fill = 0U, capacity = 0U;
+          (void)memory.read_u32(0x800A6F70U, active);
+          (void)memory.read_u32(0x800A6F78U, queue);
+          (void)memory.read_u32(queue + 8U, fill);
+          (void)memory.read_u32(queue + 16U, capacity);
+          state.timing_trace << "pi-request-rejected\t" << state.vi_retraces << '\t'
+              << state.cpu_count << '\t' << std::hex
+              << static_cast<std::uint32_t>(context->r31) << '\t'
+              << a0 << '\t' << a3 << std::dec << '\t' << a1 << '\t'
+              << a2 << '\t' << active << '\t' << fill << '\t' << capacity << '\n';
+        }
+      }
+    }
     if (target == 0x80097520U) state.os_initialized = true;
 #if defined(JFG_LIVE_RUNTIME)
     // RGO fast clock: a thread polling an empty queue (osRecvMesg NOBLOCK,
