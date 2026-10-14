@@ -972,8 +972,8 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
               L"Please don't close this window: leave it open, and the game "
               L"will start by itself when it's done. Later starts take "
               L"seconds; rebuilds after an update take minutes.\n\n"
-              L"Setup downloads the source and any missing build tools "
-              L"(several GB) and may ask for administrator approval or a "
+              L"Setup reuses installed build tools and downloads source and dependencies. "
+              L"Missing build tools can require several GB and administrator approval or a "
               L"restart. Your ROM stays on this PC. Continue?",
               L"Set up game", MB_OKCANCEL | MB_ICONINFORMATION) != IDOK)
         break;

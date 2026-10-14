@@ -1951,7 +1951,7 @@ void FrontendUiFrame(const FrontendUiState &state) {
   }
   const bool paused = state.playing && GetPropW(s.window, L"JfgFrontendPaused") != nullptr;
   const bool pauseChanged = ui.doc->IsClassSet("paused") != paused;
-  const bool refreshPanel =
+  bool refreshPanel =
       (pauseChanged && ui.current == "menu-game") ||
       (state.mods != ui.state.mods || state.busy != ui.state.busy ||
        state.playing != ui.state.playing) &&
@@ -1962,6 +1962,11 @@ void FrontendUiFrame(const FrontendUiState &state) {
       (ui.current == "help" && (state.rom != ui.state.rom || state.playing != ui.state.playing));
   if (state.playing != ui.state.playing) {
     if (state.playing) {
+      // Reveal the ready game and release the setup modal pause.
+      if (ui.current == "setup") {
+        ui.close();
+        refreshPanel = false;
+      }
       ui.assignments = jfg::ControllerPorts{};
       ui.loadControllers();
     }
