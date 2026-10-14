@@ -6634,6 +6634,12 @@ void headless_crash_report(const int signal_number) noexcept {
 [[noreturn]] void retrace_gate(State &state) {
   if (state.poll_target != 0U)
     fail_closed_dispatch(state, "probe", "poll-not-reached", 0U);
+#if defined(JFG_PHASE8_LIVE_RUNTIME)
+  // Original OS threads have their own diagnostic contract, including the
+  // default three-retrace probe. Never emit an HLE scheduler snapshot for them.
+  if (state.guest_os_probe)
+    probe_target_gate(state);
+#endif
   if (state.retrace_target == 3U)
     stable_vi_gate(state);
 #if defined(JFG_PHASE8_LIVE_RUNTIME)
@@ -13103,6 +13109,17 @@ bool extract_original_os_probe(const std::string& output, unsigned target, std::
   return true;
 }
 
+bool extract_retrace_completion(const std::string &output, unsigned target,
+                                std::string &line) {
+  if (target == 3U) {
+    if (extract_canonical_success(output, line))
+      return true;
+  } else if (extract_canonical_probe(output, line)) {
+    return true;
+  }
+  return extract_original_os_probe(output, target, line);
+}
+
 bool extract_canonical_poll_probe(const std::string &output,
                                   const unsigned poll_target,
                                   std::string &probe_line) {
@@ -13409,11 +13426,8 @@ int run_parent(const char *executable_path, const char *rom_path,
                             : poll_target != 0U
                                 ? extract_canonical_poll_probe(
                                       child_output, poll_target, canonical_line)
-                            : retrace_target == 3U
-                                ? extract_canonical_success(child_output,
-                                                            canonical_line)
-                                : (extract_canonical_probe(child_output, canonical_line) ||
-                                   extract_original_os_probe(child_output, retrace_target, canonical_line)))
+                                : extract_retrace_completion(child_output,
+                                      retrace_target, canonical_line))
                          : extract_canonical_ledger(child_output,
                                                     canonical_line);
                   if (!valid) {

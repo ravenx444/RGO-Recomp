@@ -1,11 +1,12 @@
 # RGO first public release: plan
 
 Status (2026-10-14): in progress. Removing WSL and Ubuntu is a first-release gate.
-Windows-native generation and installer changes are implemented; fresh game
-compilation and first-run/runtime acceptance remain in progress. Nothing has
-been published. Agreed with the owner on 2026-10-12.
-- Done: 1 (portable: everything in `data\` next to the launcher; WSL scratch
-  deleted after each build), 2 (first-run message, game starts by itself
+Windows-native generation, installer changes and fresh Windows game compilation
+are verified locally. Bounded startup checks produced rendered graphics and
+decoded audio. Local pinned-source fetching passed; a fresh GitHub installation,
+interactive play and campaign testing remain unverified. Nothing has been published. Agreed with the owner on 2026-10-12.
+- Done: 1 (portable: everything in `data\` next to the launcher; native Windows
+  generation requires no WSL or Ubuntu), 2 (first-run message, game starts by itself
   after setup),
   3 (RGO-Launcher.exe, builds the RGO-Recomp revision it was packaged from,
   batch files removed), 4 (README credits, About page, notices), 5 (audit of
