@@ -40,6 +40,24 @@ class ReleaseTests(unittest.TestCase):
         (self.root / 'SHA256SUMS.txt').write_text(digest + '  ' + name + '\n' + inventory['members']['RGO-Launcher.exe'] + '  RGO-Launcher.exe\n', encoding='ascii')
         return inventory
 
+    def test_package_inputs_must_belong_to_the_embedded_commit(self):
+        subprocess.run(['git', 'init', '-q'], cwd=self.root, check=True)
+        subprocess.run(['git', 'add', 'launcher/windows/Launcher.cs', 'CMakeLists.txt'],
+                       cwd=self.root, check=True)
+        subprocess.run(['git', '-c', 'user.name=Fixture',
+                        '-c', 'user.email=fixture@example.invalid',
+                        'commit', '-qm', 'Synthetic release inputs'], cwd=self.root, check=True)
+        inputs = {'launcher/windows/Launcher.cs', 'CMakeLists.txt'}
+        package.validate_tracked_inputs(self.root, inputs)
+        uncommitted = self.root / 'launcher' / 'ui' / 'uncommitted.rml'
+        uncommitted.parent.mkdir()
+        uncommitted.write_text('synthetic asset')
+        with self.assertRaises(SystemExit):
+            package.validate_tracked_inputs(self.root, inputs | {'launcher/ui/uncommitted.rml'})
+        subprocess.run(['git', 'add', 'launcher/ui/uncommitted.rml'], cwd=self.root, check=True)
+        with self.assertRaises(SystemExit):
+            package.validate_tracked_inputs(self.root, inputs | {'launcher/ui/uncommitted.rml'})
+
     def test_package_version_follows_source(self):
         self.version('1.2.3-rc.1')
         self.assertEqual(package.package_name(package.launcher_version(self.root)), 'RGO-Launcher-1.2.3-rc.1-windows-x64.zip')

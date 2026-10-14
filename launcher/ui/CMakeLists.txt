@@ -57,7 +57,7 @@ if(JFG_UI_NATIVE_ONLY)
  if(NOT JFG_UI_REVISION)
   set(JFG_UI_REVISION "Source archive")
  endif()
- execute_process(COMMAND git status --porcelain --untracked-files=normal WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+ execute_process(COMMAND git status --porcelain --untracked-files=no WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
      OUTPUT_VARIABLE jfg_ui_changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
  if(jfg_ui_changes)
   string(APPEND JFG_UI_REVISION " + local edits")

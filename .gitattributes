@@ -12,3 +12,7 @@
 *.ttf binary
 # Preserve the upstream OFL license bytes, including original whitespace.
 launcher/ui/fonts/*-OFL.txt -whitespace
+
+# Preserve qualified factual context export bytes, including serializer EOF spacing.
+symbols/native-us-v1/data-symbols.toml -whitespace
+symbols/native-us-v1/functions.toml -whitespace

@@ -549,7 +549,7 @@ namespace JfgLauncher
                 status.Text = "Verifying your ROM locally...";
                 checkedRom = await Task.Run(delegate { return LocalSetup.OpenVerifiedRom(selectedRom); });
                 LocalSetup.SaveSettings(LocalSetup.ProfileRoot, new Settings { RuntimePath = runtime.Text, RomPath = selectedRom });
-                if (MessageBox.Show(this, "Setup downloads source and any missing Git, Python, Visual Studio C++ and WSL/Ubuntu tools. " +
+                if (MessageBox.Show(this, "Setup downloads source and any missing Git, Python and Visual Studio C++ tools. " +
                     "The first setup can download several GB and may require administrator approval and a Windows restart. " +
                     "Your ROM and generated game stay on this computer. Continue?", Text,
                     MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK) return;

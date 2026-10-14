@@ -652,6 +652,14 @@ def validate_cross_file_contracts() -> list[str]:
 
 def main() -> int:
     errors = validate_json_documents()
+    try:
+        try:
+            from .native_generation_metadata import default_bundle
+        except ImportError:
+            from native_generation_metadata import default_bundle
+        default_bundle(ROOT)
+    except (OSError, ValueError, KeyError, TypeError):
+        errors.append("native generation metadata failed its pinned facts-only contract")
     if not errors:
         try:
             errors.extend(validate_cross_file_contracts())

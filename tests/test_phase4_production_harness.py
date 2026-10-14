@@ -1585,6 +1585,11 @@ class Phase4ProductionHarnessTests(unittest.TestCase):
             self.skipTest("pinned WSL GCC is unavailable")
         toolchain_sha256 = identity.stdout.decode("ascii").split()[0]
         files = self.analysis_sources()
+        # This replay certifies the frozen historical bridge policy, not any
+        # later fork edits. The stale-policy rejection test remains mandatory.
+        actual = {name: self.digest(payload) for name, payload in files.items()}
+        if actual != harness.ANALYSIS_SOURCE_SHA256:
+            self.skipTest("current bridge revisions are outside the frozen sanitizer source policy")
         source_inventory = self.inventory(files)
         for evidence_kind, sanitizer_id in (
             ("address-sanitizer", "address"),

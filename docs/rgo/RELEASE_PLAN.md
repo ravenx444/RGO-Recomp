@@ -1,6 +1,9 @@
 # RGO first public release: plan
 
-Status (2026-10-13): in progress. Agreed with the owner on 2026-10-12.
+Status (2026-10-14): in progress. Removing WSL and Ubuntu is a first-release gate.
+Windows-native generation and installer changes are implemented; fresh game
+compilation and first-run/runtime acceptance remain in progress. Nothing has
+been published. Agreed with the owner on 2026-10-12.
 - Done: 1 (portable: everything in `data\` next to the launcher; WSL scratch
   deleted after each build), 2 (first-run message, game starts by itself
   after setup),
@@ -27,7 +30,7 @@ A GitHub Release with one ZIP. The player:
 Before the first build starts, the launcher shows (and keeps visible while it
 runs) a plain message:
 
-> First-time setup takes about an hour. It has not crashed. Please don't
+> First-time setup can take an hour or more. Please don't
 > close this window: leave it open, and the game will start by itself when
 > it's done. Later starts take seconds; rebuilds after an update take minutes.
 
@@ -35,8 +38,8 @@ runs) a plain message:
 
 - ROM selection and SHA-1 check (`LocalSetup`).
 - Prerequisites through `winget` (`launcher/windows/Setup.ps1`): Git, Python,
-  Visual Studio 2022 Build Tools (VCTools), WSL + Ubuntu 24.04 and its
-  packages. Windows shows its own approval prompts; WSL can require a restart
+  Visual Studio 2022 Build Tools (VCTools). Windows shows its own approval
+  prompts; a build-tool installer can require a restart
   (the launcher resumes afterwards).
 - Downloads a pinned source revision recorded in the release, then builds.
 - Support reports, crash/freeze capture.
@@ -54,7 +57,7 @@ runs) a plain message:
   too deep, say so before starting and suggest e.g. `C:\Games\RGO`.
 - Refuse read-only locations (`Program Files`) with a clear message.
 - One-time migration offer for existing `%LOCALAPPDATA%` saves (owner's own).
-- System-wide prerequisites (VS Build Tools, WSL/Ubuntu, Git, Python) cannot
+- System-wide prerequisites (VS Build Tools, Git, Python) cannot
   live in the folder; the launcher says what it will install and why.
 
 ### 2. First-run expectations and progress

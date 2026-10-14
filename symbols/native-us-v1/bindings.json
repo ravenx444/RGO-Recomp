@@ -1,0 +1,7071 @@
+{
+  "schema_version": 1,
+  "rom_sha1": "493ced9008dbe932d6e91179b68e8630cf23a023",
+  "layout": {
+    "main_relocation_start": 32305696,
+    "overlay_reference_table_start": 32309872,
+    "overlay_table_start": 32319360,
+    "overlay_data_start": 32324384,
+    "main_text_size": 655888,
+    "main_data_size": 66800
+  },
+  "covered_aliases": [
+    {
+      "private_name": "mathSinInterp",
+      "private_owner_name": "mathCosInterp",
+      "section": 0,
+      "offset": 299532,
+      "owner_offset": 299528,
+      "owner_size": 96
+    },
+    {
+      "private_name": "mathSin",
+      "private_owner_name": "mathCos",
+      "section": 0,
+      "offset": 299628,
+      "owner_offset": 299624,
+      "owner_size": 68
+    },
+    {
+      "private_name": "Sinf",
+      "private_owner_name": "Cosf",
+      "section": 0,
+      "offset": 301108,
+      "owner_offset": 301104,
+      "owner_size": 84
+    },
+    {
+      "private_name": "AIJunctionControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "AIJunctionInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "AIPointControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "AIPointInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "AntShipMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBBlackAnt_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBDragonfly_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBFatBob_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBFloater_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBGalaxianCorkScrew_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBGunTurret_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBSlugBoss_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBSpannerHand_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBSpider_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBStandardFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BTSBWaterBoss_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "BindRegionsToObjects_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CheckLineOfSight_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ClearMissionFields_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CopyStaticsToPatrolNodes_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CopyStaticsToSquads_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CorkScrewAttackFacer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CorkScrewAttackMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CreateBSPFromRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CreateBSP_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CreateRefractTask_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CyborgMissileControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "CyborgMissileInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DoLinesIntersect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DoSquaddiesCollide_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DoesLineCrossRegionIdx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DoesLineCrossRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DoesSquaddieWantToFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DragonflyMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "DragonflyTilt_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "EnsureValidNode_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FallBackToSniperPoint_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FatBobDrawShockWave_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FatBobPhaseChange_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FatBobShockWaveControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FatBobShockWaveInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FindBestPathInRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FloaterMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlopsyDogCheckPriority_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlopsyDogFacer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlopsyDogFoodGone_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlopsyDogMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlopsyDogSpotPlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlowerBoltControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "FlowerBoltInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GalaxianBatsMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GalaxianBatsSoundsHandler_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GenerateFireTexture_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GenerateSpitTexture_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GenerateTorchFireTex_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetAnimData_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetAttachObject_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetBaddyData_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetClosestPatrolNode_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetFurthestPatrolNode_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetLockObject_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetNextNodeNumber_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetPushPosition_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetRange2D_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetRangeSquared2D_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetRegionIndex_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetSmoothAcceleration_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetThrowElevation_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetVtxPosition_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "GetWaveAboutPosition_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "IsPointInRegionIdx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "IsPointInRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "IsPointInSibling_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "LaserBeamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "LaserBeamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "MaggotBombControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "MaggotBombInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "NewFlopsyFunction_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "PatrolPathsInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "PerformNodeCommand_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ReallyAddInterestingEvent_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "RecceNodeMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "RemoveSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SetBlockedNodes_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SetSquaddieOnFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ShirukenBounce_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ShirukenControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ShirukenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ShirukenPushMtx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "Skips_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SlugBossMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SlugBossPhaseChange_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SmartFacer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SmartMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SmoothValue_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SpiderEatStuffMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SpiderMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SpiderSpitControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SpiderSpitInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieAnimEventHandler_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieBodyPartHit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieGetTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieInitFromRomdef_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddieLightAndAnimate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquaddiePassesAway_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquadronControlSmart_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquadronControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "SquadronInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TidyLinkedList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TryToSetAnimByIndex_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TryToSetAnim_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TryToSetMission_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TryToUpdateAnim_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TurretFireMover_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TwinkleControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "TwinkleInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "UpdateOrSetAnim_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "WaterBossDrawSprites_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "WhichRegionIsPointIn_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00001_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00002_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00003_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00023_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00027_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00028_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00048_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00068_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00095_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00109_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00143_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoExit00155_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoInit00003_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoInit00044_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoInit00139_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "_AutoInit00155_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00029_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00072_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00076_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00083_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00086_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00087_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00089_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00091_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00092_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00095_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00096_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00097_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00100_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00101_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00102_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00103_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00104_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00108_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00109_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00112_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00113_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00119_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00120_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00122_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00130_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00131_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00132_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00136_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00138_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00139_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00140_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00142_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00151_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__MODULE00153_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "__osRdbSend_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "amAudioLineAddVertex_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "amAudioLinesReset_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "amInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "amLineDefinitionComplete_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "amPlayAudioLines_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ammoPickupControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ammoPickupGetFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "ammoPickupInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqAddChangeLight_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqDrawNoisyFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqFireBullet_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqInitCaptions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqLockOnDelete_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqLockOnDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqLockOnInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqLockOnUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqMuzzleFlash_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqPrintCaptions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqReleaseBits_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqSampleCurve_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqStartCaption_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqStartNoisyFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdateCaptions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdateLightChangers_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdateNoisyFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdatePath_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdateTextureScrollers_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animseqUpdateTrackFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animshipControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animshipDrawThrusters_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animshipFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animshipInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animswitchControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "animswitchInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "arcadeControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "arcadeDrawScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "arcadeInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "arcadecameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "arcadecameraUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "audioLineInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "audioPointInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "barcolours_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "beamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "beamDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "beamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "beamScroll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blastdoorControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blastdoorDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blastdoorInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blastdoorOpen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blastdoorStatus_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bloodHitSpriteAdd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bloodSpurtAdd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bloodSpurtFreeLib_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bloodSpurtUpdateAll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bloodSpurtsDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blurFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blurInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blurTask_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "blurUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "boyBossControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "boyCanFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "boyControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bubblerControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "bubblerInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "buoyControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "buoyInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "butterflyControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "butterflyInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chargeEffectCreate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chargeEffectDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chargeEffectFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chargeEffectSetPower_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chargeEffectUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chestControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chestInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chestcameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "chestcameraUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneBlobCreate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneBlobDelete_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneBlobSetup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneDelete_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneSetupShadow_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneShadowCreate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cloneTasksQueueAndWait_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "collectableControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "collectableInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "craterControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "craterInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cutcameraActivate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cutcameraControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cutcameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "cutcameraUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "damagecrateChangeHitsmin_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "damagecrateControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "damagecrateInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "damagecrateRepair_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dayGetFog_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dayGetTrackFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dayInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dayStopAtNoon_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dayUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dogBossControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dogCanFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dogControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "doorInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "doorSwitchInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dopplerPointControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dopplerPointInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "drawGlowingText_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dropletAdd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dropletDrawAll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dropletFreeLib_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dropletUpdateAll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "dropletUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "duckshootDrawTargets_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "duckshootInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "duckshootUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "electrocutionControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "electrocutionInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "exitInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireExplosionControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireExplosionInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireflyControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireflyInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireringControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireringInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireworkControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fireworkInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fishControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fishInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fishfoodControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fishfoodInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flagtargetControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flagtargetInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flagtriggerControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flagtriggerInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerConstrain_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerHits_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flamethrowerUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flareControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flareInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flareThrow_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flareswitchInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "floatingControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "floatingInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flyingdebrisControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "flyingdebrisInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fmvDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fmvStart_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fmvStop_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fmvUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fogInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fontInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fourplayercoordinates_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frogControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frogInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCharBadge_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCharSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupCharSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupMap_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupMultiInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupMultiModeSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupMultiSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupMultiStats_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupOptionsPage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupRarepage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCleanupStartScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontClearMenuFrame_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCreditsInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontCredits_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontDeathMatchScores_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontDisplayRegion_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontDrawCharBadge_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontDrawTarget_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontEndDeathMatch_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontFreeMenuFrame_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontGetHourTime_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontGetMenuFrameAlpha_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontGetMenuFullyOpen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontGetSelectableCharacter_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontGetTime_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitCharSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMap_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMenuFrame_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMultiInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMultiModeSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMultiSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitMultiStats_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitOptionsPage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitRarepage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitStartScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontInitTarget_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontKeyboardCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontKeyboardGetTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontKeyboardInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontKeyboard_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMapCleanupWorldIcons_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMapDrawWorldIcon_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMapInitWorldIcons_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMap_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMenuFrameDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMenuFrameSetEnable_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMenuFrameTick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMenuFrameTrackDrawingOn_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMenuPodiumGetTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMultiModeSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMultiSelect_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMultiStatsBarGetTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontMultiStats_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontOptionsPage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontPlayerTarget_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontRarepage_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontSetInstrumentsHide_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontSetMenuFrameFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontSetMenuFrame_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontShowRegionStats_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontSingleInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontStartScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "frontTeleporterTick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "fxDrawWindow_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "genericplayerInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "getDeathMatchObjectTable_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlBossControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlCanFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicCameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicCutCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicFadeFog_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicFog_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicTrackFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlMagicUpdateFog_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "girlUpdateMagic_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "glassControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "glassDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "glassInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "grenadeControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "grenadeDestroy_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "grenadeInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "grubControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "grubInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "healthPickupControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "healthPickupInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "healthScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "healthScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "healthScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextActiveMagic_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextActive_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextFreeObject_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextLoadObject_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextStartLevel_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextStart_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextStopMagic_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextStop_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextTriedToEnd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hinttextUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitBridgeControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitBridgeInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitBridgeMoveWith_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitBridgeMoveY_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitfragmentControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitfragmentInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hitstaticInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovergemControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovergemCreate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovergemInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovertankControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovertankDrawEffects_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovertankFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hoovertankInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hovershipCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hovershipControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "hovershipInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instDrawHealth_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instFreeHealthMeter_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instGetBarWidth_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instGetBarY_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instGetPos_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instInitHealthMeter_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instInitMsgQueues_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instLockMsg_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instMsgQueueTick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instQueueMsg_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instScreenToSpriteCoord_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instShowBearBar_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instSpriteToScreenCoord_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "instUnlockMsg_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "insthealthmeterpolys_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "insthealthmetervtxs_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "inventoryScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "inventoryScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "inventoryScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "invincibilityControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "invincibilityInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "invincibilityShieldControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "invincibilityShieldInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "invincibilityShieldTransform_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "keyControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "keyInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "laserboltControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "laserboltInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "lensflareInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "lightShowControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "lightShowDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "lightShowInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "listReallocate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mainInitRlo_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mainclusterControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mainclusterInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisEditMenu_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisJump_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLand_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLightingFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLightingGetFog_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLightingGetTrackFade_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLightingInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisLightingUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisSplitGfx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisboltControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisboltDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisboltInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantismissileControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantismissileDrawThruster_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantismissileFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantismissileInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisrockControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mantisrockInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "markerboxInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamFacingTVCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamFacingTVControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamFocusControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamFocusInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamGetObjPtr_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuCamSetFocus_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuFrameChangeLevel_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "menuScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mineControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mineDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mineInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "minePushMtx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mineRemove_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "missileControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "missileInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarAISetup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarCutCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarDeathControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarDeathDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarDeathInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarDrawEffects_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarElectroControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarElectroDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarElectroInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarExplosionCallBack_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarEyeBeamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarEyeBeamDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarEyeBeamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarFireBallControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarFireBallDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarFireBallInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarHandBitInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarHandBitPushMtx_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarHitCallBack_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarImpactControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarImpactDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarImpactInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarLightUp_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarMonolithControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarMonolithInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarRockStormDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarSetup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarWingBitControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mizarWingBitInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "modPhitInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mrHintsEventHandler_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mrHintsSpeak_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mrHintsTalk_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mrhintsControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "mrhintsInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiCharArmCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiCharArmControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiCharArmGetTiltList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiCharArmInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiCharArmSetStatus_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiPlayerPauseInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiptargetControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multiptargetInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multitargetControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "multitargetInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "nightvisionpadControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "nightvisionpadInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "objDrawInvincibilityShield_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "objInitExplosions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "objInitObjects_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCartDmaTest3_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCartDmaTest4_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCartTest3_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCartTest4_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCic6105GetReadData_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCic6105SendData_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osCic6105StartGetData_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osRamTest3_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "osRamTest4_6105_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "overrideCInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "partBuildCCTables_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "partInitLib_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "partSetupLib_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseClearScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseGetPauseCharacter_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseGetScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pausePlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseSetNewLevel_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseSetScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pauseUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "pausetunevol_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "playeroffsets_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckDistance_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckFindNearest_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckFindNext_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckFindPrevious_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckRefresh_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racecheckStatus_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "raceobstacleControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "raceobstacleInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racepickupControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racepickupInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racingInGameEnd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "racingInGameStart_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainActive_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainMove_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainResetCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rainSetDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "realReflectCreateList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "realReflectPrint_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "realReflectSurfaces_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refractFreeAll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refractInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refractOutput_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refractTick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refuelControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "refuelInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "regionidControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "regionidDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "regionidInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rgbalightInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotDisplay_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotFinished_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotMissionFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotPauseInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotPauseUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotTokenControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotUpdateObjectives_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotcheckControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotcheckInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotcollectableControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robotcollectableInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robottargetControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "robottargetInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rockstormControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rockstormHitCallBack_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "rockstormInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "setupInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shardClusterControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shardClusterDestroy_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shardClusterInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shipControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shipScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shipScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shipScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shrinkbeamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shrinkbeamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "shrinkbeamSoundUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadCameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sidekickpadMovePlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "skyInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "smallclusterControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "smallclusterInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "smartPlayerSeen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "smokingfireControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "smokingfireInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sortByKills_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sortPlayers_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkAdd_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkFreeAll_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkSetGravity_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sparkUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "spinlightControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "spinlightInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamCameraPos_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamGetNearestNode_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamMakeSpline_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamMovementCheck_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamPlayerPos_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamSetup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamSplineHead_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "splinecamnodeInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "spotlightControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "spotlightInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintAIJoypad_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintAIPlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintCountdown_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintDrawInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintFreeInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintHitBomb_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintHitOilSlick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintInitInstruments_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintPickedUpBomb_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintPickedUpBoost_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintPickedUpOil_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintPlayerBoost_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintPlayerFire_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintShipCollision_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "sprintUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsAddToActiveSquaddies_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsChangeLevel_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsDecapitateSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsElectrocuteSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsFireWeapon_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsFreePatrolRegions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsGetChildPolyPosition_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsGetClosestFood_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsGetClosestPlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsGetFormationPosition_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsGetLoudestEvent_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsInitAIArrays_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsIsFoodAvailable_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsIsObjectEdible_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsKillSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsLowMemoryPanic_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsMakeFoodList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsMakeTargetList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsModuleTick_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsPlaceOnAnimObject_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsPlayerShootsSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsPrepareToProcessSquaddie_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsSaveTribal_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsSetupFirstNodes_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "squadsTidyEventList_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "starfieldActive_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "starfieldDrawSP_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "starfieldFree_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "starfieldInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "starfieldMove_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "staticcamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "targetMode_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "targetswitchControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "targetswitchInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "teleportEffectControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "teleportEffectDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "teleportEffectInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "terminalCameraInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "terminalCameraUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "terminalControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "terminalInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "texscrollInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "totemPoleControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "totemPoleInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "trackFadeExceptions_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "trackInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "trackbeamControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "trackbeamInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "transformerCamera_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "transformerControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "transformerInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "transformerMovePlayer_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "treeControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "treeInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "tribalScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "tribalScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "tribalScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "tvals_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "twisterControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "twisterDraw_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "twisterInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "twoplayercoordinates_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "twoplayerwidecoordinates_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "underWaterLightsInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "underWaterLightsUpdate_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "waveswellInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponPickupControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponPickupInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponScreenCleanup_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponScreenFreeDpad_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponScreenInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponScreenSetupDpad_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weaponScreen_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weatherControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "weatherInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "widthcoeffs_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "windowDrawBeams_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "windowMakeBeams_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "windowfxControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "windowfxInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "zombieFlobControl_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "zombieFlobInit_Trap",
+      "private_owner_name": "TrapDanglingJump",
+      "section": 0,
+      "offset": 344368,
+      "owner_offset": 344368,
+      "owner_size": 480
+    },
+    {
+      "private_name": "func_8007345C",
+      "private_owner_name": "inflate_block",
+      "section": 0,
+      "offset": 469212,
+      "owner_offset": 468976,
+      "owner_size": 260
+    },
+    {
+      "private_name": "func_80073640",
+      "private_owner_name": "inflate_dynamic",
+      "section": 0,
+      "offset": 469696,
+      "owner_offset": 469236,
+      "owner_size": 1048
+    },
+    {
+      "private_name": "func_80073B40",
+      "private_owner_name": "inflate_codes",
+      "section": 0,
+      "offset": 470976,
+      "owner_offset": 470896,
+      "owner_size": 756
+    },
+    {
+      "private_name": "func_800749AC",
+      "private_owner_name": "gen_anim_data",
+      "section": 0,
+      "offset": 474668,
+      "owner_offset": 473728,
+      "owner_size": 1128
+    },
+    {
+      "private_name": "func_80074AA4",
+      "private_owner_name": "func_80074A68",
+      "section": 0,
+      "offset": 474916,
+      "owner_offset": 474856,
+      "owner_size": 232
+    },
+    {
+      "private_name": "func_80074AE0",
+      "private_owner_name": "func_80074A68",
+      "section": 0,
+      "offset": 474976,
+      "owner_offset": 474856,
+      "owner_size": 232
+    },
+    {
+      "private_name": "func_80074B2C",
+      "private_owner_name": "func_80074A68",
+      "section": 0,
+      "offset": 475052,
+      "owner_offset": 474856,
+      "owner_size": 232
+    },
+    {
+      "private_name": "func_80074D4C",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 475596,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_80074D60",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 475616,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_80074FD0",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 476240,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_80075050",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 476368,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_800750F0",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 476528,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_8007524C",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 476876,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_8007532C",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 477100,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_800753BC",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 477244,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "func_80075528",
+      "private_owner_name": "func_80074B50",
+      "section": 0,
+      "offset": 477608,
+      "owner_offset": 475088,
+      "owner_size": 2688
+    },
+    {
+      "private_name": "fsin",
+      "private_owner_name": "__sinf",
+      "section": 0,
+      "offset": 617808,
+      "owner_offset": 617808,
+      "owner_size": 448
+    },
+    {
+      "private_name": "sinf",
+      "private_owner_name": "__sinf",
+      "section": 0,
+      "offset": 617808,
+      "owner_offset": 617808,
+      "owner_size": 448
+    },
+    {
+      "private_name": "_blkclr",
+      "private_owner_name": "_bzero",
+      "section": 0,
+      "offset": 622432,
+      "owner_offset": 622432,
+      "owner_size": 156
+    },
+    {
+      "private_name": "blkclr",
+      "private_owner_name": "_bzero",
+      "section": 0,
+      "offset": 622432,
+      "owner_offset": 622432,
+      "owner_size": 156
+    },
+    {
+      "private_name": "bzero",
+      "private_owner_name": "_bzero",
+      "section": 0,
+      "offset": 622432,
+      "owner_offset": 622432,
+      "owner_size": 156
+    },
+    {
+      "private_name": "bcopy",
+      "private_owner_name": "_bcopy",
+      "section": 0,
+      "offset": 628048,
+      "owner_offset": 628048,
+      "owner_size": 772
+    },
+    {
+      "private_name": "bcmp",
+      "private_owner_name": "_bcmp",
+      "section": 0,
+      "offset": 632416,
+      "owner_offset": 632416,
+      "owner_size": 284
+    }
+  ],
+  "manual_sizes": [
+    {
+      "private_name": "__scMain",
+      "generated_function": "__scMain_00050578",
+      "section": 0,
+      "offset": 324984,
+      "recovered_size": 440
+    },
+    {
+      "private_name": "__scHandleRSP",
+      "generated_function": "__scHandleRSP_000513F8",
+      "section": 0,
+      "offset": 328696,
+      "recovered_size": 300
+    },
+    {
+      "private_name": "__scHandleRDP",
+      "generated_function": "__scHandleRDP_00051524",
+      "section": 0,
+      "offset": 328996,
+      "recovered_size": 140
+    },
+    {
+      "private_name": "__scTaskComplete",
+      "generated_function": "__scTaskComplete_00051608",
+      "section": 0,
+      "offset": 329224,
+      "recovered_size": 256
+    },
+    {
+      "private_name": "__scAppendList",
+      "generated_function": "__scAppendList_00051708",
+      "section": 0,
+      "offset": 329480,
+      "recovered_size": 104
+    },
+    {
+      "private_name": "__scExec",
+      "generated_function": "__scExec_00051770",
+      "section": 0,
+      "offset": 329584,
+      "recovered_size": 204
+    },
+    {
+      "private_name": "_ObservedPiHandleInitialize",
+      "generated_function": "_ObservedPiHandleInitialize",
+      "section": 0,
+      "offset": 619400,
+      "recovered_size": 120
+    },
+    {
+      "private_name": "_ObservedControllerReadPack",
+      "generated_function": "_ObservedControllerReadPack",
+      "section": 0,
+      "offset": 621180,
+      "recovered_size": 244
+    },
+    {
+      "private_name": "_ObservedViManagerMain",
+      "generated_function": "_ObservedViManagerMain",
+      "section": 0,
+      "offset": 624568,
+      "recovered_size": 408
+    },
+    {
+      "private_name": "_VirtualToPhysicalTask",
+      "generated_function": "_VirtualToPhysicalTask",
+      "section": 0,
+      "offset": 625472,
+      "recovered_size": 284
+    }
+  ],
+  "audio": {
+    "rom_start": 648720,
+    "size": 6208,
+    "configuration": {
+      "text_offset": 0,
+      "text_size": 3968,
+      "text_address": 67113088,
+      "extra_indirect_branch_targets": [
+        6888,
+        5180,
+        4672,
+        7556,
+        4716,
+        6944,
+        4776,
+        4628,
+        5148,
+        4880,
+        5068,
+        4836,
+        8112,
+        4952,
+        5868,
+        5128
+      ],
+      "overlay_slots": [
+        {
+          "text_address": 67113528,
+          "overlays": [
+            {
+              "offset": 440,
+              "size": 3528
+            },
+            {
+              "offset": 3968,
+              "size": 2240
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sdk_identified": [
+    {
+      "generated_function": "fn_000_1609",
+      "in_generated_set": true,
+      "libultra": "__osDequeueThread",
+      "vram": "0x8009a440"
+    },
+    {
+      "generated_function": "fn_000_1235",
+      "in_generated_set": true,
+      "libultra": "__osDispatchThread",
+      "vram": "0x80075808"
+    },
+    {
+      "generated_function": "fn_000_1233",
+      "in_generated_set": true,
+      "libultra": "__osEnqueueThread",
+      "vram": "0x800757b0"
+    },
+    {
+      "generated_function": "fn_000_1629",
+      "in_generated_set": true,
+      "libultra": "__osGetSR",
+      "vram": "0x8009af50"
+    },
+    {
+      "generated_function": "fn_000_1234",
+      "in_generated_set": true,
+      "libultra": "__osPopThread",
+      "vram": "0x800757f8"
+    },
+    {
+      "generated_function": "fn_000_1628",
+      "in_generated_set": true,
+      "libultra": "__osSetSR",
+      "vram": "0x8009af40"
+    },
+    {
+      "generated_function": "fn_000_1619",
+      "in_generated_set": true,
+      "libultra": "__osSiRawStartDma",
+      "vram": "0x8009a830"
+    },
+    {
+      "generated_function": "fn_000_1554",
+      "in_generated_set": true,
+      "libultra": "osContGetReadData",
+      "vram": "0x80097dd4"
+    },
+    {
+      "generated_function": "fn_000_1550",
+      "in_generated_set": true,
+      "libultra": "osContInit",
+      "vram": "0x80097950"
+    },
+    {
+      "generated_function": "fn_000_1553",
+      "in_generated_set": true,
+      "libultra": "osContStartReadData",
+      "vram": "0x80097d10"
+    },
+    {
+      "generated_function": "fn_000_1528",
+      "in_generated_set": true,
+      "libultra": "osCreateMesgQueue",
+      "vram": "0x80096bb0"
+    },
+    {
+      "generated_function": "fn_000_1185",
+      "in_generated_set": true,
+      "libultra": "osCreatePiManager",
+      "vram": "0x80072330"
+    },
+    {
+      "generated_function": "fn_000_1237",
+      "in_generated_set": true,
+      "libultra": "osCreateThread",
+      "vram": "0x800759d0"
+    },
+    {
+      "generated_function": "fn_000_1610",
+      "in_generated_set": true,
+      "libultra": "osDestroyThread",
+      "vram": "0x8009a480"
+    },
+    {
+      "generated_function": "fn_000_1614",
+      "in_generated_set": true,
+      "libultra": "osEPiStartDma",
+      "vram": "0x8009a670"
+    },
+    {
+      "generated_function": "fn_000_1319",
+      "in_generated_set": true,
+      "libultra": "osFlashAllErase",
+      "vram": "0x80083de0"
+    },
+    {
+      "generated_function": "fn_000_1318",
+      "in_generated_set": true,
+      "libultra": "osFlashClearStatus",
+      "vram": "0x80083d94"
+    },
+    {
+      "generated_function": "fn_000_1315",
+      "in_generated_set": true,
+      "libultra": "osFlashInit",
+      "vram": "0x80083b40"
+    },
+    {
+      "generated_function": "fn_000_1314",
+      "in_generated_set": true,
+      "libultra": "osFlashReInit",
+      "vram": "0x80083af0"
+    },
+    {
+      "generated_function": "fn_000_1323",
+      "in_generated_set": true,
+      "libultra": "osFlashReadArray",
+      "vram": "0x800840e0"
+    },
+    {
+      "generated_function": "fn_000_1317",
+      "in_generated_set": true,
+      "libultra": "osFlashReadId",
+      "vram": "0x80083cc0"
+    },
+    {
+      "generated_function": "fn_000_1316",
+      "in_generated_set": true,
+      "libultra": "osFlashReadStatus",
+      "vram": "0x80083c30"
+    },
+    {
+      "generated_function": "fn_000_1320",
+      "in_generated_set": true,
+      "libultra": "osFlashSectorErase",
+      "vram": "0x80083eb0"
+    },
+    {
+      "generated_function": "fn_000_1322",
+      "in_generated_set": true,
+      "libultra": "osFlashWriteArray",
+      "vram": "0x8008400c"
+    },
+    {
+      "generated_function": "fn_000_1321",
+      "in_generated_set": true,
+      "libultra": "osFlashWriteBuffer",
+      "vram": "0x80083f88"
+    },
+    {
+      "generated_function": "fn_000_1525",
+      "in_generated_set": true,
+      "libultra": "osGetCount",
+      "vram": "0x800968c0"
+    },
+    {
+      "generated_function": "fn_000_1603",
+      "in_generated_set": true,
+      "libultra": "osGetThreadPri",
+      "vram": "0x80099d20"
+    },
+    {
+      "generated_function": "fn_000_1557",
+      "in_generated_set": true,
+      "libultra": "osGetTime",
+      "vram": "0x80097fa0"
+    },
+    {
+      "generated_function": "fn_000_1546",
+      "in_generated_set": true,
+      "libultra": "osInitialize",
+      "vram": "0x80097520"
+    },
+    {
+      "generated_function": "fn_000_1563",
+      "in_generated_set": true,
+      "libultra": "osInvalDCache",
+      "vram": "0x800982b0"
+    },
+    {
+      "generated_function": "fn_000_1561",
+      "in_generated_set": true,
+      "libultra": "osInvalICache",
+      "vram": "0x800980d0"
+    },
+    {
+      "generated_function": "fn_000_1626",
+      "in_generated_set": true,
+      "libultra": "osJamMesg",
+      "vram": "0x8009adc0"
+    },
+    {
+      "generated_function": "fn_000_1627",
+      "in_generated_set": true,
+      "libultra": "osPiGetCmdQueue",
+      "vram": "0x8009af10"
+    },
+    {
+      "generated_function": "fn_000_1535",
+      "in_generated_set": true,
+      "libultra": "osPiStartDma",
+      "vram": "0x80097080"
+    },
+    {
+      "generated_function": "fn_000_1526",
+      "in_generated_set": true,
+      "libultra": "osRecvMesg",
+      "vram": "0x80096910"
+    },
+    {
+      "generated_function": "fn_000_1533",
+      "in_generated_set": true,
+      "libultra": "osSendMesg",
+      "vram": "0x80096f20"
+    },
+    {
+      "generated_function": "fn_000_1549",
+      "in_generated_set": true,
+      "libultra": "osSetEventMesg",
+      "vram": "0x800978e0"
+    },
+    {
+      "generated_function": "fn_000_1574",
+      "in_generated_set": true,
+      "libultra": "osSetIntMask",
+      "vram": "0x80098ea0"
+    },
+    {
+      "generated_function": "fn_000_1548",
+      "in_generated_set": true,
+      "libultra": "osSetThreadPri",
+      "vram": "0x80097800"
+    },
+    {
+      "generated_function": "fn_000_1556",
+      "in_generated_set": true,
+      "libultra": "osSetTime",
+      "vram": "0x80097f70"
+    },
+    {
+      "generated_function": "fn_000_1636",
+      "in_generated_set": true,
+      "libultra": "osSetTimer",
+      "vram": "0x8009b0d0"
+    },
+    {
+      "generated_function": "fn_000_1576",
+      "in_generated_set": true,
+      "libultra": "osSpTaskLoad",
+      "vram": "0x8009905c"
+    },
+    {
+      "generated_function": "fn_000_1577",
+      "in_generated_set": true,
+      "libultra": "osSpTaskStartGo",
+      "vram": "0x800991bc"
+    },
+    {
+      "generated_function": "fn_000_1582",
+      "in_generated_set": true,
+      "libultra": "osSpTaskYield",
+      "vram": "0x800993b0"
+    },
+    {
+      "generated_function": "fn_000_1578",
+      "in_generated_set": true,
+      "libultra": "osSpTaskYielded",
+      "vram": "0x80099200"
+    },
+    {
+      "generated_function": "fn_000_1529",
+      "in_generated_set": true,
+      "libultra": "osStartThread",
+      "vram": "0x80096be0"
+    },
+    {
+      "generated_function": "fn_000_1530",
+      "in_generated_set": true,
+      "libultra": "osStopThread",
+      "vram": "0x80096d30"
+    },
+    {
+      "generated_function": "fn_000_1572",
+      "in_generated_set": true,
+      "libultra": "osViBlack",
+      "vram": "0x80098dc0"
+    },
+    {
+      "generated_function": "fn_000_1579",
+      "in_generated_set": true,
+      "libultra": "osViGetCurrentFramebuffer",
+      "vram": "0x80099280"
+    },
+    {
+      "generated_function": "fn_000_1580",
+      "in_generated_set": true,
+      "libultra": "osViGetNextFramebuffer",
+      "vram": "0x800992c0"
+    },
+    {
+      "generated_function": "fn_000_1573",
+      "in_generated_set": true,
+      "libultra": "osViSetEvent",
+      "vram": "0x80098e30"
+    },
+    {
+      "generated_function": "fn_000_1571",
+      "in_generated_set": true,
+      "libultra": "osViSetMode",
+      "vram": "0x80098d50"
+    },
+    {
+      "generated_function": "fn_000_1583",
+      "in_generated_set": true,
+      "libultra": "osViSetSpecialFeatures",
+      "vram": "0x800993d0"
+    },
+    {
+      "generated_function": "fn_000_1584",
+      "in_generated_set": true,
+      "libultra": "osViSwapBuffer",
+      "vram": "0x80099590"
+    },
+    {
+      "generated_function": "fn_000_1532",
+      "in_generated_set": true,
+      "libultra": "osVirtualToPhysical",
+      "vram": "0x80096ea0"
+    },
+    {
+      "generated_function": "fn_000_1560",
+      "in_generated_set": true,
+      "libultra": "osWritebackDCache",
+      "vram": "0x80098050"
+    },
+    {
+      "generated_function": "fn_000_1568",
+      "in_generated_set": true,
+      "libultra": "osWritebackDCacheAll",
+      "vram": "0x80098a10"
+    },
+    {
+      "generated_function": "fn_000_1652",
+      "in_generated_set": true,
+      "libultra": "osYieldThread",
+      "vram": "0x8009bdd0"
+    }
+  ],
+  "entrypoint_vram": "0x80000400"
+}

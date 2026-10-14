@@ -286,6 +286,9 @@ def extract_functions(raw_root: Path) -> dict[str, str]:
         total_bytes += len(text.encode("utf-8"))
         if total_bytes > MAX_TEXT_INPUT_BYTES:
             raise NormalizationError("raw generated source set exceeds limit")
+        # MSVC generators write CRLF; normalize only line endings after the
+        # original byte limits have been checked. Label ownership stays strict.
+        text = text.replace("\r\n", "\n")
         matches = list(FUNCTION_RE.finditer(text))
         if not matches:
             raise ValueError("raw generated source has no functions")

@@ -1,22 +1,20 @@
-# Persistent autonomy requirements
+# RGO development workflow
 
-The user requires the production anti-stall guard to remain enabled at all
-times, including after context compaction, session restart, and Goal resume.
+The owner confirmed on 2026-10-14 that this fork uses its normal build and
+test workflow. The inherited upstream autonomous-investigation supervisor
+and its private ledger are not requirements for RGO development. Do not
+create or reset an upstream investigation ledger to work on this fork.
 
-- Before autonomous investigation execution, verify the production ledger's
-  guard is enabled and recover its existing investigation state and budget.
-- Run autonomous investigation jobs through the guarded supervisor. Foreground
-  orchestration and read-only status checks are not substitutes for guarded
-  experiment, build, replay, or coding-worker execution.
-- Never disable the production guard, reset its counters, rename/re-root the
-  same investigation for a fresh allowance, or bypass a denial with direct
-  execution. Report an exhausted investigation or blocker and stop that work.
-- Keep this requirement in every compaction/handoff summary. A Codex Goal
-  resume does not reset project budgets or override supervisor decisions.
-- Guard-disabled tests may use isolated fixture ledgers only, never the
-  operational ledger. Preserve evidence and existing user changes.
-
-Implementation and limits: docs/planning/autonomy-progress-guard.md.
+- Preserve existing user changes and local helpers.
+- Run the relevant tests, project validation, and repository hygiene checks.
+- Validate Windows launcher builds locally; automated tests alone do not
+  establish gameplay behavior or first-run setup on another PC.
+- Preserve previous release artifacts. Package only the launcher and its
+  reviewed documentation and license files.
+- Never commit or release ROMs, ROM-derived code/assets, or built game output.
+- Changes to repository visibility, releases, and upstream projects require
+  the owner's authorization. Do not treat a development task as publication
+  permission.
 
 # Upstream reference knowledge
 
@@ -25,12 +23,12 @@ audio investigations, consult [the pinned reference review](docs/upstream/refere
 and [reference catalog](docs/upstream/reference-catalog.json). The catalog
 separates existing behavior, source observations, and unvalidated work
 items. It does not authorize runtime changes, reopen shelved investigations,
-or replace the production guard requirements above.
+or override this fork's normal development workflow.
 
-# Maintainer Git identity
+# RGO Git identity
 
-For owner-authorized commits in this checkout, use `TK22-26` with
-`254768757+TK22-26@users.noreply.github.com` for the author and committer.
-Keep commit timestamps in UTC for the existing public metadata policy.
-The old generic maintainer identity is accepted only for preserved history;
-do not choose it for new maintainer commits or rewrite existing history.
+For owner-authorized commits in this fork, use the authenticated owner's
+GitHub no-reply identity: `ravenx444` with
+`19757470+ravenx444@users.noreply.github.com`. Keep commit timestamps in UTC.
+Preserve upstream and contributor authorship; do not rewrite existing history
+or use the upstream maintainer's identity for new RGO work.

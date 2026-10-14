@@ -22,6 +22,30 @@ TEST_TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class BuildPrivateGeneratedRootTests(unittest.TestCase):
+    def test_windows_generated_lines_preserve_continuation_labels(self) -> None:
+        definition = (
+            "RECOMP" + "_FUNC void fn_003_0090(uint8_t* rdram, recomp_context* ctx) {\n"
+            "    // 0x00307E88: nop\n"
+            "        // 0x00308518: addiu\n"
+            "L_00308518:\n"
+            "    // 0x00308518: addiu\n"
+            "}\n"
+        )
+        row = {"name": "fn_003_0090", "section": 3, "offset": 0x7E88,
+               "vram": 0x00307E88, "size": 0x17F8}
+        continuation = {"name": "fn_003_0090", "section": 3,
+                        "offset": 0x8518, "vram": 0x00308518}
+        results = []
+        for ending in ("\n", "\r\n"):
+            with tempfile.TemporaryDirectory(dir=TEST_TEMP_ROOT) as directory:
+                path = Path(directory)
+                (path / "funcs_0.c").write_bytes(definition.replace("\n", ending).encode())
+                body = generated_root.extract_functions(path)[row["name"]]
+                results.append(generated_root.add_continuation_dispatch(body, row, [continuation]))
+        self.assertEqual(results[0], results[1])
+        self.assertIn("goto L_00308518;", results[1])
+        self.assertNotIn("JFG_CONT_00308518", results[1])
+
     def test_jump_table_continuations_reenter_the_owning_body(self) -> None:
         authoritative = [
             {

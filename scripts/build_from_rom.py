@@ -106,13 +106,13 @@ def frontend_is_open() -> bool:
     return bool(handle)
 
 
-def plan_steps(deps: Path, lock: dict, own_dependencies: bool, generate: bool, frontend: bool) -> list[str]:
+def plan_steps(deps: Path, lock: dict, own_dependencies: bool, generate: bool, frontend: bool, *, names: dict | None = None) -> list[str]:
     """Step names in the order main() runs them, for "Step N of M"."""
     steps = []
-    entries = [entry for entry in lock["repositories"] if entry["id"] in NAMES]
+    entries = [entry for entry in lock["repositories"] if entry["id"] in (names or NAMES)]
     if own_dependencies:
         for entry in entries:
-            if not (deps / NAMES[entry["id"]]).exists():
+            if not (deps / (names or NAMES)[entry["id"]]).exists():
                 steps += ["clone-" + entry["id"], "pin-" + entry["id"]]
         steps += ["submodules-" + entry["id"] for entry in entries]
     if generate:
@@ -138,6 +138,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rom", required=True, type=Path)
     parser.add_argument("--distro", default="Ubuntu-24.04")
+    parser.add_argument("--metadata-backend", choices=("native", "legacy-wsl"), default="native",
+                        help="Windows-native generation by default; legacy-wsl is maintainer qualification only")
+    parser.add_argument("--native-metadata", type=Path, help="Experimental Windows-only factual metadata bundle")
+    parser.add_argument("--metadata-manifest-sha256", help="Separate trusted SHA256 for the native metadata manifest")
     parser.add_argument("--jobs", type=int, help="Build parallelism (default: all logical cores, "
                         "capped at one job per 1.5 GB of RAM)")
     parser.add_argument("--dependency-root", type=Path,
@@ -169,19 +173,37 @@ def main() -> int:
         parser.error("--generation-timeout must be between 1 and 7200")
     if args.resume_native and (args.clean or args.regenerate):
         parser.error("--resume-native cannot be combined with --clean or --regenerate")
+    if bool(args.native_metadata) != bool(args.metadata_manifest_sha256):
+        parser.error("--native-metadata requires --metadata-manifest-sha256 and vice versa")
+    if args.metadata_backend == "legacy-wsl":
+        if args.native_metadata:
+            parser.error("Custom native metadata cannot be used with the legacy WSL backend")
+    else:
+        from native_generation_metadata import load_bundle, default_bundle
+        if args.native_metadata:
+            load_bundle(args.native_metadata, args.metadata_manifest_sha256)
+        else:
+            args.native_metadata, args.metadata_manifest_sha256 = default_bundle(ROOT)
+    names = {key: value for key, value in NAMES.items()
+             if not args.native_metadata or key != "jfg-decomp"}
     rom = args.rom.resolve()
     rom_sha1 = validate_rom(rom)  # Reject before downloads or build output.
     if not args.no_frontend and frontend_is_open():
         raise ValueError("Close the RGO launcher (RGO-Launcher.exe) before a source build, or pass --no-frontend.")
     cmake = find_cmake()
-    for tool in ("git", "wsl"):
+    for tool in (("git",) if args.native_metadata else ("git", "wsl")):
         if not shutil.which(tool):
             raise ValueError(f"Required tool missing: {tool}")
     cache = windows_cache(ROOT, args.build_root)
     deps = (args.dependency_root or cache / "d").resolve()
     # The public lock file supplies repository URLs and immutable revisions.
     lock = json.loads((ROOT / "dependencies.lock.json").read_text())
-    inputs = cache_tools.generation_inputs(ROOT, rom_sha1, args.distro)
+    generator = "scripts/generate_from_rom_windows.py" if args.native_metadata else cache_tools.GENERATOR
+    inputs = cache_tools.generation_inputs(ROOT, rom_sha1,
+        "windows-factual-v1" if args.native_metadata else args.distro, generator=generator)
+    if args.native_metadata:
+        inputs["native-metadata-manifest"] = args.metadata_manifest_sha256
+
     reused = False
     if args.resume_native:
         workspace = args.resume_native.resolve()
@@ -222,7 +244,7 @@ def main() -> int:
     records: list[dict] = (json.loads(status_file.read_text()).get("steps", [])
                            if args.resume_native and status_file.is_file() else [])
     status_file.write_text(json.dumps({"complete": False, "steps": records}, indent=2) + "\n")
-    steps = plan_steps(deps, lock, not args.dependency_root, not reused, not args.no_frontend)
+    steps = plan_steps(deps, lock, not args.dependency_root, not reused, not args.no_frontend, names=names)
     started_build = time.monotonic()
 
     def run(name: str, command: list[str], cwd: Path = ROOT) -> None:
@@ -262,17 +284,17 @@ def main() -> int:
 
     if not args.dependency_root:
         for entry in lock["repositories"]:
-            if entry["id"] not in NAMES:
+            if entry["id"] not in names:
                 continue
-            dest = deps / NAMES[entry["id"]]
+            dest = deps / names[entry["id"]]
             if not dest.exists():
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 run("clone-" + entry["id"], ["git", "clone", "--config", "core.autocrlf=false", "--config", "core.longpaths=true", "--no-checkout", entry["url"], str(dest)])
                 run("pin-" + entry["id"], ["git", "-C", str(dest), "checkout", "--detach", entry["commit"]])
 
     for entry in lock["repositories"]:
-        if entry["id"] in NAMES:
-            dest = deps / NAMES[entry["id"]]
+        if entry["id"] in names:
+            dest = deps / names[entry["id"]]
             head = subprocess.check_output(["git", "-C", str(dest), "rev-parse", "HEAD"], text=True).strip()
             if head != entry["commit"]:
                 raise ValueError(f"Dependency revision mismatch: {entry['id']}; existing files were preserved.")
@@ -280,11 +302,18 @@ def main() -> int:
                 run("submodules-" + entry["id"], ["git", "-c", "core.autocrlf=false", "-c", "core.longpaths=true", "-C", str(dest), "submodule", "update", "--init", "--recursive"])
 
     if not reused:
-        run("generate", ["wsl", "-d", args.distro, "--exec", "timeout", "--kill-after=3s",
-            str(args.generation_timeout) + "s", "python3",
-            wsl_path(ROOT / "scripts/generate_from_rom.py"), "--rom", wsl_path(rom),
-            "--workspace", wsl_path(workspace), "--dependency-root", wsl_path(deps),
-            "--jobs", str(args.jobs)])
+        if args.native_metadata:
+            run("generate", [sys.executable, str(ROOT / generator), "--rom", str(rom),
+                "--workspace", str(workspace), "--dependency-root", str(deps),
+                "--native-metadata", str(args.native_metadata.resolve()),
+                "--metadata-manifest-sha256", args.metadata_manifest_sha256,
+                "--jobs", str(args.jobs)])
+        else:
+            run("generate", ["wsl", "-d", args.distro, "--exec", "timeout", "--kill-after=3s",
+                str(args.generation_timeout) + "s", "python3",
+                wsl_path(ROOT / "scripts/generate_from_rom.py"), "--rom", wsl_path(rom),
+                "--workspace", wsl_path(workspace), "--dependency-root", wsl_path(deps),
+                "--jobs", str(args.jobs)])
         problem = cache_tools.verify_generation(workspace, ROM_SHA1)
         if problem:
             raise RuntimeError("Generation finished but " + problem + ".")

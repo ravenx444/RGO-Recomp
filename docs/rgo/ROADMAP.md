@@ -53,11 +53,12 @@ Also done, not in the original list:
 
 ## Tier 2: setup, quality and release
 - **First public release.** Planned, not started; see `RELEASE_PLAN.md`.
-- **No WSL / Ubuntu.** Not started. The WSL stage only rebuilds the decomp to
-  get a map of the game (function boundaries, symbols, overlay layout).
-  Generate that once and ship it as data (addresses and names only), so users
-  need just Python and a C++ compiler. The cloud (Linux) can do the
-  investigation.
+- **No WSL / Ubuntu.** Required before the first public release. Windows-native
+  CPU/RSP generation and the player installer are implemented. A pinned,
+  strictly validated names-and-addresses bundle replaces the matching ELF
+  build. Generation matches the baseline apart from line endings, independent
+  audio case ordering and the truthful normalizer hash. Fresh compilation,
+  first-run setup and runtime validation are still in progress.
 - **Real setup progress.** Done for the command line: the build prints
   "Step N of M" (see `build.md`). The launcher's setup screen should show it
   too (release plan item 2).

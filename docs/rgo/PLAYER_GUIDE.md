@@ -10,8 +10,8 @@ builds the game from it on your PC.
 
 ## What you need
 
-- Windows 10 or 11, 64-bit, with virtualization enabled in the BIOS/UEFI
-  (most PCs have it on; the launcher installs WSL, which needs it).
+- Windows 10 or 11, 64-bit. Setup runs directly on Windows; WSL, Ubuntu
+  and BIOS virtualization are not required.
 - An internet connection and several GB of free disk space for the first
   setup.
 - Your ROM: the North American (US) version as a 32 MiB big-endian `.z64`
@@ -32,15 +32,14 @@ builds the game from it on your PC.
 5. Click **Play**. The first time, this opens *Set up and build*: click
    **Set up game** and confirm.
 
-**First-time setup takes about an hour. It has not crashed.** Please don't
+**First-time setup can take an hour or more.** Please don't
 close the launcher: leave it open, and the game will start by itself when
 it's done. Later starts take seconds; rebuilds after an update take minutes.
 
 During setup the launcher:
 - installs whatever is missing: Git, Python, Visual Studio 2022 Build Tools
-  (C++), and WSL with Ubuntu 24.04. Windows asks you to approve each
-  installer.
-- may ask you to restart Windows (usually after installing WSL). Restart,
+  (C++). Windows asks you to approve each installer.
+- may ask you to restart Windows after a build-tool installer. Restart,
   open the launcher again and click **Set up game**; it continues where it
   stopped.
 - downloads the RGO source this launcher was made for, and builds the game
@@ -77,8 +76,7 @@ To move RGO, move the whole folder. To uninstall, back up `data\profile` if
 you want your saves, then delete the folder.
 
 The build tools the launcher installs are normal Windows programs and stay
-installed: Git, Python, Visual Studio 2022 Build Tools and WSL with Ubuntu
-24.04. Other programs may use them too; remove them from Windows Settings >
+installed: Git, Python and Visual Studio 2022 Build Tools. Other programs may use them too; remove them from Windows Settings >
 Apps if you don't need them.
 
 ## If something goes wrong

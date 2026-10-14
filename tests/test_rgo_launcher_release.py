@@ -1,9 +1,18 @@
 """RGO: the release launcher builds RGO's own source, without batch files."""
 from pathlib import Path
 import re
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def player_batch_files(root):
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "-z"], cwd=root).decode("utf-8").split("\0")
+    return [name for name in tracked if name and "/" not in name
+            and Path(name).suffix.lower() in (".cmd", ".bat")]
 
 
 class RgoLauncherReleaseTests(unittest.TestCase):
@@ -27,11 +36,11 @@ class RgoLauncherReleaseTests(unittest.TestCase):
             self.assertNotIn("github.com/TK22-26/JetForceGemini-Recomp", text, path)
 
     def test_first_run_message_is_shown(self):
-        message = "First-time setup takes about an hour. It has not crashed."
+        message = "First-time setup can take an hour or more."
         frontend = (ROOT / "src/app/frontend_win32.cpp").read_text(encoding="utf-8")
         ui = (ROOT / "launcher/ui/native_ui.cpp").read_text(encoding="utf-8")
-        self.assertIn('L"First-time setup takes about an hour. It has not crashed. "', frontend)
-        self.assertIn("First-time setup takes about an hour. It has not ", ui)
+        self.assertIn('L"First-time setup can take an hour or more. "', frontend)
+        self.assertIn("First-time setup can take an hour or more.", ui)
         self.assertIn(message, (ROOT / "docs/rgo/PLAYER_GUIDE.md").read_text(encoding="utf-8").replace("**", ""))
 
     def test_portable_install_keeps_files_next_to_the_launcher(self):
@@ -74,8 +83,20 @@ class RgoLauncherReleaseTests(unittest.TestCase):
         self.assertIn("*.cmd text eol=crlf", attributes)
 
     def test_no_batch_files_for_players(self):
-        tracked = [p for p in ROOT.iterdir() if p.suffix.lower() in (".cmd", ".bat")]
-        self.assertEqual(tracked, [])
+        self.assertEqual(player_batch_files(ROOT), [])
+
+    def test_player_batch_check_preserves_untracked_helpers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            (root / "Play RGO.bat").write_text("@echo off\n")
+            developer = root / "scripts" / "dev"
+            developer.mkdir(parents=True)
+            (developer / "build.cmd").write_text("@echo off\n")
+            subprocess.run(["git", "add", "scripts/dev/build.cmd"], cwd=root, check=True)
+            self.assertEqual(player_batch_files(root), [])
+            subprocess.run(["git", "add", "Play RGO.bat"], cwd=root, check=True)
+            self.assertEqual(player_batch_files(root), ["Play RGO.bat"])
 
 
 if __name__ == "__main__":

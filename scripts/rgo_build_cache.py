@@ -37,7 +37,7 @@ GENERATION_DEPENDENCIES = ("jfg-decomp", "n64recomp")
 # import closure of the generator (see tests/test_rgo_build_cache.py, which
 # fails when a closure script starts referring to a repository path that is not
 # listed here or in COPIED_FILES).
-GENERATION_DATA = ("dependencies.lock.json", "patches/n64recomp")
+GENERATION_DATA = ("dependencies.lock.json", "patches/n64recomp", "symbols/native-us-v1")
 # Files the generator copies byte for byte from the checkout into the workspace.
 # They are compiled by MSBuild, not transformed, so instead of regenerating when
 # they change they are refreshed in a reused workspace before every build.
@@ -65,7 +65,7 @@ def _local_module(root: Path, name: str) -> str | None:
     return name if name and (root / "scripts" / (name + ".py")).is_file() else None
 
 
-def generator_scripts(root: Path) -> list[str]:
+def generator_scripts(root: Path, generator: str = GENERATOR) -> list[str]:
     """The generator plus every scripts/*.py it imports or runs, transitively.
 
     Follows `import x`, `from x import y`, `from .x import y`, `-m scripts.x`
@@ -73,7 +73,7 @@ def generator_scripts(root: Path) -> list[str]:
     unneeded regeneration; under-inclusion would reuse stale output.
     """
     seen: set[str] = set()
-    pending = [Path(GENERATOR).stem]
+    pending = [Path(generator).stem]
     while pending:
         module = pending.pop()
         if module in seen:
@@ -108,7 +108,7 @@ def _files_under(root: Path, relative: str) -> list[str]:
                   if p.is_file() and "__pycache__" not in p.parts)
 
 
-def generation_inputs(root: Path, rom_sha1: str, distro: str) -> dict[str, str]:
+def generation_inputs(root: Path, rom_sha1: str, distro: str, *, generator: str = GENERATOR) -> dict[str, str]:
     """Name -> digest for everything the WSL generation step depends on."""
     inputs = {"cache-schema": str(CACHE_SCHEMA), "rom-sha1": rom_sha1, "wsl-distro": distro}
     lock = json.loads((root / "dependencies.lock.json").read_text(encoding="utf-8"))
@@ -117,7 +117,7 @@ def generation_inputs(root: Path, rom_sha1: str, distro: str) -> dict[str, str]:
         # build_from_rom verifies that each checkout's HEAD is the locked commit.
         entry = json.dumps(entries[dependency], sort_keys=True)
         inputs["dependency:" + dependency] = hashlib.sha256(entry.encode("utf-8")).hexdigest()
-    files = set(generator_scripts(root))
+    files = set(generator_scripts(root, generator))
     for relative in GENERATION_DATA:
         files.update(_files_under(root, relative))
     for relative in sorted(files):

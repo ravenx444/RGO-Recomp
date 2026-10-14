@@ -33,7 +33,7 @@ projects.
   N64Recomp contributors, the runtime support for recompiled games
   (GPL-3.0). It is built on your PC from source and is not distributed by
   this project.
-- **[RT64](https://github.com/rt64/rt64)** by Darío (DarioSamo) and
+- **[RT64](https://github.com/rt64/rt64)** by DarÃƒÂ­o (DarioSamo) and
   contributors, the renderer, and **[Plume](https://github.com/renderbag/plume)**,
   its graphics abstraction (both MIT). RT64 in turn credits its own
   third-party components.
@@ -113,9 +113,8 @@ roadmap and current status are in [docs/rgo/ROADMAP.md](docs/rgo/ROADMAP.md).
 2. Open `RGO-Launcher.exe`, pick your ROM (the North American 32 MiB
    big-endian `.z64`; the launcher checks it), and click **Play**.
 3. The first time, the launcher installs what it needs (Git, Python, Visual
-   Studio Build Tools, WSL with Ubuntu), downloads the RGO source and builds
-   the game from your ROM. **First-time setup takes about an hour. It has not
-   crashed.** Leave the launcher open and the game starts by itself when it's
+   Studio Build Tools), downloads the RGO source and builds
+   the game from your ROM. **First-time setup can take an hour or more.** Leave the launcher open and the game starts by itself when it's
    done. Later starts take seconds.
 
 Everything RGO creates (saves, settings, the downloaded source and the build)

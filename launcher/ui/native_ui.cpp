@@ -1245,8 +1245,8 @@ struct Ui : Rml::EventListener {
       // while setup runs, so nobody closes the window thinking it hung.
       if (state.busy || state.runtime.empty())
         html += "<p class=\"first-run\"><span class=\"first-run-lead\">"
-                "First-time setup takes about an hour. It has not "
-                "crashed.</span> Please don't close this window: "
+                "First-time setup can take an hour or more."
+                "</span> Please don't close this window: "
                 "leave it open, and the game will start by itself when it's "
                 "done. Later starts take seconds; rebuilds after an update "
                 "take minutes.</p>";

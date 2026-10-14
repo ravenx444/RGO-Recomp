@@ -16,6 +16,17 @@ Project-authored source, synthetic fixtures, schemas, supported-ROM metadata,
 and reviewed hashes/aggregate results can be tracked. A recorded hash does
 not authorize publishing its underlying input.
 
+The Windows-only setup candidate uses `symbols/native-us-v1` as supported-ROM
+metadata. Its entire payload is admitted by the strict field contract in
+`scripts/native_generation_metadata.py` and a manifest digest pinned in source.
+Only symbol names, numeric addresses, sizes, ownership relationships and audio
+extents are included. Instruction words, executable bodies, ROM bytes, audio
+bytes, extracted assets, raw ELF/map exports and private paths are excluded.
+Repository content scanning still applies without an exemption for this folder.
+Changing the metadata requires a fresh facts review, matching source provenance
+and regeneration comparison before changing its pinned digest.
+
+
 For bug reports, attach the launcher's exported support ZIP using the
 [playtesting guide](../playtesting.md). Crash/hang dump export is planned;
 the current launcher exports filtered text logs and does not produce dumps.

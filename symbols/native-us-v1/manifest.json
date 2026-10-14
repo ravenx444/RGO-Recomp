@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source_decomp_commit": "b49aa4791e8fb1e7acd3bba10346876358d0a9a7",
+  "source_recompiler_commit": "ffb39cdad1da5de07eaaa48bd1db4a89a7986771",
+  "rom_sha1": "493ced9008dbe932d6e91179b68e8630cf23a023",
+  "files": {
+    "bindings.json": {
+      "size": 180913,
+      "sha256": "53249e8a6a135f30e0b4bde7d1ced9cd91526cd3d428cf79e32a0e92c30f0512"
+    },
+    "data-symbols.toml": {
+      "size": 787430,
+      "sha256": "bc4bffe757b604992bb7d2c40526a508fec66808dc71f75b0286ab18f6af8762"
+    },
+    "functions.toml": {
+      "size": 218093,
+      "sha256": "adf5e2acf7219b5ba33ec2c3daa5b7a4718caf8b1838ea064a8f7132f545be3c"
+    }
+  },
+  "scope": "Facts-only native generation metadata: names, numeric addresses, sizes, ownership and audio extents. No instruction words, generated code, ROM bytes, assets or executable bodies."
+}

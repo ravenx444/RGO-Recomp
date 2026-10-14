@@ -35,6 +35,7 @@ def make_root(directory: Path) -> Path:
         shutil.copy2(ROOT / relative, root / relative)
     shutil.copy2(ROOT / "dependencies.lock.json", root / "dependencies.lock.json")
     shutil.copytree(ROOT / "patches/n64recomp", root / "patches/n64recomp")
+    shutil.copytree(ROOT / "symbols/native-us-v1", root / "symbols/native-us-v1")
     return root
 
 
@@ -349,7 +350,22 @@ class CleanupTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cache_tools.remove_workspace(self.cache, target)
         # A link named like a workspace is neither listed nor followed.
-        named.symlink_to(outside, target_is_directory=True)
+        try:
+            named.symlink_to(outside, target_is_directory=True)
+        except OSError as error:
+            if os.name != "nt" or error.winerror != 1314:
+                raise
+            # Directory junctions exercise the same deletion boundary without
+            # requiring the Windows symbolic-link privilege.
+            fixture = Path(self.directory.name).resolve()
+            self.assertTrue(named.resolve().is_relative_to(fixture))
+            self.assertTrue(outside.resolve().is_relative_to(fixture))
+            quote = lambda path: "'" + str(path).replace("'", "''") + "'"
+            command = ("New-Item -ItemType Junction -Path " + quote(named) +
+                       " -Target " + quote(outside) + " | Out-Null")
+            subprocess.run(["powershell", "-NoProfile", "-NonInteractive",
+                            "-Command", command], check=True, capture_output=True)
+            self.assertTrue(cache_tools._is_junction(named))
         self.assertEqual(cache_tools.list_workspaces(self.cache), [])
         with self.assertRaises(ValueError):
             cache_tools.remove_workspace(self.cache, named)

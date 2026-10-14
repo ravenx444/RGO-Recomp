@@ -2,6 +2,7 @@
 """Package only the independently compiled launcher, setup guides and license."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -83,19 +84,34 @@ def write_package(output: Path, archive_name: str, payloads: dict[str, bytes], r
     print('Verified launcher-only archive: ' + archive_name)
 
 
-def main() -> int:
+def validate_tracked_inputs(root: Path, inputs: set[str]) -> None:
+    tracked = set(subprocess.check_output(
+        ['git', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'], cwd=root
+    ).decode('utf-8').split('\0'))
+    uncommitted = inputs - tracked
+    if uncommitted:
+        raise SystemExit('Launcher build includes uncommitted inputs: ' +
+                         ', '.join(sorted(uncommitted)))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=OUTPUT,
+                        help="Directory containing the tested launcher and build receipt")
+    output = parser.parse_args(argv).output.resolve()
     name = package_name(launcher_version(ROOT))
-    members = package_members(ROOT, OUTPUT)
+    members = package_members(ROOT, output)
     binary = members[LAUNCHER_EXE].read_bytes()
     if not binary.startswith(b'MZ') or len(binary) > 33_554_432:
         raise SystemExit('Unexpected launcher executable')
-    receipt = json.loads((OUTPUT / 'launcher-build.json').read_text(encoding='utf-8-sig'))
+    receipt = json.loads((output / 'launcher-build.json').read_text(encoding='utf-8-sig'))
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     if subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=ROOT, text=True).strip():
         raise SystemExit('Commit the reviewed source changes before packaging the pinned launcher')
     expected_inputs = {'launcher/windows/Launcher.cs', 'launcher/windows/FrontendBridge.cs', 'src/app/frontend_win32.cpp', 'launcher/native/CMakeLists.txt', 'launcher/windows/FirstRun.cs',
                        'launcher/windows/Setup.ps1', 'launcher/windows/Support.cs', 'launcher/windows/Diagnostics.cs', 'launcher/windows/Controller.cs', 'launcher/windows/NavigationMap.cs', 'launcher/windows/Audio.cs', 'launcher/windows/MapLayers.cs', 'launcher/windows/NavigationRoute.cs', 'launcher/windows/NavigationExplorer.cs', 'launcher/windows/NavigationCollision.cs', 'launcher/windows/BoxJump.cs', 'launcher/windows/ChestRoute.cs', 'launcher/windows/NavigationRunner.cs', 'launcher/windows/AutonomousExplorer.cs', 'launcher/windows/InventoryWindow.cs', 'launcher/windows/InventoryImages.cs', 'launcher/windows/InventoryModel.cs', 'launcher/windows/NativeLiveTools.cs', 'scripts/build_launcher.ps1'}
     expected_inputs.update(path.relative_to(ROOT).as_posix() for path in (ROOT / 'launcher/ui').rglob('*') if path.is_file())
+    validate_tracked_inputs(ROOT, expected_inputs)
     if (receipt.get('source_commit') != revision or set(receipt.get('inputs', {})) != expected_inputs
             or receipt.get('executable_sha256') != hashlib.sha256(binary).hexdigest()
             or any(hashlib.sha256((ROOT / name).read_bytes()).hexdigest() != digest
@@ -105,7 +121,7 @@ def main() -> int:
     for data in (binary.lower(), binary.decode('utf-16le', errors='ignore').lower().encode('utf-8')):
         if b':\\users\\' in data or b'/home/' in data or b'.pdb' in data:
             raise SystemExit('Executable contains a debug or personal path')
-    write_package(OUTPUT, name, {name: path.read_bytes() for name, path in members.items()}, revision)
+    write_package(output, name, {name: path.read_bytes() for name, path in members.items()}, revision)
     return 0
 
 

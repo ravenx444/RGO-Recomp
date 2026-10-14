@@ -966,7 +966,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
       if (LOWORD(wparam) == Setup &&
           MessageBoxW(
               window,
-              L"First-time setup takes about an hour. It has not crashed. "
+              L"First-time setup can take an hour or more. "
               L"Please don't close this window: leave it open, and the game "
               L"will start by itself when it's done. Later starts take "
               L"seconds; rebuilds after an update take minutes.\n\n"

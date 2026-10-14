@@ -4,16 +4,19 @@
 checks source and tests without a ROM. Start with [getting started](getting-started.md)
 to play, or [known issues](known-issues.md) to check a problem.
 
-## Playable preview
+## RGO release preparation
 
-The Windows preview provides native rendering and audio, keyboard and XInput
-controls, persistent saves, and a setup launcher. A maintainer playtest completed
-Goldwood and reached SS Anubis. Full campaign completion, all original modes,
-and original-console accuracy remain unverified.
+RGO builds on the upstream playable runtime and adds widescreen, True 60 game
+logic, modern mouse and controller input, gyro aiming, and persistent gore.
+The [RGO roadmap](rgo/ROADMAP.md) records each feature and its remaining limits.
 
-We need reports of crashes, freezes, progression blockers, save failures, and
-incorrect controls, graphics, or audio across more PCs. Follow the
-[playtesting guide](playtesting.md); successful sessions do not need reports.
+Upstream's maintainer reports campaign completion using testing assists and
+an all-Tribals save, plus verified saving/loading. That does not establish
+unassisted campaign completion or validate every RGO feature. Current Windows
+builds, first-run setup, and gameplay need release-specific validation.
+
+Report crashes, freezes, progression blockers, save failures, and incorrect
+controls, graphics, or audio using the [playtesting guide](playtesting.md).
 
 ## Engineering milestones
 
@@ -41,8 +44,8 @@ A hundred startup repeats do not establish a hundred complete gameplay slices.
 - Complete the selected campaign slice and its recovery/parity coverage.
 - Verify a finishable campaign, original multiplayer, and optional content.
 - Improve setup reliability and diagnostics for playtest reports.
-- Add ultrawide, smoother presentation, and mod interfaces against a stable
-  compatibility baseline.
+- Validate the existing RGO widescreen, frame-rate, and input features across
+  hardware and gameplay scenarios.
 - Validate packaging, hardware coverage, and release readiness.
 
 The [roadmap](planning/JFG_RECOMP_MASTER_PLAN.md) defines the goals and gates.

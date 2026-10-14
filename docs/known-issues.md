@@ -53,14 +53,15 @@ when reporting. See [getting started](getting-started.md) for both paths and
 
 ## Controller coverage
 
-The v1.0.0 release supports keyboard input and configurable Xbox/XInput controllers. Other
-controller types need an XInput-compatible driver or adapter. Native
-DirectInput/HID mapping and rumble configuration are not implemented.
+RGO includes native DualShock 4 and DualSense support, gyro aiming on supported
+controllers, direct mouse aiming, and Modern twin-stick controls. See the
+[RGO input notes](rgo/input.md) for supported devices, settings, and owner test
+steps. These are RGO features; upstream's older XInput-only limitations do not
+describe this fork.
 
-Experimental mouse look and dual-stick controls are opt-in and currently
-limited to single-player gameplay. Camera obstruction, pointer-driven guest
-menus, other device backends and broader gameplay coverage remain follow-up
-work. See [PC controls status](planning/pc-controls-status.md).
+The Modern controls remain bounded by the game's camera behavior. Fully free
+camera control and crosshair-to-shot alignment are still planned. Coverage
+across additional controllers and multiplayer modes needs further testing.
 
 ## Gameplay coverage
 

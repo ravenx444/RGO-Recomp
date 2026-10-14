@@ -16,9 +16,6 @@ $script:BuildRoot = Join-Path $script:SetupRoot 'b'
 $script:MaxBuildRoot = 80 - 30
 # RGO: the launcher builds the RGO-Recomp revision it was packaged from.
 $script:SourceRepository = 'https://github.com/ravenx444/RGO-Recomp.git'
-$script:Distro = 'Ubuntu-24.04'
-$script:LinuxPackages = @('build-essential', 'gcc-multilib', 'binutils-mips-linux-gnu',
-    'python3-venv', 'python3-pip', 'pkg-config', 'cmake', 'ninja-build', 'git', 'wget')
 
 function Refresh-SetupPath {
     $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' +
@@ -65,24 +62,9 @@ function Find-VisualStudio {
     return $null
 }
 
-function Test-Ubuntu {
-    $wsl = Join-Path $env:WINDIR 'System32\wsl.exe'
-    if (-not (Test-Path -LiteralPath $wsl)) { return $false }
-    $installed = (@(& $wsl --list --quiet 2>$null) -join "`n").Replace([string][char]0, '')
-    return ($LASTEXITCODE -eq 0 -and @($installed -split "`r?`n" | Where-Object { $_.Trim() -eq $script:Distro }).Count -gt 0)
-}
-
-function Test-LinuxPackages {
-    if (-not (Test-Ubuntu)) { return $false }
-    $lines = @(& "$env:WINDIR\System32\wsl.exe" -d $script:Distro -u root --exec `
-        dpkg-query -W '-f=${db:Status-Abbrev}\n' @script:LinuxPackages 2>$null)
-    return ($LASTEXITCODE -eq 0 -and $lines.Count -eq $script:LinuxPackages.Count -and
-        @($lines | Where-Object { $_ -notmatch '^ii' }).Count -eq 0)
-}
-
 function Invoke-Checked([string]$File, [string[]]$Arguments) {
     $tool = [IO.Path]::GetFileNameWithoutExtension($File).ToLowerInvariant()
-    if ($tool -in @('git', 'python', 'python3', 'winget', 'wsl')) { Write-Output "JFG-SUPPORT setup_step=$tool" }
+    if ($tool -in @('git', 'python', 'python3', 'winget')) { Write-Output "JFG-SUPPORT setup_step=$tool" }
     $previousPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
@@ -134,25 +116,6 @@ function Ensure-BuildTools {
     if (-not (Find-Git) -or -not (Find-Python) -or -not (Find-VisualStudio)) {
         throw 'Build tools are incomplete. Restart Windows after any installer, then reopen the launcher.'
     }
-    if (-not (Test-Ubuntu)) {
-        Write-Output 'Installing WSL and Ubuntu 24.04. Approve the Windows prompt; a restart may be required.'
-        $process = Start-Process -FilePath "$env:WINDIR\System32\wsl.exe" `
-            -ArgumentList '--install -d Ubuntu-24.04 --no-launch --web-download' `
-            -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-        Write-Output ('JFG-SUPPORT setup_exit=0x{0:x8}' -f $process.ExitCode)
-        if ($process.ExitCode -in @(3010, 1641) -or -not (Test-Ubuntu)) {
-            Write-Output 'JFG-RESTART: Restart Windows, reopen the launcher and continue setup. WSL needs virtualization enabled.'
-            exit 3010
-        }
-        if ($process.ExitCode -ne 0) { throw 'WSL setup failed. See the setup guide for Windows and virtualization requirements.' }
-    }
-    if (-not (Test-LinuxPackages)) {
-        Write-Output 'Installing the Ubuntu build packages...'
-        $wsl = "$env:WINDIR\System32\wsl.exe"
-        Invoke-Checked $wsl @('-d', $script:Distro, '-u', 'root', '--exec', 'apt-get', 'update')
-        Invoke-Checked $wsl (@('-d', $script:Distro, '-u', 'root', '--exec', 'env', 'DEBIAN_FRONTEND=noninteractive', 'apt-get', 'install', '-y') + $script:LinuxPackages)
-        if (-not (Test-LinuxPackages)) { throw 'Ubuntu build packages are incomplete. See setup.log and retry setup.' }
-    }
 }
 
 function Get-PinnedSource([string]$Commit) {
@@ -200,8 +163,7 @@ function Get-PinnedSource([string]$Commit) {
 function Invoke-Setup {
     if ($CheckOnly) {
         [ordered]@{ git = [bool](Find-Git); python = [bool](Find-Python);
-            visualStudio = [bool](Find-VisualStudio); ubuntu = Test-Ubuntu;
-            linuxPackages = Test-LinuxPackages } | ConvertTo-Json -Compress
+            visualStudio = [bool](Find-VisualStudio); metadataBackend = 'native' } | ConvertTo-Json -Compress
         return
     }
     if (-not $SourceCommit -or -not $RomPath) { throw 'Choose a ROM through the launcher.' }
@@ -227,10 +189,10 @@ function Invoke-Setup {
         }
         $python = Find-Python
         Write-Output 'JFG-SUPPORT stage=build-game'
-        Write-Output 'Building the game locally from your ROM. This is the long part; it has not crashed.'
+        Write-Output 'Building the game locally from your ROM. Compilation can take an hour or more. Leave this window open.'
         # The launcher is the frontend and it is open, so the build must not
         # rebuild it (build_from_rom.py refuses while the frontend is running).
-        $build = @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath, '--no-frontend')
+        $build = @('-u', (Join-Path $source 'scripts\build_from_rom.py'), '--rom', $RomPath, '--no-frontend', '--metadata-backend', 'native')
         if ($script:Portable) { $build += @('--build-root', $script:BuildRoot) }
         Invoke-Checked $python $build
     } finally { Stop-Transcript | Out-Null }

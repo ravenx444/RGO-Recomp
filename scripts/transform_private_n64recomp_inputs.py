@@ -109,13 +109,21 @@ class Record:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rom", type=Path, required=True)
-    parser.add_argument("--elf", type=Path, required=True)
-    parser.add_argument("--readelf", type=Path, required=True)
+    parser.add_argument("--elf", type=Path)
+    parser.add_argument("--readelf", type=Path)
+    parser.add_argument("--native-metadata", type=Path)
+    parser.add_argument("--metadata-manifest-sha256")
     parser.add_argument("--layout", type=Path, required=True)
     parser.add_argument("--context", type=Path, required=True)
     parser.add_argument("--data-context", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.native_metadata is not None:
+        if not args.metadata_manifest_sha256 or args.elf is not None or args.readelf is not None:
+            parser.error("Native metadata requires its trusted manifest SHA256 and excludes ELF/readelf")
+    elif args.elf is None or args.readelf is None or args.metadata_manifest_sha256:
+        parser.error("Legacy metadata requires --elf and --readelf")
+    return args
 
 
 def load_layout(path: Path) -> Layout:
@@ -964,9 +972,23 @@ def main() -> int:
     sections = context.get("section")
     if not isinstance(sections, list) or len(sections) != 156:
         raise ValueError("unexpected executable section inventory")
-    covered_alias_rows, manual_size_recovery_rows = derive_executable_symbol_ledgers(
-        args.elf, args.readelf, sections
-    )
+    if args.native_metadata is not None:
+        try:
+            from .native_generation_metadata import load_bundle
+        except ImportError:  # Direct script execution.
+            from native_generation_metadata import load_bundle
+        factual_context, factual_data, bindings = load_bundle(
+            args.native_metadata, args.metadata_manifest_sha256
+        )
+        if (context != factual_context or data_context != factual_data
+                or json.loads(args.layout.read_text(encoding="utf-8")) != bindings["layout"]):
+            raise ValueError("Native metadata inputs do not match the qualified bundle")
+        covered_alias_rows = bindings["covered_aliases"]
+        manual_size_recovery_rows = bindings["manual_sizes"]
+    else:
+        covered_alias_rows, manual_size_recovery_rows = derive_executable_symbol_ledgers(
+            args.elf, args.readelf, sections
+        )
 
     overlay_section_by_slot: dict[int, int] = {}
     section_by_rom = {int(section["rom"]): index for index, section in enumerate(sections)}
