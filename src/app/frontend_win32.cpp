@@ -566,6 +566,10 @@ void menus() {
 }
 #ifdef JFG_RML_UI
 void uiAction(const std::string &a) {
+  if (a == "rom") {
+    pick(true);
+    return;
+  }
   UINT command = 0;
   if (a == "pause" || a == "resume") {
     if (app.render && IsWindow(app.render)) app.manualPause = a == "pause";
@@ -611,8 +615,6 @@ void uiAction(const std::string &a) {
     command = Setup;
   else if (a == "cancel-setup")
     command = Cancel;
-  else if (a == "rom")
-    command = Rom;
   else if (a == "fullscreen")
     command = Fullscreen;
   else if (a == "controllers")
