@@ -35,6 +35,19 @@ def audio_config(record: dict) -> str:
     return '\n'.join(k+' = '+toml(v) for k,v in values.items())+'\n'
 
 
+def verify_new_workspace(workspace: Path) -> None:
+    # The parent owns dependency setup and writes these diagnostic logs before
+    # generation starts. Admit only its fixed filenames, never game output.
+    bookkeeping = {'status.json', 'build.lock', 'generate.log'}
+    bookkeeping.update(f'{stage}-{dependency}.log'
+                       for stage in ('clone', 'pin', 'submodules')
+                       for dependency in ('n64recomp', 'n64modernruntime', 'rt64'))
+    if (not workspace.is_dir() or any(
+            p.name not in bookkeeping or p.is_symlink() or not p.is_file()
+            for p in workspace.iterdir())):
+        raise ValueError('Native generation requires a new private workspace containing only build bookkeeping')
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rom', type=Path, required=True)
@@ -52,8 +65,7 @@ def main() -> int:
         args.native_metadata, args.metadata_manifest_sha256 = default_bundle(ROOT)
     workspace = args.workspace.resolve()
     verify_private_work_directory(workspace)
-    if not workspace.is_dir() or any(p.name not in {'status.json', 'build.lock', 'generate.log'} for p in workspace.iterdir()):
-        raise ValueError('Native generation requires a new private workspace containing only build bookkeeping')
+    verify_new_workspace(workspace)
     validate_rom(args.rom)
     facts = args.native_metadata.resolve()
     _, _, bindings = load_bundle(facts, args.metadata_manifest_sha256)

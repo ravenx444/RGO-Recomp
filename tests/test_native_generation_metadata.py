@@ -106,6 +106,38 @@ class NativeMetadataTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'fixture stopped'):
                     native.main()
 
+    def test_native_workspace_accepts_fresh_dependency_setup_logs(self):
+        from scripts import generate_from_rom_windows as native
+        import build_from_rom as build
+        names = {key:value for key,value in build.NAMES.items() if key!='jfg-decomp'}
+        lock = {'repositories': [{'id':key} for key in names]}
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            # Exercise actual parent step names from an empty dependency cache.
+            steps = build.plan_steps(workspace/'deps', lock, True, True, False, names=names)
+            for step in steps:
+                if step not in ('configure', 'compile'):
+                    (workspace/(step+'.log')).write_text('fixture diagnostic')
+            (workspace/'status.json').write_text('{}')
+            (workspace/'build.lock').touch()
+            native.verify_new_workspace(workspace)
+            unknown = workspace/'arbitrary.log'
+            unknown.write_text('not an admitted parent diagnostic')
+            with self.assertRaisesRegex(ValueError, 'only build bookkeeping'):
+                native.verify_new_workspace(workspace)
+            unknown.unlink()
+            (workspace/'normalized').mkdir()
+            with self.assertRaisesRegex(ValueError, 'only build bookkeeping'):
+                native.verify_new_workspace(workspace)
+
+    def test_native_workspace_rejects_directory_using_log_name(self):
+        from scripts import generate_from_rom_windows as native
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace/'clone-rt64.log').mkdir()
+            with self.assertRaisesRegex(ValueError, 'only build bookkeeping'):
+                native.verify_new_workspace(workspace)
+
     def test_native_build_plan_excludes_decomp_download(self):
         from scripts import generate_from_rom_windows
         import build_from_rom as build
