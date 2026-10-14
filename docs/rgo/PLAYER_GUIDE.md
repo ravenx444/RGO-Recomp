@@ -85,6 +85,9 @@ Apps if you don't need them.
 - If the game crashes or freezes, use **Capture freeze** (in **Help > Support
   report**) before closing the game. **Help > Open reports folder** shows the
   logs.
+- If Windows Application Control blocks a locally built setup tool, setup
+  stops. Have your administrator or security provider review the blocked tool
+  and signing policy before retrying. Keep the setup logs for that review.
 - If setup stops, use **Help > Support report**, create the ZIP, and
   attach it to an issue on
   [GitHub](https://github.com/ravenx444/RGO-Recomp/issues). The ZIP holds

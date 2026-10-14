@@ -3,8 +3,11 @@
 Status (2026-10-14): in progress. Removing WSL and Ubuntu is a first-release gate.
 Windows-native generation, installer changes and fresh Windows game compilation
 are verified locally. Bounded startup checks produced rendered graphics and
-decoded audio. Local pinned-source fetching passed; a fresh GitHub installation,
-interactive play and campaign testing remain unverified. Nothing has been published. Agreed with the owner on 2026-10-12.
+decoded audio. Pinned GitHub fetching passed. Fresh portable setup found a parent
+diagnostic-file handoff bug, now fixed, then Windows Application Control blocked
+the locally built generator. Full first-run installation is still blocked on
+that signing-policy review. Interactive play and campaign testing remain
+unverified. The source branch is on the private owner fork; no public release. Agreed with the owner on 2026-10-12.
 - Done: 1 (portable: everything in `data\` next to the launcher; native Windows
   generation requires no WSL or Ubuntu), 2 (first-run message, game starts by itself
   after setup),

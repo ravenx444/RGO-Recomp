@@ -135,7 +135,16 @@ def main() -> int:
     return 0
 
 
+def generation_error_message(error: Exception) -> str:
+    if isinstance(error, OSError) and getattr(error, 'winerror', None) == 4551:
+        return ('Windows Application Control blocked a locally built setup tool. '
+                'Setup stopped. Ask your administrator or security provider to review '
+                'the blocked tool and signing policy before retrying. '
+                'Original diagnostic: ' + str(error))
+    return str(error)
+
+
 if __name__=='__main__':
     try: raise SystemExit(main())
     except (OSError,ValueError,subprocess.CalledProcessError) as error:
-        print(str(error),file=sys.stderr); raise SystemExit(1)
+        print(generation_error_message(error),file=sys.stderr); raise SystemExit(1)

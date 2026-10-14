@@ -138,6 +138,17 @@ class NativeMetadataTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'only build bookkeeping'):
                 native.verify_new_workspace(workspace)
 
+    def test_native_security_block_has_actionable_diagnostic(self):
+        from scripts import generate_from_rom_windows as native
+        blocked = OSError('fixture blocked generator')
+        blocked.winerror = 4551
+        message = native.generation_error_message(blocked)
+        self.assertIn('Windows Application Control', message)
+        self.assertIn('signing policy', message)
+        self.assertIn('fixture blocked generator', message)
+        self.assertEqual(native.generation_error_message(ValueError('unrelated failure')),
+                         'unrelated failure')
+
     def test_native_build_plan_excludes_decomp_download(self):
         from scripts import generate_from_rom_windows
         import build_from_rom as build
