@@ -5,7 +5,7 @@ long-term support commitment; reports should identify the exact affected build.
 
 ## Report a vulnerability
 
-Use the repository's [private vulnerability reporting](https://github.com/TK22-26/JetForceGemini-Recomp/security).
+Use the repository's [private vulnerability reporting](https://github.com/ravenx444/RGO-Recomp/security).
 Keep exploit details out of ordinary issues and pull requests. If private reporting
 is unavailable, use an existing private maintainer channel or retain the report
 locally until private reporting is available.
