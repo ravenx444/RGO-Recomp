@@ -15,10 +15,19 @@ inline constexpr std::array<const wchar_t*,16> kWheelLabels{
  L"Tri-rockets",L"Flame thrower",L"Sniper rifle",L"Grenades",L"Shurikens",
  L"Fish food",L"Timed mines",L"Remote mines",L"Flares",L"Cluster bombs",L"Toggle Floyd"};
 inline constexpr int wheel_count(std::uint16_t mask) noexcept {
- int n=0;for(int i=0;i<16;++i)if(mask&(1U<<i))++n;return n;
+ int n = 0;
+ for (int i = 0; i < 16; ++i) {
+  if (mask & (1U << i)) ++n;
+ }
+ return n;
 }
 inline constexpr int wheel_item(std::uint16_t mask,int index) noexcept {
- for(int i=0;i<16;++i)if(mask&(1U<<i)){if(index--==0)return i;}return -1;
+ for (int i = 0; i < 16; ++i) {
+  if (mask & (1U << i)) {
+   if (index-- == 0) return i;
+  }
+ }
+ return -1;
 }
 // Up is the first item; selection proceeds clockwise and ignores look inversion.
 inline int wheel_pick(std::uint16_t mask,double x,double y) noexcept {
