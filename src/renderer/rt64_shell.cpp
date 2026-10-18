@@ -24,6 +24,9 @@
 #include <emmintrin.h>
 #endif
 #include <filesystem>
+#include <cstdlib>
+#include <fstream>
+#include <string>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -67,6 +70,22 @@ void ignore_rt64_interrupts() {}
 struct CaptureContext;
 std::atomic<CaptureContext*> active_capture = nullptr;
 
+std::string capture_environment(const char *name) noexcept {
+    try {
+#if defined(_WIN32)
+    char *value = nullptr;
+    std::size_t length = 0U;
+    if (_dupenv_s(&value, &length, name) != 0 || value == nullptr) return {};
+    std::string result(value);
+    std::free(value);
+    return result;
+#else
+    const char *value = std::getenv(name);
+    return value == nullptr ? std::string{} : std::string(value);
+#endif
+    } catch (...) { return {}; }
+}
+
 struct CaptureContext {
     RT64::Application* application = nullptr;
     RenderDevice* device = nullptr;
@@ -87,6 +106,8 @@ struct CaptureContext {
     std::size_t width = 0U;
     std::size_t height = 0U;
     std::size_t row_pitch = 0U;
+    bool middle_only = false;
+    std::uint32_t captured_index = 0U, captured_count = 0U;
     bool armed = false;
     bool scheduled = false;
     bool failed = false;
@@ -229,6 +250,8 @@ void CaptureContext::deactivate() noexcept {
 void CaptureContext::arm() noexcept {
     const std::scoped_lock lock(mutex);
     pixels.clear();
+    middle_only = capture_environment("JFG_DIAGNOSTIC_CAPTURE_INTERPOLATED") == "1";
+    captured_index = captured_count = 0U;
     armed = true;
     scheduled = false;
     failed = false;
@@ -244,6 +267,18 @@ void CaptureContext::draw(
         application->presentQueue == nullptr || device == nullptr ||
         list == nullptr || framebuffer == nullptr) {
         return;
+    }
+    if (middle_only) {
+        auto &shared = *application->sharedQueueResources;
+        const std::scoped_lock frame_lock(shared.interpolatedMutex);
+        const auto &frames = shared.interpolatedFrames[shared.interpolatedFramesIndex];
+        // With MSAA every presentation comes from an interpolated target.
+        // Exclude both endpoints so this diagnostic cannot silently capture
+        // only an original game frame while the extra frames are corrupt.
+        captured_index = frames.presented;
+        captured_count = frames.count;
+        if (frames.count < 3U || frames.presented == 0U ||
+            frames.presented >= frames.count - 1U) return;
     }
     try {
         std::size_t texture_index =
@@ -326,6 +361,14 @@ bool CaptureContext::finish() noexcept {
             throw;
         }
         readback->unmap();
+        if (middle_only) {
+            const auto path = capture_environment("JFG_PHASE8_FRAME_CAPTURE");
+            if (!path.empty()) {
+                std::ofstream proof(std::filesystem::path(path + ".interpolation.txt"));
+                proof << "presented_index=" << captured_index << "\nframe_count="
+                      << captured_count << "\n";
+            }
+        }
         return true;
     }
     catch (...) {
@@ -365,6 +408,10 @@ struct Rt64Shell::Impl {
     // RGO frame interpolation: the game's own rate and object matrix tags.
     std::uint16_t game_rate = 30U;
     Rt64MatrixTags matrix_tags;
+    bool display_trace_checked = false;
+    std::ofstream display_trace;
+    std::uint32_t traced_rate = UINT32_MAX, traced_target = UINT32_MAX;
+
 
     // RGO display settings: choose RT64's aspect target and render
     // resolution for the current window and VI mode, and its VSync.
@@ -381,6 +428,11 @@ struct Rt64Shell::Impl {
             const std::scoped_lock lock(shared.configurationMutex);
             window_width = shared.swapChainWidth;
             window_height = shared.swapChainHeight;
+        }
+        if (!display_trace_checked) {
+            display_trace_checked = true;
+            const auto path = capture_environment("JFG_PHASE8_PROGRESS");
+            if (!path.empty()) display_trace.open(std::filesystem::path(path + ".display.tsv"));
         }
         const PixelSize framebuffer{framebuffer_size.x, framebuffer_size.y};
         const PixelSize shown = display.valid()
@@ -447,6 +499,19 @@ struct Rt64Shell::Impl {
         if (app.swapChain != nullptr &&
             app.swapChain->isVsyncEnabled() != video.vsync)
             app.swapChain->setVsyncEnabled(video.vsync);
+        if (display_trace) {
+            auto &shared = *app.sharedQueueResources;
+            const std::scoped_lock lock(shared.configurationMutex);
+            if (changed || traced_rate != shared.swapChainRate || traced_target != shared.targetRate) {
+                traced_rate = shared.swapChainRate;
+                traced_target = shared.targetRate;
+                display_trace << "display\t" << app.appWindow->getRefreshRate() << '\t'
+                    << traced_rate << '\t' << traced_target << '\t' << game_rate << '\t'
+                    << static_cast<int>(video.framerate) << '\t' << video.interpolate_frames << '\t'
+                    << window_width << '\t' << window_height << '\n';
+                display_trace.flush();
+            }
+        }
         horizontal_extent = extent;
         f3ddkr->set_horizontal_extent(extent);
         capture->horizontal_extent.store(extent);
@@ -699,7 +764,8 @@ std::unique_ptr<Rt64Shell> Rt64Shell::create(
             return nullptr;
         }
         impl->initialized = true;
-        impl->f3ddkr = std::make_unique<Rt64F3ddkr>(*impl->application);
+        impl->f3ddkr = std::make_unique<Rt64F3ddkr>(
+            *impl->application,configuration.cache_command_context);
         error = Rt64ShellError::none;
         return std::unique_ptr<Rt64Shell>(
             new Rt64Shell(std::move(impl)));
@@ -728,8 +794,9 @@ Rt64ShellError Rt64Shell::submit(const Rt64GraphicsTask& task) noexcept {
         impl_->update_display();
         // RT64 disables extended GBI at every present. The HUD hooks write
         // alignment commands only while the picture is widened.
-        if (impl_->horizontal_extent > 1.0F)
-            application.state->enableExtendedGBI(kWidescreenExtendedOpcode);
+        // A queued HUD list can still contain alignment commands after the
+        // aspect setting changes. Decode our owned extension on every task.
+        application.state->enableExtendedGBI(kWidescreenExtendedOpcode);
         const auto previous_write = application.state->framebufferManager.writeTimestamp;
         impl_->writeback_ranges.clear();
         application.state->rsp->reset();
@@ -904,7 +971,12 @@ Rt64ShellError Rt64Shell::present(const bool capture_frame) noexcept {
             impl_->application->presentQueue->waitForIdle();
         }
         if (capture_frame && !impl_->capture->finish()) {
-            return Rt64ShellError::frame_capture_failed;
+            // The explicit middle-frame diagnostic may not see an eligible
+            // frame in this presentation. The caller can retry; no image is
+            // reported until readback succeeds. Real readback errors fail.
+            if (!impl_->capture->middle_only || impl_->capture->scheduled ||
+                impl_->capture->failed)
+                return Rt64ShellError::frame_capture_failed;
         }
         return Rt64ShellError::none;
     }

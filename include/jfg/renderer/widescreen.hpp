@@ -24,6 +24,20 @@ inline constexpr std::uint8_t kWidescreenExtendedOpcode = 0x64U;
 // HUD anchors stop at the edges of a 16:9 area on wider screens.
 inline constexpr double kWidescreenHudAspect = 16.0 / 9.0;
 
+// The launcher owns the aspect preference. Preserve native high-resolution
+// and unrelated saved flags while synchronizing only the widescreen bit.
+[[nodiscard]] constexpr std::uint8_t native_screen_mode(std::uint8_t mode,
+    const AspectMode aspect) noexcept {
+    return static_cast<std::uint8_t>((mode & ~1U) |
+        (aspect == AspectMode::widescreen ? 1U : 0U));
+}
+[[nodiscard]] constexpr std::uint8_t native_screen_flags(std::uint8_t flags,
+    const AspectMode aspect) noexcept {
+    return static_cast<std::uint8_t>((flags & ~0x40U) |
+        (aspect == AspectMode::widescreen ? 0x40U : 0U));
+}
+
+
 // RT64 widens its picture by target / source, where source is the VI
 // framebuffer's shape (320x240 = 4:3). The game's own widescreen setting keeps
 // a 320x240 framebuffer but scans it into 180 lines, so the displayed shape is

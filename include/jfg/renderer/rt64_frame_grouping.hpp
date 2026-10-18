@@ -24,4 +24,21 @@ inline constexpr int kUnlockedRefreshTarget = 1000;
     return color_width >= vi_width && drawn_height * 2U >= vi_height;
 }
 
+// RT64 protects adjacent workload slots, not a main frame retained across
+// auxiliary shadow/effect workloads. Stop matching once that protection ends.
+class MainFrameHistory {
+public:
+    [[nodiscard]] constexpr bool observe(const bool auxiliary,
+        const std::uint32_t current_slot, const std::uint32_t expected_previous) noexcept {
+        const bool usable = !auxiliary && valid_ && previous_slot_ == expected_previous &&
+                            previous_slot_ != current_slot;
+        valid_ = !auxiliary;
+        previous_slot_ = current_slot;
+        return usable;
+    }
+private:
+    bool valid_ = false;
+    std::uint32_t previous_slot_ = 0U;
+};
+
 }  // namespace jfg

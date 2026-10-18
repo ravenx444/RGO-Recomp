@@ -19,30 +19,16 @@ The sections below come from upstream JetForceGemini-Recomp and still apply
 [GitHub issues](https://github.com/TK22-26/JetForceGemini-Recomp/issues)
 contain the ongoing discussion there.
 
-## Windows 10 setup
+## Windows setup
 
-[Issue 4](https://github.com/TK22-26/JetForceGemini-Recomp/issues/4) reports four
-setup failures with `v0.4.0-preview.1` and Windows PowerShell 5.1:
+RGO setup runs directly on Windows. WSL, Ubuntu and BIOS virtualization are not
+required. Older upstream WSL setup reports do not describe this package.
+A fresh install can still be blocked by Windows Application Control rejecting
+an unsigned locally compiled generator. Preserve the setup logs for administrator
+or security-provider review. Clean-machine setup remains unqualified.
 
-- Disabled firmware virtualization can lead to repeated restart instructions.
-- Older WSL installations may reject the requested Ubuntu distribution.
-- Missing Linux packages can cause the package check to stop setup.
-- Long RT64 dependency paths can fail checkout; a retry can skip incomplete
-  submodules left by the first attempt.
-
-[Preview 0.4.0-preview.2](https://github.com/TK22-26/JetForceGemini-Recomp/releases/tag/v0.4.0-preview.2)
-uses short build/dependency cache paths, enables Git long-path handling for
-dependency downloads, and retries submodule initialization when a checkout
-already exists. Its checked-command wrapper also preserves native stderr and
-exit codes under PowerShell 5.1. These changes have automated coverage; the
-reporter's complete Windows 10 installation sequence still needs a retest.
-
-Firmware-virtualization detection, older WSL distribution handling, and
-PowerShell prerequisite probes such as `Test-LinuxPackages` remain open.
-Repeated restarts alone will not resolve every setup failure. The issue records
-the reporter's workarounds; they are not a validated general automatic repair.
-[Manual build setup](development/rom-bootstrap.md) is available for users
-comfortable installing and checking prerequisites.
+The tester ZIP includes `TESTING.md` with current gameplay validation limits.
+The newest loading safeguard requires further owner and tester confirmation.
 
 ## Release and source versions
 

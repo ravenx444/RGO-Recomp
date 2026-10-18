@@ -118,6 +118,19 @@ function Ensure-BuildTools {
     }
 }
 
+# A tester package can supply its exact source revision without private GitHub access.
+# The bundle is data for Git, never a script, and the requested commit is checked below.
+function Receive-PinnedSource([string]$Git, [string]$Destination, [string]$Commit) {
+    $bundle = if ($script:Portable) { Join-Path (Split-Path -Parent $script:SetupRoot) 'source.bundle' } else { $null }
+    if ($bundle -and (Test-Path -LiteralPath $bundle -PathType Leaf)) {
+        Write-Output 'Using the source snapshot included with this tester package...'
+        Invoke-Checked $Git @('-C', $Destination, 'bundle', 'verify', $bundle)
+        Invoke-Checked $Git @('-C', $Destination, 'fetch', $bundle, 'HEAD')
+    } else {
+        Invoke-Checked $Git @('-C', $Destination, 'fetch', '--depth=1', 'origin', $Commit)
+    }
+}
+
 function Get-PinnedSource([string]$Commit) {
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw 'The launcher has no valid source revision.' }
     $git = Find-Git
@@ -132,7 +145,7 @@ function Get-PinnedSource([string]$Commit) {
             $changes = @(& $git -C $destination status --porcelain)
             if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) { throw 'Cached source has local changes. Existing files were preserved.' }
             Write-Output 'Updating the source to the version bundled with this launcher...'
-            Invoke-Checked $git @('-C', $destination, 'fetch', '--depth=1', 'origin', $Commit)
+            Receive-PinnedSource $git $destination $Commit
             Invoke-Checked $git @('-C', $destination, 'checkout', '--detach', $Commit)
         }
     }
@@ -144,7 +157,7 @@ function Get-PinnedSource([string]$Commit) {
         Invoke-Checked $git @('-C', $temporary, 'config', 'core.autocrlf', 'false')
         Invoke-Checked $git @('-C', $temporary, 'config', 'core.longpaths', 'true')
         Invoke-Checked $git @('-C', $temporary, 'remote', 'add', 'origin', $script:SourceRepository)
-        Invoke-Checked $git @('-C', $temporary, 'fetch', '--depth=1', 'origin', $Commit)
+        Receive-PinnedSource $git $temporary $Commit
         Invoke-Checked $git @('-C', $temporary, 'checkout', '--detach', $Commit)
         # Both resolved paths must stay inside the explicitly owned source cache.
         foreach ($path in @($temporary, $destination)) {

@@ -1,12 +1,15 @@
-# RGO player guide
+# Rocket Group Orion (RGO) player guide
 
-RGO is an unofficial PC version of *Jet Force Gemini* with widescreen, real
+RGO is an unofficial PC recompilation with widescreen, real
 60 fps game logic, modern mouse, keyboard and controller support, gyro aiming
 and more. It is a fork of
 [TK22-26/JetForceGemini-Recomp](https://github.com/TK22-26/JetForceGemini-Recomp).
 
-RGO contains no game code or assets. You use your own ROM, and the launcher
+RGO contains no ROM-derived game code or assets. You use your own ROM, and the launcher
 builds the game from it on your PC.
+
+For a tester package, read `TESTING.md` first. If `source.bundle` is included,
+keep it beside the launcher; setup uses that exact source without GitHub access.
 
 ## What you need
 
@@ -14,7 +17,7 @@ builds the game from it on your PC.
   and BIOS virtualization are not required.
 - An internet connection and several GB of free disk space for the first
   setup.
-- Your ROM: the North American (US) version as a 32 MiB big-endian `.z64`
+- Your Jet Force Gemini ROM: the North American (US) version as a 32 MiB big-endian `.z64`
   file. Other regions, modified ROMs and byte-swapped `.v64`/`.n64` files are
   not supported. The launcher checks the file and tells you if it's the
   wrong one.
@@ -81,7 +84,7 @@ Apps if you don't need them.
 
 ## If something goes wrong
 
-- Read the [known issues](../known-issues.md) first.
+- Read `TESTING.md` and `KNOWN_ISSUES.md` in the ZIP first.
 - If the game crashes or freezes, use **Capture freeze** (in **Help > Support
   report**) before closing the game. **Help > Open reports folder** shows the
   logs.
@@ -108,6 +111,6 @@ The full credits are in the
 licences are in `LICENSE`, `THIRD_PARTY_NOTICES.md`, `THIRD-PARTY.txt` and
 the `licenses` folder next to the launcher.
 
-RGO is developed with AI assistance. *Jet Force Gemini* and its content are
+RGO is developed with AI assistance. Original game content and trademarks are
 the property of their respective owners (Rare Ltd. and Nintendo). RGO is not
 affiliated with or endorsed by them.

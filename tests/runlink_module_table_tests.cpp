@@ -159,7 +159,38 @@ void test_suspended_module_selection() {
         "out-of-range table rejected");
 }
 
+void test_full_unload_and_suspend_retention() {
+  std::array<std::uint8_t,2048U> bytes{};
+  jfg::boot::hle::GuestMemory memory(bytes);
+  using Result=jfg::boot::RunlinkRetentionResult;
+  check(memory.write_u32(kPointer,kTable),"seed lifetime table");
+  for(std::uint32_t i=0U;i<16U;++i)
+    check(memory.write_u32(0x80000404U+i*8U,0xFFBU),"seed empty retained slots");
+  const auto resolve=[&] {
+    return jfg::boot::resolve_runlink_retention(memory,kPointer,kSlots,0x80000400U,16U,2U);
+  };
+  check(memory.write_u32(record(2U),0x80000600U),"seed loaded module");
+  check(resolve()==Result::live,"loaded module keeps mutable state");
+  // A suspend frees executable memory while retaining data in the pending list.
+  check(memory.write_u32(record(2U),0U) &&
+        memory.write_u32(0x80000400U,0x80000600U) &&
+        memory.write_u32(0x80000404U,2U) &&
+        memory.write_u32(0x80000600U,0x80301234U),"suspend module with scratch pointer");
+  const auto suspended_bytes=bytes;
+  check(resolve()==Result::suspended,"zero executable base alone must not discard BSS");
+  check(bytes==suspended_bytes,"retention check does not modify guest state");
+  check(memory.write_u32(0x80000404U,0xFFBU),"remove retained module after full unload");
+  check(resolve()==Result::unloaded,"full unload discards stale scratch pointers");
+  check(memory.write_u32(0x80000404U,2U) && memory.write_u32(0x80000400U,0U),"seed invalid retained record");
+  check(resolve()==Result::invalid,"malformed pending record cannot authorize discard");
+  check(jfg::boot::resolve_runlink_retention(memory,kPointer,kSlots,0x80000400U,16U,0U)==Result::invalid,
+        "reserved module cannot be retired");
+  check(memory.write_u32(kPointer,0xFFFFFFF0U),"seed overflowing inventory");
+  check(resolve()==Result::invalid,"overflowing inventory cannot authorize discard");
+}
+
 int main() {
+  test_full_unload_and_suspend_retention();
   test_suspended_module_selection();
   test_publish_and_preserve();
   test_uninitialized_and_not_found();

@@ -14,6 +14,8 @@ struct Application;
 namespace jfg {
 
 struct Rt64F3ddkrStats {
+    std::uint64_t context_cache_hits = 0U;
+    std::uint64_t context_registry_lookups = 0U;
     std::size_t matrix_commands = 0U;
     std::size_t vertex_batches = 0U;
     std::size_t vertices_loaded = 0U;
@@ -61,7 +63,7 @@ using Rt64MatrixTags =
 
 class Rt64F3ddkr final {
 public:
-    explicit Rt64F3ddkr(RT64::Application& application);
+    explicit Rt64F3ddkr(RT64::Application& application, bool cache_context = true);
     ~Rt64F3ddkr();
     Rt64F3ddkr(const Rt64F3ddkr&) = delete;
     Rt64F3ddkr& operator=(const Rt64F3ddkr&) = delete;

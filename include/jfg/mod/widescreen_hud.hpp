@@ -2,13 +2,11 @@
 
 // RGO widescreen HUD anchoring. See docs/rgo/widescreen.md.
 //
-// The single-player HUD is drawn by a handful of overlay functions (the
-// "groups" below) through three main-code primitives: frontDrawObj (textured
-// quads under an orthographic camera), fontPrintXY (text as texture
-// rectangles) and frontDrawRectangles (fill rectangles). Each frame records
-// where every group drew. The next frame anchors a group to the left or right
-// screen edge when all of it sits on that side, so an element's parts (icon,
-// number, bar) move together. Groups that span the middle stay centred.
+// The single-player HUD mixes textured geometry, dedicated number drawing,
+// text and fill rectangles. Record primitive bounds to classify each complete
+// overlay group, then apply a shared viewport and rectangle origin around the
+// whole group. This keeps panels, icons and counters together without moving
+// geometry outside the original guest clipping coordinates.
 
 #include <algorithm>
 #include <array>
@@ -24,12 +22,16 @@ namespace jfg::mod {
 
 enum class HudAnchor : std::uint8_t { none, left, right };
 
+// Edge anchoring also needs a matching scissor scope for each moved primitive.
+inline constexpr bool kHudEdgeAnchoringEnabled = true;
+
 // US main-code entry points, qualified by their first two instructions.
 struct HudFunction {
     std::uint32_t address;
     std::uint32_t prologue[2];
 };
 inline constexpr HudFunction kHudFrontUpdate{0x80058A6CU, {0x27BDFFE0U, 0xAFB00018U}};
+inline constexpr HudFunction kHudPrintNum{0x80058EF0U, {0x27BDFF40U, 0xAFB30020U}};
 inline constexpr HudFunction kHudFontPrintXY{0x8006FCA8U, {0x27BDFFE0U, 0xAFA60028U}};
 inline constexpr HudFunction kHudDrawRectangles{0x800595F4U, {0x27BDFF90U, 0xAFB20020U}};
 inline constexpr HudFunction kHudDrawObj{0x8005A0D0U, {0x3C0F8010U, 0x25EFF780U}};
@@ -128,6 +130,13 @@ inline constexpr std::uint32_t kHudOriginRight = 0x400U;
     };
 }
 
+// Viewport offsets use quarter pixels, just like rectangle alignment.
+[[nodiscard]] constexpr std::array<std::uint32_t, 4U> hud_viewport_align_command(
+    const HudAnchor anchor, const std::uint32_t framebuffer_width) noexcept {
+    const auto rectangle = hud_rect_align_command(anchor, framebuffer_width);
+    return {0x64000007U, rectangle[1] & 0xFFFU, rectangle[2], 0U};
+}
+
 // Follow gDPSetScissor (0xED) in a display-list stream. Anchoring is only
 // safe under a full-width scissor: RT64 keeps a narrower one in the centred
 // 4:3 area, where a moved element would be cut off.
@@ -139,19 +148,68 @@ inline constexpr std::uint32_t kHudOriginRight = 0x400U;
     return ulx == 0U && lrx >= framebuffer_width * 4U;
 }
 
+// Only known HUD extensions may be decoded inside counted RDP lists.
+// Other low opcodes remain data, and callers must validate the word count.
+[[nodiscard]] constexpr std::size_t hud_command_words(
+    const std::uint32_t word0, const std::uint32_t word1) noexcept {
+    if ((word0 >> 24U) != kHudExtendedOpcode) return 0U;
+    switch (word0 & 0xFFFFFFU) {
+    case 5U:
+        return (word1 & 0xFC000000U) == 0U &&
+            ((word1 >> 2U) & 0xFFFU) <= kHudOriginNone &&
+            ((word1 >> 14U) & 0xFFFU) <= kHudOriginNone ? 2U : 0U;
+    case 7U:
+        return word1 <= kHudOriginNone ? 2U : 0U;
+    case 6U:
+        return (word1 & 0xFF000000U) == 0U &&
+            (word1 & 0xFFFU) <= kHudOriginNone &&
+            ((word1 >> 12U) & 0xFFFU) <= kHudOriginNone ? 2U : 0U;
+    case 0x15U:
+    case 0x16U:
+    case 0x17U:
+    case 0x18U:
+        return word1 == 0U ? 1U : 0U;
+    default:
+        return 0U;
+    }
+}
+
+struct HudScissor {
+    std::uint32_t top = 0U, bottom = 960U, mode = 0U;
+};
+
+// Push the existing clipping rectangle, then stretch its horizontal edges.
+// Coordinates use the RDP's quarter-pixel units; preserve vertical clipping.
+[[nodiscard]] constexpr std::array<std::uint32_t, 6U> hud_clip_push_command(
+    const HudScissor scissor) noexcept {
+    return {0x64000017U, 0U, 0x64000005U,
+            (kHudOriginRight << 14U) | (scissor.mode & 3U),
+            scissor.top & 0xFFFFU, scissor.bottom & 0xFFFFU};
+}
+inline constexpr std::array<std::uint32_t, 2U> kHudClipPopCommand{0x64000018U, 0U};
+
 class WidescreenHud {
 public:
     // frontUpdate: last frame's bounds decide this frame's anchors.
     void begin_frame(const bool enabled, const float width,
                      const std::uint32_t display_list) {
         for (auto& group : groups_) {
-            group.anchor = enabled ? classify_hud_bounds(group.bounds, width)
-                                   : HudAnchor::none;
+            // These three routines form the left weapon panel, ammo counters
+            // and health meter. Animation may expand their bounds through the
+            // centre or off-screen; their screen-edge ownership does not change.
+            const bool left_instrument = group.function == 0x00E01AD8U ||
+                group.function == 0x00E0292CU || group.function == 0x00600000U;
+            // Projected weapon reticles can move through the outer thirds.
+            // They remain in camera coordinates, regardless of their bounds.
+            const bool reticle = group.function == 0x00D004A8U;
+            group.anchor = !enabled || reticle ? HudAnchor::none : left_instrument
+                ? HudAnchor::left : classify_hud_bounds(group.bounds, width);
             group.bounds = {};
         }
         stack_.clear();
         scan_cursor_ = display_list;
         scissor_full_ = true;
+        scissor_ = {0U, static_cast<std::uint32_t>(width * 3.0F), 0U};
     }
     void enter(const std::uint32_t function) {
         stack_.push_back(index(function));
@@ -164,6 +222,9 @@ public:
         return stack_.empty() ? HudAnchor::none : groups_[stack_.back()].anchor;
     }
     [[nodiscard]] bool in_group() const noexcept { return !stack_.empty(); }
+    [[nodiscard]] std::uint32_t current_group() const noexcept {
+        return stack_.empty() ? 0U : groups_[stack_.back()].function;
+    }
     void add(const float left, const float right) noexcept {
         if (!stack_.empty())
             groups_[stack_.back()].bounds.add(left, right);
@@ -175,9 +236,16 @@ public:
         return HudAnchor::none;
     }
 
+    std::uint32_t viewport_command = 0U, viewport_address = 0U;
+
     // Display-list scan state, advanced by the caller as commands appear.
     [[nodiscard]] std::uint32_t scan_cursor() const noexcept { return scan_cursor_; }
     void set_scan_cursor(const std::uint32_t cursor) noexcept { scan_cursor_ = cursor; }
+    [[nodiscard]] HudScissor scissor() const noexcept { return scissor_; }
+    void set_scissor(const HudScissor value) noexcept { scissor_ = value; }
+    void observe_scissor(const std::uint32_t word0, const std::uint32_t word1) noexcept {
+        scissor_ = {word0 & 0xFFFU, word1 & 0xFFFU, (word1 >> 24U) & 3U};
+    }
     [[nodiscard]] bool scissor_full() const noexcept { return scissor_full_; }
     void set_scissor_full(const bool full) noexcept { scissor_full_ = full; }
 
@@ -198,6 +266,7 @@ private:
     std::vector<std::size_t> stack_;
     std::uint32_t scan_cursor_ = 0U;
     bool scissor_full_ = true;
+    HudScissor scissor_{};
 };
 
 }  // namespace jfg::mod

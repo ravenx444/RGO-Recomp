@@ -9,12 +9,14 @@ struct DmaQueueRequest {
 };
 
 // Supported US sound streaming uses high-priority reads and ignores rejection.
-// Preserve its requests under the accelerated CPU without changing other queues.
+// Permit waiting even when the observed queue has space: a guest interrupt can
+// fill it before the original kernel disables interrupts and admits the request.
+// Non-full queues still return immediately. Other queues retain their flags.
 [[nodiscard]] constexpr bool requires_audio_dma_wait(const DmaQueueRequest &r) noexcept {
   return r.accelerated_clock && r.caller == 0x80097104U &&
          r.queue != 0U && r.queue == r.pi_queue &&
          r.reply_queue == 0x800F2898U && r.message_type == 11U &&
          r.priority == 1U && r.block_flag == 0U &&
-         r.capacity == 8U && r.pending == r.capacity;
+         r.capacity == 8U && r.pending <= r.capacity;
 }
 } // namespace jfg::audio

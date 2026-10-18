@@ -36,6 +36,8 @@ def package_members(root: Path, output: Path) -> dict[str, Path]:
     members = {
         LAUNCHER_EXE: output / LAUNCHER_EXE,
         'README.md': root / 'docs/rgo/PLAYER_GUIDE.md',
+        'TESTING.md': root / 'docs/rgo/TESTER_GUIDE.md',
+        'KNOWN_ISSUES.md': root / 'docs/known-issues.md',
         'LICENSE': root / 'LICENSE',
         'THIRD_PARTY_NOTICES.md': root / 'THIRD_PARTY_NOTICES.md',
         'CREDITS.md': root / 'CREDITS.md',
@@ -79,7 +81,8 @@ def write_package(output: Path, archive_name: str, payloads: dict[str, bytes], r
         'source_commit': revision,
         'sha256': digest,
         'members': {name: hashlib.sha256(payload).hexdigest() for name, payload in payloads.items()},
-        'scope': 'Launcher only; no game runtime or ROM-derived inputs',
+        'scope': ('Launcher and reviewed project source; no game runtime or ROM-derived inputs'
+                  if 'source.bundle' in payloads else 'Launcher only; no game runtime or ROM-derived inputs'),
     }, indent=2) + '\n', encoding='utf-8')
     print('Verified launcher-only archive: ' + archive_name)
 
@@ -98,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=OUTPUT,
                         help="Directory containing the tested launcher and build receipt")
-    output = parser.parse_args(argv).output.resolve()
+    parser.add_argument("--source-bundle", type=Path,
+                        help="Reviewed Git bundle of this exact source revision for private-repository testers")
+    args = parser.parse_args(argv)
+    output = args.output.resolve()
     name = package_name(launcher_version(ROOT))
     members = package_members(ROOT, output)
     binary = members[LAUNCHER_EXE].read_bytes()
@@ -121,7 +127,19 @@ def main(argv: list[str] | None = None) -> int:
     for data in (binary.lower(), binary.decode('utf-16le', errors='ignore').lower().encode('utf-8')):
         if b':\\users\\' in data or b'/home/' in data or b'.pdb' in data:
             raise SystemExit('Executable contains a debug or personal path')
-    write_package(output, name, {name: path.read_bytes() for name, path in members.items()}, revision)
+    payloads = {name: path.read_bytes() for name, path in members.items()}
+    if args.source_bundle:
+        bundle = args.source_bundle.resolve()
+        if not bundle.is_file() or bundle.is_symlink() or bundle.stat().st_size > 33_554_432:
+            raise SystemExit('Unexpected tester source bundle')
+        subprocess.run(['git', 'bundle', 'verify', str(bundle)], cwd=ROOT, check=True,
+                       capture_output=True)
+        heads = subprocess.check_output(['git', 'bundle', 'list-heads', str(bundle), 'HEAD'],
+                                        cwd=ROOT, text=True).strip()
+        if heads != revision + ' HEAD':
+            raise SystemExit('Tester bundle does not match the launcher source revision')
+        payloads['source.bundle'] = bundle.read_bytes()
+    write_package(output, name, payloads, revision)
     return 0
 
 

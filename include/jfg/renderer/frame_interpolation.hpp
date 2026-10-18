@@ -14,6 +14,10 @@
 #include "jfg/renderer/video_settings.hpp"
 
 namespace jfg {
+inline constexpr std::uint32_t pause_menu_animation_ticks(std::uint32_t ticks,bool paused) noexcept {
+  return paused && ticks<=6U ? ticks*3U : ticks;
+}
+
 
 // RT64's refresh-rate configuration for a Frame rate setting.
 enum class Rt64RefreshMode : std::uint8_t { original, display, manual };
@@ -38,6 +42,13 @@ struct Rt64RefreshPlan {
     return settings.framerate == FrameRate::unlocked
         ? Rt64RefreshPlan{Rt64RefreshMode::manual, kUnlockedRefreshTarget}
         : Rt64RefreshPlan{Rt64RefreshMode::display, 60};
+}
+
+// The fixed True 60 preset may trade cadence for a steady 30 under load.
+// Display and Unlocked request variable delivery, so they retain one-VI
+// scheduling and let the wall-clock floor account for actual missed frames.
+[[nodiscard]] constexpr bool true60_uses_backoff(const VideoSettings& settings) noexcept {
+    return settings.framerate == FrameRate::sixty;
 }
 
 // True 60 fps logic: around every viFrameSync (US 0x80054FBC, gameVi.c) the

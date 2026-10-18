@@ -440,7 +440,12 @@ void switch_error(const char* func, uint32_t vram, uint32_t jtbl) {
 }
 
 void do_break(uint32_t vram) {
-    (void)vram;
+    // Keep the bridge's exported symbol set independent of UCRT printf inlines.
+    char message[] = "guest break at 0x00000000\n";
+    constexpr char digits[] = "0123456789abcdef";
+    for (unsigned i = 0; i < 8U; ++i)
+        message[17U + i] = digits[(vram >> ((7U - i) * 4U)) & 0xfU];
+    std::fputs(message, stderr);
     fail_closed(TrapSite::do_break);
 }
 #endif

@@ -101,7 +101,8 @@ internal static class FrontendBridge
         return File.Exists(Path.Combine(profile,"live.json"))?profile:Path.Combine(profile,"no-active-live-session");
     }
     private static void PrepareBackground() {
-        try {InventoryImages.ExportShips(Read("frontend-rom.txt"),Path.Combine(root,"frontend-ships.bin"));}
+        try {InventoryImages.ExportShips(Read("frontend-rom.txt"),Path.Combine(root,"frontend-ships.bin"));
+            InventoryImages.ExportWeaponWheel(Read("frontend-rom.txt"),Path.Combine(root,"weapon-wheel-icons"));}
         catch(InvalidDataException){}catch(IOException){}catch(UnauthorizedAccessException){}catch(ArgumentException){}
     }
     internal static void SaveDirectShortcut(string path, string profile, string launcher)
@@ -125,7 +126,7 @@ internal static class FrontendBridge
             set("Arguments", "--play --profile " + LocalSetup.Quote(LocalSetup.FullPath(profile)));
             set("WorkingDirectory", Path.GetDirectoryName(launcher));
             set("IconLocation", launcher + ",0");
-            set("Description", "Play Jet Force Gemini with its game menu using your profile.");
+            set("Description", "Play RGO with its game menu using your profile.");
             set("WindowStyle", 1);
             shortcutType.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, shortcut, new object[0]);
         }
@@ -150,7 +151,7 @@ internal static class FrontendBridge
             dialog.OverwritePrompt = true;
             dialog.CheckPathExists = true;
             dialog.RestoreDirectory = true;
-            dialog.FileName = "Jet Force Gemini.lnk";
+            dialog.FileName = "RGO.lnk";
             if (dialog.ShowDialog(new Owner(owner)) != DialogResult.OK) return;
             SaveDirectShortcut(dialog.FileName, root, Environment.GetEnvironmentVariable("JFG_LAUNCHER_EXE"));
             State("Direct-launch shortcut saved: " + dialog.FileName);
@@ -301,6 +302,7 @@ internal static class FrontendBridge
                 }
                 string game = LocalSetup.ValidateRuntime(Read("frontend-runtime.txt"));
                 CheckRuntimeProtocol(game, 10000);
+                await Task.Run(delegate {InventoryImages.ExportWeaponWheel(rom,Path.Combine(root,"weapon-wheel-icons"));});
                 LocalSetup.SaveSettings(root, new Settings { RomPath = rom, RuntimePath = game });
                 using (var process = new Process())
                 {
@@ -308,6 +310,7 @@ internal static class FrontendBridge
                     process.StartInfo = mods ? LocalSetup.NavigationStartInfo(game, rom, root)
                                              : LocalSetup.LiveToolsStartInfo(game, rom, root);
                     ApplyReplayOptions(process.StartInfo, args);
+                    process.StartInfo.EnvironmentVariables["JFG_WEAPON_WHEEL_ICONS"]=Path.Combine(root,"weapon-wheel-icons");
                     process.StartInfo.EnvironmentVariables["JFG_CONTROLLER_CONFIG"] =
                         ControllerProfile.FileName(root);
                     process.StartInfo.EnvironmentVariables["JFG_MASTER_VOLUME_CONFIG"] =
@@ -410,7 +413,7 @@ internal static class FrontendBridge
                 State(LocalSetup.FriendlyError(error));
             Environment.ExitCode = 1;
             if (args[1] == "direct-play")
-                MessageBox.Show(LocalSetup.FriendlyError(error), "Jet Force Gemini", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(LocalSetup.FriendlyError(error), "RGO", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally { if (launchLock != null) { launchLock.ReleaseMutex(); launchLock.Dispose(); } }
         return true;

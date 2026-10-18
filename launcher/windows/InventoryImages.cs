@@ -85,6 +85,22 @@ namespace JfgLauncher {
         }
         // Export only on the user's computer after verification. The native home
         // scene uses real vertices/UVs and textures, not shipped game thumbnails.
+        internal static void ExportWeaponWheel(string romPath,string destination) {
+            using(var rom=LocalSetup.OpenVerifiedRom(romPath)) {
+                Directory.CreateDirectory(destination);
+                long[] menu=Section(rom,26);
+                for(int weapon=0;weapon<15;weapon++) {
+                    int item=U16(Read(rom,menu[0]+(weapon+10)*2,2),0);
+                    if((item&0xc000)!=0x8000)throw new InvalidDataException("Unsupported weapon menu asset.");
+                    byte[] sprite=Entry(rom,22,21,item&0x3fff);
+                    if(sprite.Length<4||U16(sprite,2)<1)throw new InvalidDataException("Invalid weapon sprite.");
+                    using(var image=Texture(rom,U16(sprite,0))) {
+                        string path=Path.Combine(destination,"weapon-"+weapon+".png");
+                        WriteCache(path,delegate(string temporary){image.Save(temporary,ImageFormat.Png);});
+                    }
+                }
+            }
+        }
         internal static void ExportShips(string romPath,string destination) {
             using(var rom=LocalSetup.OpenVerifiedRom(romPath)) {
                 WriteCache(destination,delegate(string temporary) {

@@ -73,6 +73,8 @@ struct Rt64ShellConfiguration {
     bool cpu_mask_writeback = false;
     // RGO: MSAA sample count (1, 2, 4 or 8), fixed for the shell's lifetime.
     std::uint8_t msaa_samples = 1U;
+    // The diagnostic runner can disable this for same-binary comparisons.
+    bool cache_command_context = true;
 };
 
 struct Rt64RdramRange {

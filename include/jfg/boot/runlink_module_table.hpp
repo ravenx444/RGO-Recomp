@@ -66,4 +66,12 @@ enum class RunlinkSuspensionResult : std::uint8_t { absent, suspended, invalid }
     const hle::GuestMemory& memory, std::uint32_t pending_table,
     std::size_t pending_count, std::uint32_t module_slot) noexcept;
 
+// A full unload discards normalized mutable state. A suspended module still
+// owns its data and BSS even though its executable base is zero.
+enum class RunlinkRetentionResult : std::uint8_t { invalid, live, suspended, unloaded };
+[[nodiscard]] RunlinkRetentionResult resolve_runlink_retention(
+    const hle::GuestMemory& memory, std::uint32_t table_pointer_address,
+    std::size_t overlay_slot_count, std::uint32_t pending_table,
+    std::size_t pending_count, std::uint32_t module_slot) noexcept;
+
 } // namespace jfg::boot

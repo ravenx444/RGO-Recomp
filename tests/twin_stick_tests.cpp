@@ -79,6 +79,34 @@ int main() {
   rate={};rate.stick_vertical_sensitivity=50;
   check(std::abs(jfg::pc_twin_rate(rate,{0,1},false).y*2-jfg::pc_twin_rate(jfg::PcInputConfig{},{0,1},false).y)<=1,"vertical scale");
 
+  // Original one-stick and experimental stick emulation use the same
+  // physical up convention before the guest converts Y to pitch.
+  for(bool inverted:{false,true}) {
+    for(int direction:{-1,1}) {
+      jfg::ControllerMapping original_mapping;original_mapping.invert_y=inverted;
+      jfg::StandardControllerSample original_pad;original_pad.axes[1]=-direction*32767;
+      const auto original_sample=jfg::map_controller(original_mapping,original_pad);
+      check((original_sample.stick.y>0)==(direction>0?!inverted:inverted),"original controller up/down inversion");
+      jfg::PcInputConfig legacy_config;legacy_config.aim_invert_y=inverted;
+      check((jfg::pc_aim_stick(legacy_config,right(0,-direction*32767),0).y>0)==
+        (direction>0?!inverted:inverted),"experimental look stick has identical semantics");
+      legacy_config.mouse_invert_y=inverted;jfg::PcMouseMotion legacy_mouse;legacy_mouse.add(0,-direction*10);
+      check((legacy_mouse.take(legacy_config).y>0)==(direction>0?!inverted:inverted),"legacy mouse emulation has identical semantics");
+    }
+  }
+  // Mouse settings remain independent from controller settings and from
+  // each other, including when mouse input joins a controller player.
+  for(bool aim_inverted:{false,true}) for(bool camera_inverted:{false,true}) {
+    jfg::PcInputConfig independent;independent.mouse_invert_y=aim_inverted;
+    independent.mouse_camera_invert_y=camera_inverted;
+    independent.aim_invert_y=!aim_inverted;independent.camera_invert_y=!camera_inverted;
+    for(bool aiming:{false,true}) {
+      jfg::PcMouseMotion mouse;mouse.add(0,-10);
+      check((mouse.take_angles(independent,aiming).y<0)==(aiming?aim_inverted:camera_inverted),
+        "mouse camera/aim choice is independent of the controller inversion");
+    }
+  }
+
   // Same turn per second at 30 fps (2 ticks an update) and True 60 (1 tick).
   {
     const auto r=jfg::pc_twin_rate(jfg::PcInputConfig{},{0.37,-0.21},true);
@@ -109,7 +137,48 @@ int main() {
     check(jfg::map_controller(m,pad).buttons==(expert?0x8000:0x0008),"Cross jumps in both game schemes");
   }
   check(jfg::pc_camera_heading(0)==-32768 && jfg::pc_camera_heading(0x4000)==0x4000 && jfg::pc_camera_heading(-0x4000)==-0x4000,"camera heading");
-  check(jfg::pc_twin_camera_state(0,1) && jfg::pc_twin_camera_state(0,0x81) && !jfg::pc_twin_camera_state(0,2) && !jfg::pc_twin_camera_state(6,1),"camera on foot only");
+  for(int character=0;character<3;++character) {
+    check(jfg::pc_twin_camera_state(0,static_cast<std::uint8_t>(character)),"all three characters can look without aiming");
+    check(jfg::pc_twin_camera_state(0,static_cast<std::uint8_t>(0x80|character)),"preserve character flag bits");
+    check(jfg::pc_twin_camera_state(3,static_cast<std::uint8_t>(character)),"normal-follow water state permits look input");
+    check(jfg::pc_twin_camera_state(4,static_cast<std::uint8_t>(character)),"alternate water state permits look input");
+    check(!jfg::pc_twin_camera_state(6,static_cast<std::uint8_t>(character)),"special movement retains guest camera");
+  }
+  check(!jfg::pc_twin_camera_state(0,3),"hovership keeps its camera");
+  for(int state=32;state<42;++state) {
+    auto sample=jfg::pc_boss_movement({0x2000,-80,50,true},static_cast<std::uint8_t>(state));
+    check(sample.buttons==0x2002 && sample.x==-80 && sample.y==50,"boss left stick preserves fire and maps native strafe");
+    check(jfg::pc_boss_movement({0,80,0,true},static_cast<std::uint8_t>(state)).buttons==1,"boss right strafe");
+  }
+  check(jfg::pc_boss_movement({0,80,0,true},42).buttons==0,"frozen boss state unchanged");
+  check(jfg::pc_boss_movement({0,80,0,true},0).buttons==0,"regular gameplay unchanged");
+  check(jfg::pc_boss_movement({0,80,0,false},32).buttons==0,"disconnected input cannot strafe");
+  // Test the result, not just the sign of an intermediate input. Negative
+  // guest aim pitch and a lowered camera position both point the view up.
+  for(bool inverted:{false,true}) {
+    for(bool aiming:{false,true}) {
+      for(int up:{-1,1}) {
+        jfg::PcInputConfig audit_config;audit_config.scheme=1;
+        audit_config.aim_invert_y=audit_config.camera_invert_y=audit_config.mouse_invert_y=audit_config.mouse_camera_invert_y=inverted;
+        jfg::PcTwinTurn turn;
+        const auto stick=turn.apply(jfg::pc_twin_rate(audit_config,jfg::pc_look_stick(audit_config,right(0,-up*32767),0),aiming),1.0F);
+        jfg::PcMouseMotion mouse;mouse.add(0,-up*10);
+        const auto motion=mouse.take_angles(audit_config,aiming);
+        jfg::PcKeyAim keys;
+        const auto key=keys.take(audit_config,[&](int k){return k==audit_config.keys[up>0?20:21];},1.0/60.0,aiming);
+        jfg::PcGyroAim gyro;audit_config.gyro_invert_y=inverted;
+        const auto tilt=gyro.apply(audit_config,0,up*0.01);
+        for(auto audit_look:{stick,motion,key,tilt}) {
+          const auto result=jfg::pc_direct_aim(0,0,audit_look,-16384,16384);
+          check((result.y<0)==(up>0?!inverted:inverted),"every audit_look source follows normal/inverted aim contract");
+          const auto orbit=jfg::pc_orbit_point(0,-audit_look.y,200);
+          check((orbit.y<0)==(up>0?!inverted:inverted),"every audit_look source follows normal/inverted camera contract");
+        }
+        const auto together=jfg::pc_add_look(stick,motion);
+        check((together.y>0)==(motion.y>0),"dual input mouse and stick reinforce the same direction");
+      }
+    }
+  }
   check(jfg::pc_twin_turn_in_place(0,0,0) && jfg::pc_twin_turn_in_place(0,5,-5),"standing still turns in place");
   check(!jfg::pc_twin_turn_in_place(0,0,40) && !jfg::pc_twin_turn_in_place(0,-20,0),"moving steers instead");
   check(!jfg::pc_twin_turn_in_place(11,0,0) && !jfg::pc_twin_turn_in_place(6,0,0),"aim and special states keep their own heading");
@@ -149,6 +218,10 @@ int main() {
     check(script && script->size()==2,"pad script parses");
     check((*script)[0].pad.axes[1]==-32767 && (*script)[0].pad.axes[4]==32767 && (*script)[0].pad.buttons[10] && (*script)[0].pad.buttons[0],"pad script axes and buttons");
     check((*script)[1].keys==std::vector<int>{87,2} && (*script)[1].mouse_x==12 && (*script)[1].mouse_y==-3,"pad script keys and mouse");
+    jfg::rgo::PadScript timed(*script);
+    check(timed.at_tick(0U).polls==2 && timed.at_tick(0U).polls==2 && timed.at_tick(1U).polls==2,"extra polls cannot shorten timed input");
+    check(timed.at_tick(2U).polls==1 && timed.at_tick(9999999999ULL).polls==1,"timed input crosses boundary and holds final step");
+    check(timed.at_tick(0U).polls==2 && timed.step()==0U,"timed input can rewind reproducibly");
     jfg::rgo::PadScript run(*script);
     check(run.next().polls==2 && run.next().polls==2 && run.next().polls==1 && run.next().polls==1 && run.step()==1,"pad script steps hold");
     for(const char* bad:{"","0 0 0 0 0 0 0 -\n","1 0 0 0 0 0 0\n","1 0 0 0 0 0 0 17\n","1 0 0 0 0 0 40000 -\n","1 0 0 0 0 0 0 - k:300\n","1 0 0 0 0 0 0 - m:1\n","1 0 0 0 0 0 0 - x:1\n"})

@@ -103,13 +103,26 @@ public:
   void clear() { x_ = y_ = 0; }
 };
 
-// Where the right stick turns the camera: on foot on the ground, movement
-// state 0 (standing, running; aiming has its own camera) with the medium
-// bits of control block +1 at 1 (ground, as the run-speed code checks).
-// Other states and media (swimming, jetpack, vehicles, hanging, ...) keep
-// the game's own camera.
-inline bool pc_twin_camera_state(std::uint8_t state, std::uint8_t medium) {
-  return state == 0 && (medium & 3U) == 1U;
+// The low two bits of control +1 identify the character, not terrain.
+// All three characters can orbit in normal locomotion, including air and
+// water states. The hook still requires the guest normal-follow camera, so
+// aiming, scripted cameras, damage states and the hovership keep their paths.
+inline bool pc_twin_camera_state(std::uint8_t state, std::uint8_t character) {
+  return state <= 4 && (character & 3U) < 3U;
+}
+
+// Boss overlays read C-left/C-right for sidestepping instead of the stick.
+// Supply those existing actions in normal boss states, leaving frozen state
+// 42 and the game's jump, damage and collision handling untouched.
+inline bool pc_boss_movement_state(std::uint8_t state) {
+  return state >= 32U && state < 42U;
+}
+inline ControllerPortSample pc_boss_movement(ControllerPortSample sample, std::uint8_t state) {
+  if(sample.connected && pc_boss_movement_state(state)) {
+    if(sample.x <= -16) sample.buttons |= 0x2U;
+    if(sample.x >= 16) sample.buttons |= 0x1U;
+  }
+  return sample;
 }
 
 // The body heading (control block +0x11C) that faces where the camera looks.

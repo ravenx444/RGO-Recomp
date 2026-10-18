@@ -360,6 +360,18 @@ parse_pair(std::string_view text, const char separator) noexcept {
     return settings;
 }
 
+// Selecting a high-refresh preset must enable the extra frames it promises.
+// Start with camera smoothing; moving-object blending remains an opt-in while
+// its animated-model path is under investigation.
+constexpr void select_frame_rate(VideoSettings& settings, const FrameRate rate) noexcept {
+    settings.framerate = rate;
+    if (rate == FrameRate::display || rate == FrameRate::unlocked) {
+        settings.interpolate_frames = true;
+        settings.interpolate_objects = false;
+        settings.vsync = rate == FrameRate::display;
+    }
+}
+
 [[nodiscard]] constexpr bool true_logic_60(const VideoSettings& settings) noexcept {
     return settings.framerate != FrameRate::original;
 }

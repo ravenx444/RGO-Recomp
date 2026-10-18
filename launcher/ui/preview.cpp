@@ -264,7 +264,7 @@ struct Ui : Rml::EventListener {
              "</div><p class=\"muted\">This is the native UI review build. "
              "Game start/stop will be integrated after the design surface.</p>";
     } else {
-      html = "<div class=\"name\">Jet Force Gemini Recomp</div><p>Native RmlUi "
+      html = "<div class=\"name\">RGO</div><p>Native RmlUi "
              "/ C++ interface preview</p><p class=\"muted\">Based on the eight "
              "owner-provided UI exports. Controller notifications follow "
              "device events. No browser or JavaScript engine is used.</p>";
@@ -354,7 +354,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     if (std::wstring(argv[i]) == L"--profile")
       ui.profile = argv[++i];
   LocalFree(argv);
-  if (!Backend::Initialize("Jet Force Gemini - RmlUi preview", 1280, 720, true))
+  if (!Backend::Initialize("RGO - RmlUi preview", 1280, 720, true))
     return 1;
   LogSystem system(Backend::GetSystemInterface());
   Rml::SetSystemInterface(&system);

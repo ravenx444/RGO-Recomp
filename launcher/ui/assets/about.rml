@@ -1,6 +1,6 @@
 <div class="about-hero">
   <div class="about-emblem"><div class="emblem-orbit outer"/><div class="emblem-orbit inner"/><div class="emblem-sun"/><div class="emblem-rotor"><span/></div><div class="emblem-rotor outer"><span/></div></div>
-  <div class="about-heading"><div class="about-title">RGO</div><div class="about-subtitle">Jet Force Gemini on PC, with widescreen, real 60 fps and modern controls.</div><div class="about-badges"><span class="version" id="about-version">v@VERSION@</span><span>Windows x64</span><span>MIT project code</span></div></div>
+  <div class="about-heading"><div class="about-title">Rocket Group Orion</div><div class="about-subtitle">Native PC recompilation with widescreen, real 60 fps and modern controls.</div><div class="about-badges"><span class="version" id="about-version">v@VERSION@</span><span>Windows x64</span><span>MIT project code</span></div></div>
   <div class="about-build"><div><span>Build</span><span id="about-build">@BUILD@</span></div><div><span>Built</span><span id="about-date">@DATE@</span></div><div><span>ROM</span><span id="about-rom">@ROM@</span></div></div>
 </div>
 <div class="about-columns">
@@ -15,4 +15,4 @@
     <button id="action-project" data-action="project" class="about-link"><span class="about-link-icon project-icon"><span class="branch-icon"/><span class="branch-dot first"/><span class="branch-dot second"/></span><span class="about-link-copy"><span class="about-link-title">Project on GitHub</span><span class="about-link-sub">ravenx444 / RGO-Recomp</span></span><span class="external-icon"/></button>
   </div>
 </div>
-<div class="about-credits"><div>A fork of <span>JetForceGemini-Recomp</span> by TK22-26 and contributors. Built on <span>N64Recomp</span> · <span>N64ModernRuntime</span> · <span>RT64</span> · <span>RmlUi</span> · <span>SDL</span>, with the <span>Jet Force Gemini decompilation</span> by Ryan Myers and contributors — <button id="action-notices" data-action="notices" class="about-notices">credits and third-party notices</button>.</div><div>Jet Force Gemini game content and trademarks belong to their respective owners. RGO is unofficial and not affiliated with them.</div></div>
+<div class="about-credits"><div>A fork of <span>JetForceGemini-Recomp</span> by TK22-26 and contributors. Built on <span>N64Recomp</span> · <span>N64ModernRuntime</span> · <span>RT64</span> · <span>RmlUi</span> · <span>SDL</span>, with the <span>Jet Force Gemini decompilation</span> by Ryan Myers and contributors; <button id="action-notices" data-action="notices" class="about-notices">credits and third-party notices</button>.</div><div>Original game content and trademarks belong to their respective owners. RGO is unofficial and not affiliated with them.</div></div>

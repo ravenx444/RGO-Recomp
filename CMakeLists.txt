@@ -12,7 +12,7 @@ endif()
 
 project(
     jfg_recomp
-    VERSION 0.1.0
+    VERSION 0.1.1
     DESCRIPTION "ROM-free host scaffolding for a Jet Force Gemini native recompilation"
     LANGUAGES C CXX
 )
@@ -281,6 +281,7 @@ if(JFG_ENABLE_RT64)
     include(cmake/rt64_vi_presentation.cmake)
     include(cmake/rt64_depth_bounds.cmake)
     include(cmake/rt64_frame_interpolation.cmake)
+    include(cmake/rt64_cpu_overlays.cmake)
 
     # The pinned Plume D3D12 backend assumes every CopyTextureRegion
     # destination is a texture when configuring programmable sample
@@ -615,7 +616,7 @@ if(JFG_ENABLE_GENERATED_CODE)
                 target_link_directories(jfg-native-boot PRIVATE
                     "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
                 target_link_libraries(jfg-native-boot PRIVATE
-                    jfg_rt64_renderer SDL2 user32)
+                    jfg_rt64_renderer SDL2 user32 gdi32 gdiplus)
                 add_custom_command(TARGET jfg-native-boot POST_BUILD
                     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                         "${jfg_rt64_root}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64/SDL2.dll"

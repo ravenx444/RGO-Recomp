@@ -60,6 +60,19 @@ int main() {
     using namespace jfg;
 
     // --- video.ini format ------------------------------------------------
+    VideoSettings preset;
+    preset.interpolate_frames = false;
+    preset.interpolate_objects = true;
+    select_frame_rate(preset, FrameRate::display);
+    require(preset.interpolate_frames && !preset.interpolate_objects && preset.vsync,
+        "Display enables camera frames from previously disabled interpolation");
+    select_frame_rate(preset, FrameRate::unlocked);
+    require(preset.interpolate_frames && !preset.interpolate_objects && !preset.vsync,
+        "Unlocked releases VSync and enables extra frames without object blending");
+    select_frame_rate(preset, FrameRate::sixty);
+    require(preset.framerate == FrameRate::sixty,
+        "True60 remains selectable after high-refresh presets");
+
     const VideoSettings defaults{};
     require(defaults.aspect == AspectMode::widescreen, "widescreen default");
     require(defaults.max_aspect.unlimited(), "unlimited default");

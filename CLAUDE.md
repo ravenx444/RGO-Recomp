@@ -1,13 +1,13 @@
 # Project notes for Claude
 
-RGO-Recomp is the owner's **private** fork of
+RGO-Recomp is the owner's **public** fork of
 [TK22-26/JetForceGemini-Recomp](https://github.com/TK22-26/JetForceGemini-Recomp),
 a static recompilation (N64Recomp + N64ModernRuntime + RT64) of an N64 game into
 a native Windows executable. Upstream aims for a faithful 1:1 port; this fork
 adds improvements on top. The roadmap is in `docs/rgo/ROADMAP.md`.
 
 ## Hard rules
-- The repo is private. Never commit ROMs, recompiled game code, ELFs, raw overlay dumps,
+- The source repository is public. Never commit ROMs, recompiled game code, ELFs, raw overlay dumps,
   generated audio, extracted textures, or build output. The Windows-only
   pipeline uses only the reviewed facts-only bundle in `symbols/native-us-v1`:
   names, numeric addresses, sizes and ownership, admitted by a pinned manifest
@@ -41,9 +41,8 @@ adds improvements on top. The roadmap is in `docs/rgo/ROADMAP.md`.
   The cloud **cannot build the Windows executable or run the game**. Anything
   gameplay-related has to be tested by the owner on their PC, so say clearly
   what to test and how.
-- The ROM is in the private repo ravenx444/RGO-source (attach it with
-  `add_repo`). Use it only locally, and never copy it or its derivatives into
-  this repo.
+- Supply a supported ROM locally. Never upload, commit or distribute the ROM,
+  generated game code/assets, captures or built game output through this repo.
 
 ## Related repos
 - ravenx444/Rocket-Group-Orion: the owner's decomp working copy. Use it for

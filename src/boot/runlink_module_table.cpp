@@ -137,4 +137,24 @@ RunlinkSuspensionResult resolve_runlink_suspension(
   return found ? RunlinkSuspensionResult::suspended : RunlinkSuspensionResult::absent;
 }
 
+RunlinkRetentionResult resolve_runlink_retention(
+    const hle::GuestMemory& memory, const std::uint32_t table_pointer_address,
+    const std::size_t overlay_slot_count, const std::uint32_t pending_table,
+    const std::size_t pending_count, const std::uint32_t module_slot) noexcept {
+  if(module_slot==0U || module_slot>overlay_slot_count)
+    return RunlinkRetentionResult::invalid;
+  std::uint32_t table=0U,base=0U;
+  if(!memory.read_u32(table_pointer_address,table) || table==0U)
+    return RunlinkRetentionResult::invalid;
+  const auto record=std::uint64_t{table}+std::uint64_t{module_slot}*kRunlinkModuleRecordSize;
+  if(record>UINT32_MAX || !memory.read_u32(static_cast<std::uint32_t>(record),base))
+    return RunlinkRetentionResult::invalid;
+  if(base!=0U)return RunlinkRetentionResult::live;
+  switch(resolve_runlink_suspension(memory,pending_table,pending_count,module_slot)) {
+  case RunlinkSuspensionResult::suspended:return RunlinkRetentionResult::suspended;
+  case RunlinkSuspensionResult::absent:return RunlinkRetentionResult::unloaded;
+  default:return RunlinkRetentionResult::invalid;
+  }
+}
+
 } // namespace jfg::boot

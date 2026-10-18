@@ -17,7 +17,11 @@ def metadata(section: int, pc: int, word: int) -> int:
     fpu = primary in (0x11, 0x31, 0x35, 0x39, 0x3d)
     park = primary == 3 and (((pc+4) & 0xf0000000) | ((word & 0x03ffffff) << 2)) == 0x80075698
     branch = primary in range(1, 8) or primary in range(20, 24) or (primary == 0 and word & 63 in (8,9)) or (primary == 0x11 and (word >> 21) & 31 == 8)
-    slow = word == 0x1000ffff or pc in (0x8009ab80, 0x80098b74)
+    # Private fractional-player experiments need these boundaries to reach
+    # the native observer even inside a fast-clock skip run.
+    player_time_sites = (0x00f000d4, 0x010000d4, 0x01100088,
+                         0x00f01b30, 0x010019f8, 0x0110192c)
+    slow = word == 0x1000ffff or pc in (0x8009ab80, 0x80098b74, *player_time_sites)
     extra = INTEGER_COST.get(word & 63, 0) if primary == 0 else FLOAT_COST.get(((word >> 21) & 31, word & 63), 0) if primary == 17 else 0
     reads = (0x1a,0x1b,*range(0x20,0x28),0x30,0x31,0x34,0x35,0x37)
     writes = (*range(0x28,0x2f),0x38,0x39,0x3c,0x3d,0x3f)

@@ -38,6 +38,7 @@ struct PcInputConfig {
   // Which of the game's own control options (0 Normal, 1 Expert) the player
   // uses, so the Controllers page can name each button's action.
   int game_controls = 0;
+  int wheel_button = 3, wheel_key = 9, wheel_stick = 0;
   // A, B, Z, Start, D-pad, L, R, C-buttons, movement, fast movement, alternate A,
   // and (RGO, version 4) aim up/down/left/right: Numpad 8/2/4/6.
   std::array<int,24> keys{32,'X','C',13,38,40,37,39,'Q','E','I','K','J','L',
@@ -66,7 +67,7 @@ inline constexpr std::array<std::string_view,14> kPcSettings{
 // RGO: version 4 adds these optional settings. A missing one keeps its default,
 // so files written before a setting existed still load.
 struct PcExtension { std::string_view name; int minimum, maximum; int PcInputConfig::*field; };
-inline constexpr std::array<PcExtension,13> kPcExtensions{{
+inline constexpr std::array<PcExtension,16> kPcExtensions{{
   {"rumble",0,200,&PcInputConfig::rumble},
   {"aim_toggle",0,1,&PcInputConfig::aim_toggle},
   {"key_aim_speed",30,360,&PcInputConfig::key_aim_speed},
@@ -79,7 +80,10 @@ inline constexpr std::array<PcExtension,13> kPcExtensions{{
   {"scheme",0,1,&PcInputConfig::scheme},
   {"camera_invert_y",0,1,&PcInputConfig::camera_invert_y},
   {"game_controls",0,1,&PcInputConfig::game_controls},
-  {"mouse_camera_invert_y",0,1,&PcInputConfig::mouse_camera_invert_y}}};
+  {"mouse_camera_invert_y",0,1,&PcInputConfig::mouse_camera_invert_y},
+  {"wheel_button",-1,kBindingCount-1,&PcInputConfig::wheel_button},
+  {"wheel_key",0,255,&PcInputConfig::wheel_key},
+  {"wheel_stick",0,1,&PcInputConfig::wheel_stick}}};
 inline std::string serialize_pc_input(const PcInputConfig &c) {
   const std::array<int,14> values{4,c.mouse_aim,c.mouse_sensitivity,c.mouse_invert_y,
     c.dual_stick,c.aim_sensitivity,c.aim_deadzone,c.aim_invert_y,c.modern,
@@ -161,6 +165,19 @@ template<class Down> ControllerPortSample map_pc_keyboard(const PcInputConfig &c
   out.y=static_cast<std::int8_t>((int(held(14))-int(held(15)))*speed);
   return out;
 }
+  // JFG menus consume the analog stick. Translate D-pad directions only
+  // at the menu boundary, preserving gameplay packets and other buttons.
+  inline ControllerPortSample map_menu_dpad(ControllerPortSample sample) {
+    if(!sample.connected)return sample;
+    const auto directions=sample.buttons & 0x0F00U;
+    if(directions & 0x0300U)sample.x=static_cast<std::int8_t>(
+        ((directions & 0x0100U ? 1 : 0)-(directions & 0x0200U ? 1 : 0))*80);
+    if(directions & 0x0C00U)sample.y=static_cast<std::int8_t>(
+        ((directions & 0x0800U ? 1 : 0)-(directions & 0x0400U ? 1 : 0))*80);
+    // Keep physical direction presses for the original weapon-shortcut editor.
+    // Ordinary menu pages also receive the corresponding analog navigation.
+    return sample;
+  }
 // Menu shortcuts remain usable with either guest control scheme or custom
 // gameplay bindings. Pointer position is not interpreted as a guest menu item.
 template<class Down> ControllerPortSample map_pc_menu(ControllerPortSample sample,Down down) {
@@ -190,7 +207,7 @@ inline N64StickSample pc_aim_stick(const PcInputConfig &c,const StandardControll
   const float response=c.aim_curve==1?magnitude:c.aim_curve==2?magnitude*magnitude:1.0F;
   const int sensitivity=aiming?c.aim_sensitivity:c.camera_sensitivity;
   aim.x=static_cast<std::int8_t>(std::clamp(int(float(aim.x)*response*float(sensitivity)/100.0F),-127,127));
-  aim.y=static_cast<std::int8_t>(std::clamp(int(float(aim.y)*response*float(sensitivity)*float(c.stick_vertical_sensitivity)*(c.aim_invert_y?-1.0F:1.0F)/10000.0F),-127,127));
+  aim.y=static_cast<std::int8_t>(std::clamp(int(float(aim.y)*response*float(sensitivity)*float(c.stick_vertical_sensitivity)*((aiming?c.aim_invert_y:c.camera_invert_y)?-1.0F:1.0F)/10000.0F),-127,127));
   return aim;
 }
 class PcWheelPulses {
@@ -223,11 +240,19 @@ inline PcMoveVelocity pc_aim_movement(int x,int y) {
 }
 struct PcOrbit {
   bool active=false;
-  std::uint32_t actor=0;
+  std::uint32_t actor=0,level=UINT32_MAX;
   std::uint64_t retrace=0;
   int yaw=0,pitch=0;
 };
 struct PcOrbitPoint { float x=0,y=0,z=0; };
+// Recover the orbit from the guest's desired camera offset. Camera rotation
+// fields describe the view, and are not a reliable seed for camera position.
+inline PcLookDelta pc_orbit_angles(PcOrbitPoint offset) {
+  constexpr float units=65536.0F/6.283185307179586F;
+  return {static_cast<int>(std::lround(std::atan2(offset.x,-offset.z)*units)),
+      static_cast<int>(std::lround(std::atan2(offset.y,
+          std::hypot(offset.x,offset.z))*units))};
+}
 inline PcOrbitPoint pc_orbit_point(int yaw,int pitch,float radius) {
   constexpr float radians=6.283185307179586F/65536.0F;
   const float y=static_cast<float>(yaw)*radians,p=static_cast<float>(pitch)*radians;
@@ -273,7 +298,8 @@ public:
   PcLookDelta take_angles(const PcInputConfig &c,bool aiming=false) {
     // One pixel at 100% is approximately 0.1 degrees, independent of update rate.
     const double sx=18.0*double(aiming?c.mouse_aim_sensitivity:c.mouse_sensitivity)/100.0;
-    const double sy=sx*double(c.mouse_vertical_sensitivity)/100.0*(c.mouse_invert_y?1.0:-1.0);
+    const bool invert=aiming?c.mouse_invert_y!=0:c.mouse_camera_invert_y!=0;
+    const double sy=sx*double(c.mouse_vertical_sensitivity)/100.0*(invert?1.0:-1.0);
     const int x=std::clamp(static_cast<int>(std::trunc(x_*sx)),-16384,16384);
     const int y=std::clamp(static_cast<int>(std::trunc(y_*sy)),-16384,16384);
     x_=std::abs(x_*sx)>16384.0?0.0:x_-double(x)/sx;
@@ -292,14 +318,15 @@ inline PcLookDelta pc_add_look(PcLookDelta a,PcLookDelta b) {
 class PcKeyAim {
   double x_=0,y_=0;
 public:
-  template<class Down> PcLookDelta take(const PcInputConfig &c,Down down,double seconds) {
+  template<class Down> PcLookDelta take(const PcInputConfig &c,Down down,double seconds,bool aiming=true) {
     const auto held=[&](std::size_t i){return c.keys[i]!=0 && down(c.keys[i]);};
     const int dx=int(held(23))-int(held(22)),dy=int(held(20))-int(held(21));
     if(!dx){x_=0;}
     if(!dy){y_=0;}
     if(!(seconds>0.0))return {};
     const double units=double(std::clamp(c.key_aim_speed,30,360))*65536.0/360.0*std::min(seconds,0.1);
-    x_+=dx*units;y_+=dy*units;
+    const bool invert=aiming?c.mouse_invert_y!=0:c.mouse_camera_invert_y!=0;
+    x_+=dx*units;y_+=dy*units*(invert?-1.0:1.0);
     const int x=static_cast<int>(std::trunc(x_)),y=static_cast<int>(std::trunc(y_));
     x_-=x;y_-=y;
     return {x,y};

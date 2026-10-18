@@ -1,4 +1,5 @@
 #include "jfg/audio/master_volume.hpp"
+#include "jfg/audio/effects_settings.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <vector>
@@ -8,6 +9,17 @@ static void check(bool value) {
 }
 int main() {
   using namespace jfg::audio;
+  check(parse_effects("version=1\ntarget_acquisition=off\n")->target_acquisition == false);
+  check(parse_effects("version=1\r\ntarget_acquisition=on\r\n")->target_acquisition);
+  check(!parse_effects("version=1\ntarget_acquisition=maybe\n"));
+  check(suppress_acquisition(false,0x80001248U,29U,0x8007C0D8U));
+  check(suppress_acquisition(false,0x80001248U,29U,0x8007C1D8U));
+  check(!suppress_acquisition(true,0x80001248U,29U,0x8007C1D8U));
+  check(!suppress_acquisition(false,0x80001248U,29U,0x8003AA80U));
+  check(!suppress_acquisition(false,0x80001248U,0x1E4U,0x8003AA80U));
+  check(!suppress_acquisition(false,0x80001248U,0x1E5U,0x8003AA80U));
+  check(!suppress_acquisition(false,0x8000134CU,29U,0x8007C1D8U));
+  check(!suppress_acquisition(false,0x80001248U,30U,0x8007C1D8U));
   auto settings = parse_volume("version=1\nvolume=37\nmuted=1\n");
   check(settings && settings->percent == 37U && settings->muted);
   check(parse_volume("version=1\r\nvolume=0\r\nmuted=0\r\n").has_value());

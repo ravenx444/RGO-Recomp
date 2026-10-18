@@ -24,6 +24,9 @@ int main() {
   gated.keys[14]='T';gated.keys[2]=jfg::kPcWheelUp;
   const auto offCustom=jfg::map_pc_keyboard(gated,[](int k){return k=='T' || k==jfg::kPcWheelUp;});
   check(offCustom.y==80 && (offCustom.buttons&0x2000),"custom movement and wheel work with experiments off");
+  config.wheel_button=4;config.wheel_key='T';config.wheel_stick=1;
+  check(jfg::parse_pc_input(jfg::serialize_pc_input(config),roundtrip) && roundtrip.wheel_button==4 && roundtrip.wheel_key=='T' && roundtrip.wheel_stick==1,"wheel preferences persist independently");
+  config={};
   const auto text=jfg::serialize_pc_input(config);
   check(jfg::parse_pc_input(text,roundtrip)&&roundtrip.keys==config.keys,"default roundtrip");
   auto invalid=[&](std::string s){const auto before=jfg::serialize_pc_input(roundtrip);check(!jfg::parse_pc_input(s,roundtrip)&&jfg::serialize_pc_input(roundtrip)==before,"invalid config changed active settings");};
@@ -31,6 +34,7 @@ int main() {
   auto replace=[&](std::string a,std::string b){auto t=text;t.replace(t.find(a),a.size(),b);invalid(t);};
   replace("key0=32","key0=258");replace("key0=32","key0=-1");replace("mouse_sensitivity=100","mouse_sensitivity=0");
   replace("aim_deadzone=7849","aim_deadzone=32767");replace("dual_stick=0","dual_stick=2");replace("key0=32","key0=32junk");
+  replace("wheel_button=3","wheel_button=29");replace("wheel_stick=0","wheel_stick=2");replace("wheel_key=9","wheel_key=256");
   replace("version=4","version=5");invalid(std::string(4097,'x'));
   std::array<bool,258> keys{};
   const auto sample=[&](){return jfg::map_pc_keyboard(config,[&](int k){return keys[static_cast<std::size_t>(k)];});};
@@ -70,7 +74,7 @@ int main() {
   check(gate.blocked(true,raw),"settings capture");raw[0].buttons=1;check(gate.blocked(false,raw),"aim deflection prevents premature release");raw[0].buttons=0;check(!gate.blocked(false,raw),"neutral release");
   config=jfg::pc_keyboard_preset();check(config.modern==1,"modern keyboard preset");
   auto old=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y","wheel_button","wheel_key","wheel_stick"}) {
     const auto at=old.find(std::string(name)+"=");old.erase(at,old.find('\n',at)-at+1);
   }
   old.replace(old.find("version=4"),9,"version=1");
@@ -91,12 +95,26 @@ int main() {
   check(jfg::pc_camera_clearance({0,0,0},{0,0,100},{0,0,20}).z==16,"camera clearance keeps minimum focus distance");
   const auto floor_clear=jfg::pc_camera_clearance({0,0,0},{0,0,100},{0,16,100});
   check(floor_clear.y==16 && floor_clear.z==100,"floor correction is not pulled back into terrain");
+  for(int yaw:{-32768,-16384,0,16384,28000}) {
+    for(int pitch:{-4096,0,8192}) {
+      const auto desired=jfg::pc_orbit_point(yaw,pitch,200);
+      const auto angles=jfg::pc_orbit_angles(desired);
+      const auto seeded=jfg::pc_orbit_point(angles.x,angles.y,200);
+      check(std::abs(seeded.x-desired.x)<0.05F &&
+          std::abs(seeded.y-desired.y)<0.05F && std::abs(seeded.z-desired.z)<0.05F,
+          "initial modern orbit preserves the guest entry camera position");
+    }
+  }
   const auto orbit=jfg::pc_orbit_point(16384,0,200);
   check(std::abs(orbit.x-200)<0.001F && std::abs(orbit.y)<0.001F && std::abs(orbit.z)<0.001F,"quarter orbit preserves radius");
   check(jfg::pc_camera_delta(3,{15,20},5)==jfg::PcLookDelta{15,20},"mouse orbit is displacement independent of guest ticks");
   check(jfg::pc_camera_delta(4,{80,-80},2)==jfg::PcLookDelta{512,-512},"stick orbit is a rate");
   check(jfg::pc_camera_delta(4,{80,80},0)==jfg::PcLookDelta{},"paused stick orbit is still");
   keys={};keys[13]=true;keys[39]=true;
+  const auto dpad=jfg::map_menu_dpad({0x8900U,0,0,true});
+  check(dpad.x==80 && dpad.y==80 && dpad.buttons==0x8900U,"D-pad maps diagonally in menus while preserving confirm");
+  const auto opposed=jfg::map_menu_dpad({0x0F00U,40,40,true});
+  check(opposed.x==0 && opposed.y==0,"opposed D-pad directions cancel without duplicate guest button events");
   auto menu=jfg::map_pc_menu(jfg::ControllerPortSample{},[&](int key){return keys[static_cast<std::size_t>(key)];});
   check(menu.buttons==0x8000 && menu.x==80,"Enter and arrows work independently of gameplay preset");
   keys={};keys[8]=true;keys[38]=true;keys[40]=true;
@@ -120,7 +138,7 @@ int main() {
   pad.axes[2]=0;check(jfg::pc_aim_stick(config,pad,0)==jfg::N64StickSample{},"curve neutral stays neutral");
   config={};config.mouse_sensitivity=175;config.aim_sensitivity=125;
   auto v2=jfg::serialize_pc_input(config);
-  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
+  for(const auto name:{"mouse_aim_sensitivity","camera_sensitivity","aim_curve","mouse_vertical_sensitivity","stick_vertical_sensitivity","rumble","aim_toggle","key_aim_speed","key20","key21","key22","key23","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y","wheel_button","wheel_key","wheel_stick"}) {
     const auto at=v2.find(std::string(name)+"=");v2.erase(at,v2.find('\n',at)-at+1);
   }
   v2.replace(v2.find("version=4"),9,"version=2");
@@ -135,7 +153,7 @@ int main() {
   {
     auto v3=text;v3.replace(v3.find("version=4"),9,"version=3");
     invalid(v3);
-    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y"}) {
+    for(const auto name:{"rumble","key20","key21","key22","key23","aim_toggle","key_aim_speed","gyro","gyro_sensitivity","gyro_mode","gyro_ratchet","gyro_invert_y","dual_input","scheme","camera_invert_y","game_controls","mouse_camera_invert_y","wheel_button","wheel_key","wheel_stick"}) {
       const auto at=v3.find(std::string(name)+"=");v3.erase(at,v3.find('\n',at)-at+1);
     }
     check(jfg::parse_pc_input(v3,roundtrip)&&roundtrip.rumble==100,"v3 profile loads with default rumble");

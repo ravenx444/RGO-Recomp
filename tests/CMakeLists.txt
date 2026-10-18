@@ -690,3 +690,9 @@ target_include_directories(jfg_audio_dma_backpressure_tests PRIVATE "${PROJECT_S
 target_compile_features(jfg_audio_dma_backpressure_tests PRIVATE cxx_std_20)
 jfg_set_project_warnings(jfg_audio_dma_backpressure_tests)
 add_test(NAME jfg.audio_dma_backpressure COMMAND jfg_audio_dma_backpressure_tests)
+
+add_executable(jfg_weapon_wheel_tests weapon_wheel_tests.cpp)
+target_include_directories(jfg_weapon_wheel_tests PRIVATE "${PROJECT_SOURCE_DIR}/include")
+target_compile_features(jfg_weapon_wheel_tests PRIVATE cxx_std_20)
+jfg_set_project_warnings(jfg_weapon_wheel_tests)
+add_test(NAME jfg.weapon_wheel COMMAND jfg_weapon_wheel_tests)

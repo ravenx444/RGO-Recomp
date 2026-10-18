@@ -1,16 +1,17 @@
-# RGO
+# Rocket Group Orion (RGO)
 
-RGO is an unofficial, fan-made fork of
-[TK22-26/JetForceGemini-Recomp](https://github.com/TK22-26/JetForceGemini-Recomp),
-the native PC recompilation of the Nintendo 64 game *Jet Force Gemini*.
+Rocket Group Orion (RGO) is an unofficial, fan-made PC recompilation project
+and a fork of [the upstream recompilation project](https://github.com/TK22-26/JetForceGemini-Recomp).
+A supported North American *Jet Force Gemini* ROM is required and is not bundled.
 Upstream aims for a faithful 1:1 port. RGO adds modern improvements on top:
 widescreen, real 60 fps game logic, modern controls and more.
 
-**This repository contains no game code, ROMs, or game assets.** You supply
+**This repository contains no ROMs, ROM-derived game code, or game assets.** You supply
 your own legally obtained ROM, and the game is built on your own PC from it.
-Nothing generated from the ROM is distributed.
+Nothing generated from the ROM is distributed. Project source and development
+history are publicly viewable; dependencies retain their own licenses.
 
-RGO is developed with AI assistance (Anthropic's Claude), directed and
+RGO is developed with AI assistance, directed and
 tested by the project owner.
 
 ## Credit where it's due
@@ -38,10 +39,10 @@ projects.
   its graphics abstraction (both MIT). RT64 in turn credits its own
   third-party components.
 - **[Jet Force Gemini decompilation](https://github.com/Ryan-Myers/Jet-Force-Gemini)**
-  by Ryan Myers and contributors. The build uses it on your PC to produce a
-  symbol map of the game. RGO's game-function hooks use the names, addresses
-  and structure layouts it documents. No decomp source is copied into this
-  repository.
+  by Ryan Myers and contributors. RGO's game-function hooks use the names,
+  addresses and structure layouts it documents. The default Windows build uses
+  reviewed factual metadata; the legacy maintainer pipeline can consult the
+  decompilation on your PC. No decomp source is copied into this repository.
 - **[ares](https://ares-emu.net/)** by Near and the ares team: the instruction
   and cache timing model and the cartridge DMA timing formula are adapted from
   it (ISC, notice kept in the source).
@@ -72,7 +73,7 @@ Full licence texts and notices are in [LICENSE](LICENSE),
 versions are in `dependencies.lock.json` and
 [docs/legal/dependency-license-inventory.md](docs/legal/dependency-license-inventory.md).
 
-*Jet Force Gemini* and all of its content are the property of their respective
+Original game content and trademarks are the property of their respective
 owners (Rare Ltd. and Nintendo). RGO is not affiliated with or endorsed by
 Rare, Nintendo, Microsoft, or the JetForceGemini-Recomp project.
 
@@ -82,10 +83,10 @@ Compared with upstream:
 
 - **Widescreen**, a wider 3D view without stretching, with the HUD anchored to
   the screen edges ([docs](docs/rgo/widescreen.md)).
-- **Real 60 fps game logic.** The game updates 60 times a second at its
-  original speed, with no frame interpolation. A PC that can't keep up gets
-  fewer frames instead of slow motion. You can also run the original 30 fps
-  with the console's slowdown removed ([docs](docs/rgo/framerate.md)).
+- **True 60 mode and optional frame interpolation.** Original timing remains
+  available. Performance work is ongoing: new game frames can still drop to 30
+  or remain at 60 even when the display counter is higher. See the
+  [tester guide](docs/rgo/TESTER_GUIDE.md) for current limits.
 - **Display settings**: any resolution and aspect ratio (ultrawide
   included), render scale, MSAA anti-aliasing, VSync and an FPS counter
   ([docs](docs/rgo/display-settings.md)).
@@ -100,12 +101,19 @@ Compared with upstream:
 - **Modern twin-stick controls** with the camera on the right stick.
 - **Persistent gore**: severed limbs, drone heads and blood splats stay, each
   with its own setting and limit ([docs](docs/rgo/gore.md)).
-- Faster rebuilds and audio fixes.
+- **Configurable weapon wheel**, weapon shortcuts, D-pad menu navigation and
+  a wheel modifier to hide or show Floyd.
+- Faster pause-menu animation, audio repairs and loading/boss crash fixes.
+  These remain subject to broader tester coverage.
 
 Every feature is an option; the original behaviour is still available. The
 roadmap and current status are in [docs/rgo/ROADMAP.md](docs/rgo/ROADMAP.md).
 
 ## Install and play (Windows 10/11, 64-bit)
+
+This is an early testing preview, not a stable release. Setup runs directly on
+Windows; WSL, Ubuntu and BIOS virtualization are not required. Read the
+[tester guide](docs/rgo/TESTER_GUIDE.md) before reporting issues.
 
 1. Download `RGO-Launcher-<version>-windows-x64.zip` from
    [Releases](https://github.com/ravenx444/RGO-Recomp/releases) and extract
@@ -125,8 +133,12 @@ and what to do if something goes wrong.
 Known issues:
 - The heaviest cutscene shots fall back to 30 fps in True 60 mode, and big
   firefights can dip.
-- Upstream's own [known issues](docs/known-issues.md) also apply, including
-  the open Windows 10 setup problems.
+- First-time setup on a fresh PC still needs broader qualification. Windows
+  Application Control has blocked an unsigned locally compiled generator on
+  the developer's machine. Preserve the logs if this occurs; do not disable
+  Windows security for this preview.
+- Intermittent loading failures may remain. See
+  [known issues](docs/known-issues.md) and the tester guide for reporting steps.
 
 Working on RGO itself? See [docs/rgo/build.md](docs/rgo/build.md).
 

@@ -23,6 +23,11 @@ class OriginalTimingGenerationTests(unittest.TestCase):
         self.assertEqual(timing.metadata(2, 0x80001000, 0) & 255, 2)
         with self.assertRaises(ValueError): timing.metadata(256, 0, 0)
 
+    def test_player_time_observers_cannot_be_skipped_by_fast_clock(self):
+        for pc in (0x00f000d4,0x010000d4,0x01100088,0x00f01b30,0x010019f8,0x0110192c):
+            self.assertTrue(timing.metadata(pc>>20,pc,0) & 0x800)
+            self.assertFalse(timing.metadata(pc>>20,pc+4,0) & 0x800)
+
     def test_fresh_configuration_is_bounded_and_not_repeatable(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

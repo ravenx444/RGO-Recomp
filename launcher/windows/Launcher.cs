@@ -14,8 +14,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("RGO Launcher")]
 [assembly: AssemblyDescription("Local ROM build and launcher for RGO")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyInformationalVersion("0.1.0")]
+[assembly: AssemblyVersion("0.1.1.0")]
+[assembly: AssemblyInformationalVersion("0.1.1-preview.3")]
 
 namespace JfgLauncher
 {
@@ -353,7 +353,7 @@ namespace JfgLauncher
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
             Controls.Add(layout);
             Label title = new Label();
-            title.Text = "Jet Force Gemini";
+            title.Text = "RGO";
             title.Font = new Font("Segoe UI", 21, FontStyle.Bold);
             title.ForeColor = Color.FromArgb(25, 43, 70);
             title.Dock = DockStyle.Fill;

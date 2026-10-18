@@ -114,6 +114,17 @@ public:
     // A parsed script is never empty (parse_pad_script).
     explicit PadScript(std::vector<PadScriptStep> steps) : steps_(std::move(steps)) {}
     [[nodiscard]] std::size_t step() const noexcept { return index_; }
+    // Optional diagnostic clock: repeated polls in one device tick cannot
+    // shorten an input hold. The final step holds indefinitely, like next().
+    [[nodiscard]] const PadScriptStep &at_tick(std::uint64_t elapsed) noexcept {
+        index_=0U;
+        while(index_+1U<steps_.size() && elapsed>=steps_[index_].polls) {
+            elapsed-=steps_[index_].polls;++index_;
+        }
+        used_=elapsed>=steps_[index_].polls?steps_[index_].polls:
+            static_cast<std::uint32_t>(elapsed)+1U;
+        return steps_[index_];
+    }
     // Advances one poll and returns that poll's step.
     [[nodiscard]] const PadScriptStep &next() noexcept {
         if (used_ >= steps_[index_].polls && index_ + 1U < steps_.size()) {

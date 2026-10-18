@@ -1,4 +1,4 @@
-Jet Force Gemini Recomp launcher - third-party notices
+Rocket Group Orion launcher - third-party notices
 =====================================================
 
 Paths below are relative to the launcher release archive. In the source

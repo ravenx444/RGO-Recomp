@@ -34,6 +34,15 @@ jfg_interp_patch(
                 (ext.sharedResources->userConfig.refreshRateTarget < jfg::kUnlockedRefreshTarget)) {]=])
 
 jfg_interp_patch(
+[=[        bool frameReduction = false;
+        while (threadsRunning) {]=]
+[=[        bool frameReduction = false;
+        GameFrame jfgAuxiliaryFrame;
+        GameFrame jfgEmptyFrame;
+        jfg::MainFrameHistory jfgHistory;
+        while (threadsRunning) {]=])
+
+jfg_interp_patch(
 [=[                if (!workload.paused || (!gameFrames[curFrameIndex].workloads.empty() && (gameFrames[curFrameIndex].workloads[0] != (uint32_t)processCursor))) {]=]
 [=[                // RGO: a workload without a screen-sized presentable color image is
                 // auxiliary work between two game frames.
@@ -42,7 +51,7 @@ jfg_interp_patch(
                     jfgAuxiliary = true;
                     for (uint32_t f = 0; f < workload.fbPairCount; f++) {
                         const FramebufferPair &fbPair = workload.fbPairs[f];
-                        if (!fbPair.drawColorRect.isEmpty() && fbPair.earlyPresentCandidate() &&
+                        if (!fbPair.fastPaths.clearDepthOnly && !fbPair.drawColorRect.isEmpty() && fbPair.earlyPresentCandidate() &&
                             jfg::is_main_frame_target(fbPair.colorImage.width, uint32_t(fbPair.drawColorRect.bottom(true)),
                                 workload.viFbSize[0], workload.viFbSize[1])) {
                             jfgAuxiliary = false;
@@ -51,14 +60,18 @@ jfg_interp_patch(
                     }
                 }
 
-                static GameFrame jfgAuxiliaryFrame;
                 if (!jfgAuxiliary && (!workload.paused || (!gameFrames[curFrameIndex].workloads.empty() && (gameFrames[curFrameIndex].workloads[0] != (uint32_t)processCursor)))) {]=])
 
 jfg_interp_patch(
 [=[                GameFrame &curFrame = gameFrames[curFrameIndex];
                 const GameFrame &prevFrame = gameFrames[prevFrameIndex];]=]
 [=[                GameFrame &curFrame = jfgAuxiliary ? jfgAuxiliaryFrame : gameFrames[curFrameIndex];
-                const GameFrame &prevFrame = jfgAuxiliary ? jfgAuxiliaryFrame : gameFrames[prevFrameIndex];]=])
+                const uint32_t jfgExpectedPrevious = gameFrames[prevFrameIndex].workloads.empty()
+                    ? uint32_t(-1) : gameFrames[prevFrameIndex].workloads.front();
+                const bool jfgPreviousFrameValid = jfgHistory.observe(jfgAuxiliary,
+                    uint32_t(processCursor), jfgExpectedPrevious);
+                const GameFrame &prevFrame = jfgPreviousFrameValid
+                    ? gameFrames[prevFrameIndex] : jfgEmptyFrame;]=])
 
 jfg_interp_patch(
 [=[                    colorVector.clear();
@@ -69,6 +82,17 @@ jfg_interp_patch(
                         colorSet.clear();
                     }
                     for (int32_t f = jfgAuxiliary ? -1 : int32_t(workload.fbPairCount) - 1; f >= 0; f--) {]=])
+
+# A depth clear may use the screen address without having a color target.
+# It must not become the image resolved for an interpolated MSAA frame.
+jfg_interp_patch(
+[=[                        bool interpolationCandidate = fbPair.earlyPresentCandidate();]=]
+[=[                        bool interpolationCandidate = !fbPair.fastPaths.clearDepthOnly && fbPair.earlyPresentCandidate();]=])
+
+jfg_interp_patch(
+[=[                    if (usingMSAA && (overrideTarget != nullptr) && ((uint32_t)overrideTargetFbPairIndex == f)) {]=]
+[=[                    if (usingMSAA && (overrideTarget != nullptr) && (colorTarget != nullptr) &&
+                        ((uint32_t)overrideTargetFbPairIndex == f)) {]=])
 
 jfg_interp_patch(
 [=[                const bool requiresFrameMatching = (workloadConfig.targetRate > 0) || workloadConfig.raytracingEnabled;]=]

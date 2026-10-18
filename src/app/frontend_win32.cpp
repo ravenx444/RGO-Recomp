@@ -171,6 +171,43 @@ void status(const std::wstring &value) {
   app.lastStatus = value;
   SetWindowTextW(app.status, value.c_str());
 }
+void openReportsFolder() {
+  const fs::path reports = app.dataRoot / L"reports";
+  std::error_code error;
+  fs::create_directories(reports, error);
+  if (error) {
+    status(L"Cannot create the reports folder: " + reports.wstring());
+    MessageBoxW(app.window, app.lastStatus.c_str(), L"Support reports", MB_OK | MB_ICONERROR);
+    return;
+  }
+  // Launch the Windows file manager explicitly. A directory's shell verb can
+  // fail silently or depend on a changed folder association.
+  wchar_t windows[MAX_PATH]{};
+  const UINT length = GetWindowsDirectoryW(windows, MAX_PATH);
+  if (length == 0U || length >= MAX_PATH) {
+    status(L"Reports folder: " + reports.wstring());
+    MessageBoxW(app.window, app.lastStatus.c_str(), L"Support reports", MB_OK | MB_ICONERROR);
+    return;
+  }
+  const fs::path explorer = fs::path(windows) / L"explorer.exe";
+  std::wstring command = quote(explorer.wstring()) + L" " + quote(reports.wstring());
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  startup.dwFlags = STARTF_USESHOWWINDOW;
+  startup.wShowWindow = SW_SHOWNORMAL;
+  PROCESS_INFORMATION process{};
+  if (!CreateProcessW(explorer.c_str(), command.data(), nullptr, nullptr, FALSE,
+                      0, nullptr, nullptr, &startup, &process)) {
+    const auto code = GetLastError();
+    status(L"Windows could not open the reports folder (" + std::to_wstring(code) +
+           L"). Folder: " + reports.wstring());
+    MessageBoxW(app.window, app.lastStatus.c_str(), L"Support reports", MB_OK | MB_ICONERROR);
+    return;
+  }
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
+  status(L"Opened reports folder: " + reports.wstring());
+}
 bool launch(Process &process, const wchar_t *action, HWND owner) {
   if (process.running())
     return false;
@@ -724,7 +761,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
     app.viewport =
         CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 1,
                         1, window, nullptr, GetModuleHandleW(nullptr), nullptr);
-    app.home.push_back(control(L"STATIC", L"JET FORCE GEMINI", 0, 0));
+    app.home.push_back(control(L"STATIC", L"RGO", 0, 0));
     SendMessageW(app.home.back(), WM_SETFONT,
                  reinterpret_cast<WPARAM>(app.titleFont), TRUE);
     app.home.push_back(
@@ -1027,12 +1064,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
                     SW_SHOWNORMAL);
       break;
     case Reports: {
-      // RGO: support sessions (logs, freeze captures) and exported ZIPs.
-      const fs::path reports = app.dataRoot / L"reports";
-      std::error_code reportsError;
-      fs::create_directories(reports, reportsError);
-      ShellExecuteW(window, L"open", reports.c_str(), nullptr, nullptr,
-                    SW_SHOWNORMAL);
+      openReportsFolder();
       break;
     }
     case Guide:
@@ -1066,7 +1098,7 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
         stop();
       } else
         MessageBoxW(window, L"Finish or cancel setup before closing.",
-                    L"Jet Force Gemini", MB_OK);
+                    L"RGO", MB_OK);
     } else
       DestroyWindow(window);
     return 0;
@@ -1091,6 +1123,18 @@ LRESULT CALLBACK procedure(HWND window, UINT message, WPARAM wparam,
 }
 } // namespace
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
+  // Shell actions and Windows text input share this UI thread. Keep its
+  // apartment alive until all windows and their interfaces have been released.
+  const HRESULT apartment = CoInitializeEx(nullptr,
+      COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+  if (FAILED(apartment)) {
+    MessageBoxW(nullptr, L"Windows could not initialize the launcher's interface.",
+                L"RGO", MB_OK | MB_ICONERROR);
+    return 1;
+  }
+  struct ApartmentLifetime {
+    ~ApartmentLifetime() { CoUninitialize(); }
+  } apartmentLifetime;
 #ifdef JFG_RML_UI
   int liveResult=FrontendLiveToolEntry(instance,show);if(liveResult>=0)return liveResult;
 #endif
@@ -1099,7 +1143,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     if (singleton)
       CloseHandle(singleton);
     MessageBoxW(nullptr, L"The JFG frontend is already open.",
-                L"Jet Force Gemini", MB_OK);
+                L"RGO", MB_OK);
     return 0;
   }
   auto dpi = reinterpret_cast<BOOL(WINAPI *)(HANDLE)>(GetProcAddress(
@@ -1150,7 +1194,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     MessageBoxW(nullptr,
                 L"Use RGO-Launcher.exe [--play] [--profile <folder>]. "
                 L"Diagnostic --input-replay <file> and --progress-output <file> require --play.",
-                L"Jet Force Gemini", MB_OK | MB_ICONERROR);
+                L"RGO", MB_OK | MB_ICONERROR);
     return 2;
   }
   HRSRC resource = FindResourceW(instance, MAKEINTRESOURCEW(101), RT_RCDATA);
@@ -1195,7 +1239,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   fs::create_directories(app.profile, error);
   if (error) {
     MessageBoxW(nullptr, L"Cannot open the profile directory.",
-                L"Jet Force Gemini", MB_OK | MB_ICONERROR);
+                L"RGO", MB_OK | MB_ICONERROR);
     return 1;
   }
   WNDCLASSW wc{};
@@ -1207,7 +1251,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
   wc.hbrBackground = app.background;
   RegisterClassW(&wc);
   HWND window = CreateWindowExW(
-      0, wc.lpszClassName, L"Jet Force Gemini",
+      0, wc.lpszClassName, L"RGO",
       WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
       MulDiv(1280, static_cast<int>(GetDpiForSystem()), 96),
       MulDiv(760, static_cast<int>(GetDpiForSystem()), 96), nullptr, nullptr,

@@ -1,6 +1,10 @@
+#include "jfg/runtime/boss_animation_events.hpp"
 // RGO frame interpolation: rate mapping, IDs, frame grouping and camera cuts.
 #include "jfg/renderer/frame_interpolation.hpp"
 #include "jfg/renderer/frame_stats.hpp"
+#include "jfg/runtime/boss_sound_guard.hpp"
+#include "jfg/renderer/native_scene_cadence.hpp"
+#include <map>
 
 #include <cmath>
 #include <cstdio>
@@ -38,7 +42,135 @@ bool near(const float a, const float b, const float tolerance = 1e-3F) {
 }  // namespace
 
 int main() {
+    {
+        jfg::NativeSceneCadence cadence;
+        cadence.completed_vi_frame(2U);
+        require(cadence.take_extra_frame() && cadence.take_extra_frame() && !cadence.take_extra_frame(),"two intermediate scene opportunities");
+        cadence.completed_vi_frame(100U);
+        require(cadence.take_extra_frame() && cadence.take_extra_frame() && cadence.take_extra_frame() && !cadence.take_extra_frame(),"bounded scene batch");
+        cadence.completed_vi_frame(2U);cadence.reset();
+        require(!cadence.take_extra_frame(),"scene change discards pending opportunities");
+        for(unsigned hz:{60U,120U,180U,300U}) {
+            jfg::NativePlayerStepClock clock;clock.step_device(0U,1000000U);double ticks=0.0;
+            for(unsigned i=1;i<=hz;++i)ticks+=clock.step_device(60000000ULL*i/hz,1000000U);
+            require(std::abs(ticks-60.0)<0.001,"fractional player and device tick budgets share elapsed time");
+        }
+        jfg::NativePlayerStepClock clock;
+        require(clock.step_device(100U,10U)==0.0F && clock.step_device(110U,10U)==1.0F,"device clock step");
+        require(clock.step_device(120U,20U)==0.0F && clock.step_device(140U,20U)==1.0F,"video timing change reanchors player clock");
+        require(clock.step_device(150U,0U)==0.0F,"invalid device period resets clock");
+    }
+
+    require(jfg::native_player_damping_site(15U,0x3030U),"Vela damping call");
+    require(jfg::native_player_damping_site(16U,0x2D88U),"Juno damping call");
+    require(jfg::native_player_damping_site(17U,0x3010U),"Lupus damping call");
+    require(!jfg::native_player_damping_site(15U,0x3034U),"other powers keep integer exponents");
+    for(float retention:{0.8F,0.875F,0.95F}) {
+        const float third=jfg::native_player_damping(retention,1.0F/3.0F);
+        require(std::abs(third*third*third-retention)<0.00001F,"fractional damping composes across scene rates");
+        require(jfg::native_player_damping(retention,0.0F)==1.0F,"zero time retains velocity");
+    }
+
+    for(const auto hz:{60U,120U,180U,300U}) {
+        jfg::NativePlayerStepClock clock;
+        require(clock.step(0)==0.0F,"player clock anchors without inventing movement");
+        double ticks=0.0;
+        for(unsigned i=1;i<=hz;++i)ticks+=clock.step(1000000ULL*i/hz);
+        require(std::abs(ticks-60.0)<0.001,"fractional player time preserves one second at every scene rate");
+        require(clock.step(0)==0.0F,"player clock rollback reanchors");
+        require(clock.step(1000000)==6.0F,"player hitch is bounded to six ticks");
+        clock.reset();require(clock.step(5000000)==0.0F,"level reset does not replay loading time");
+    }
+
+    jfg::VideoSettings presentation;
+    presentation.framerate=jfg::FrameRate::display;
+    presentation.interpolate_frames=true;presentation.interpolate_objects=true;
+    require(jfg::native_scene_video(presentation,false)==presentation,
+        "normal rendering settings must be preserved");
+    const auto native_video=jfg::native_scene_video(presentation,true);
+    require(!jfg::interpolation_requested(native_video) && !native_video.interpolate_objects,
+        "native presentation cannot also generate RT64 intermediate frames");
+    require(native_video.framerate==presentation.framerate && native_video.vsync==presentation.vsync &&
+            native_video.aspect==presentation.aspect,
+        "presentation isolation must preserve game-rate selection and output preferences");
+    jfg::NativeSceneCadence cadence;
+    require(!cadence.take_extra_frame(), "startup cannot invent an extra scene");
+    cadence.completed_vi_frame();
+    require(cadence.take_extra_frame(), "one additional scene allowed after a real VI frame");
+    require(!cadence.take_extra_frame(), "extra scene cannot create an unbounded burst");
+    cadence.completed_vi_frame(); cadence.reset();
+    require(!cadence.take_extra_frame(), "scene change cancels old extra frame");
+    jfg::SceneTickBudget budget;
+    require(budget.consume(100) == 0, "startup establishes device clock anchor");
+    std::uint32_t cadence_ticks = 0;
+    for (std::uint64_t vi = 101; vi <= 700; ++vi) {
+      cadence_ticks += budget.consume(vi);
+      cadence_ticks += budget.consume(vi);
+      cadence_ticks += budget.consume(vi);
+    }
+    require(cadence_ticks == 600, "1800 scenes cannot triple 600 device ticks");
+    require(budget.consume(702) == 2, "late frame preserves elapsed device ticks");
+    require(budget.consume(720) == 6, "long stall cannot replay unbounded ticks");
+    require(budget.consume(1) == 0, "device reset cannot underflow tick budget");
+    budget.reset();
+    require(budget.consume(900) == 0, "new scene anchors without load debt");
+    budget.reset(); budget.anchor_if_needed(1000); budget.anchor_if_needed(1001);
+    require(budget.consume(1002) == 2, "anchoring cannot discard time before first frame");
+    struct ChainMemory {
+        std::map<std::uint32_t,std::uint32_t> words;
+        bool valid(std::uint32_t a,std::uint32_t size) const {return a>=0x80000000U && a<=0x80010000U-size;}
+        std::uint32_t u32(std::uint32_t a) const {const auto i=words.find(a);return i==words.end()?0:i->second;}
+    } chain;
+    constexpr std::uint32_t group=0x80000100U,actor=0x80001000U,control=0x80002000U;
+    require(jfg::boss_ambient_chain_valid(chain,group),"empty ambient group is valid");
+    chain.words[group+0x58U]=actor;chain.words[actor+0x68U]=control;
+    require(jfg::boss_ambient_chain_valid(chain,group),"valid ambient actor retains original sound path");
+    chain.words[control+0x28U]=0xFFFFFFFFU;
+    require(!jfg::boss_ambient_chain_valid(chain,group),"reported freed actor sentinel never dereferenced");
+    chain.words[control+0x28U]=actor;
+    require(!jfg::boss_ambient_chain_valid(chain,group),"cyclic ambient chain cannot hang");
+    chain.words[control+0x28U]=0;chain.words[actor+0x68U]=0;
+    require(!jfg::boss_ambient_chain_valid(chain,group),"missing actor state never dereferenced");
+    chain.words[actor+0x68U]=control;
+    constexpr std::uint32_t bat2=0x80003000U,state2=0x80004000U;
+    chain.words[control+0x28U]=bat2;chain.words[bat2+0x68U]=state2;
+    chain.words[state2+0x28U]=0;
+    chain.words[group]=0; // no live enemies, but two actors still linked
+    auto unlink=jfg::squad_release_link(chain,group,bat2);
+    require(unlink.link==control+0x28U && unlink.next==0,"last dead bat unlinks despite zero live count");
+    unlink=jfg::squad_release_link(chain,group,actor);
+    require(unlink.link==group+0x58U && unlink.next==bat2,"head release preserves the remaining bat");
+    require(jfg::squad_release_link(chain,group,0x80005000U).link==0,"unrelated actor does not change squad");
+    chain.words[state2+0x28U]=actor;
+    require(jfg::squad_release_link(chain,group,bat2).link==0,"cyclic squad never produces a mutation plan");
+    chain.words[state2+0x28U]=0;chain.words[bat2+0x68U]=0xFFFF0000U;
+    require(jfg::squad_release_link(chain,group,actor).link==0,"invalid tail invalidates even an otherwise valid head plan");
+    require(jfg::pause_menu_animation_ticks(1,true)==3,"pause animation speed");
+    require(jfg::pause_menu_animation_ticks(2,true)==6,"pause animation speed independent of base frame rate");
+    require(jfg::pause_menu_animation_ticks(0,true)==0,"paused animation has no invented elapsed time");
+    require(jfg::pause_menu_animation_ticks(2,false)==2,"front end keeps original timing");
+    require(jfg::pause_menu_animation_ticks(100,true)==100,"unexpected tick arguments unchanged");
     using namespace jfg;
+
+    VideoSettings variable;
+    variable.framerate = FrameRate::display;
+    require(!true60_uses_backoff(variable), "Display does not force a steady 30 under load");
+    variable.framerate = FrameRate::unlocked;
+    require(!true60_uses_backoff(variable), "Unlocked does not force a steady 30 under load");
+    variable.framerate = FrameRate::sixty;
+    require(true60_uses_backoff(variable), "fixed True 60 retains its cadence policy");
+
+    // A four-slot queue may reuse a main frame after auxiliary rendering.
+    // Matching must never retain references across that barrier advance.
+    MainFrameHistory history;
+    require(!history.observe(false, 0U, 3U), "first frame has no history");
+    require(history.observe(false, 1U, 0U), "adjacent main frames match");
+    require(!history.observe(true, 2U, 1U), "shadow workload invalidates history");
+    require(!history.observe(true, 3U, 1U), "effect workload remains auxiliary");
+    require(!history.observe(false, 0U, 1U), "ring wrap cannot use stale main frame");
+    require(history.observe(false, 1U, 0U), "fresh adjacent history resumes");
+    require(!history.observe(false, 1U, 1U), "repeated slot cannot match itself");
+    require(!history.observe(false, 2U, 0U), "mismatched saved slot is rejected");
 
     // Frame rate setting -> RT64 refresh configuration. Blending only above
     // the game's own (true 60) rate, and only with Interpolate extra frames.
@@ -168,6 +300,21 @@ int main() {
                 true60_frame_count(2U) == 2U && true60_frame_count(5U) == 5U,
         "true 60 lifts the scheduler's frame count to 2");
 
+    {
+        BossAnimationEvents events;
+        BossAnimationEvents::Interval interval{1U,2U,3U,4U,0U,4U,100U,90U,1U};
+        require(events.consume(interval), "first boss animation interval fires all its events");
+        require(!events.consume(interval) && !events.consume(interval),
+            "held animation interval cannot repeat floor-wave or other boss events");
+        interval[6]=110U; interval[7]=100U;
+        require(events.consume(interval), "next animation step still fires its events");
+        interval[5]=5U;
+        require(events.consume(interval), "new animation clip is a new interval");
+        interval[0]=9U;
+        require(events.consume(interval), "different boss actor retains its events");
+        events.reset();
+        require(events.consume(interval), "loading or leaving true 60 resets consumed events");
+    }
     // True 60 fixes: batched texture scroller ticks, literal-2 particle
     // bursts and repeated controller presses.
     {

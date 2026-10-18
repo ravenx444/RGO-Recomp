@@ -3,14 +3,17 @@
 #include "jfg/renderer/frame_interpolation.hpp"
 #include "jfg/renderer/frame_stats.hpp"
 #include "jfg/renderer/widescreen.hpp"
+#include "jfg/mod/widescreen_hud.hpp"
 
 #include "common/rt64_math.h"
 #include "gbi/rt64_gbi_f3d.h"
 #include "gbi/rt64_gbi_rdp.h"
 #include "hle/rt64_application.h"
+#include "hle/rt64_interpreter.h"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bitset>
 #include <chrono>
 #include <cmath>
@@ -56,6 +59,7 @@ constexpr std::uint32_t kMaximumMoveMemBytes = 64U;
 
 struct Context {
     RT64::Application* application = nullptr;
+    bool cache_lookup = true;
     RT64::GBI gbi{};
     std::array<hlslpp::float4x4, kMatrixCount> matrices{};
     std::array<std::uint32_t, kMatrixCount> matrix_segmented_addresses{};
@@ -97,11 +101,30 @@ struct Context {
 
 std::mutex contexts_mutex;
 std::unordered_map<RT64::State*, Context*> contexts;
+std::atomic<std::uint64_t> contexts_revision{0U};
+struct ContextCache {
+    RT64::State* state = nullptr;
+    Context* context = nullptr;
+    std::uint64_t revision = 0U;
+};
+thread_local ContextCache context_cache;
 
 [[nodiscard]] Context* find_context(RT64::State* state) noexcept {
+    // Command parsing and destruction retain their existing external lifetime
+    // ordering. This is a lookup cache, not an ownership lease. Invalidation
+    // covers any registry mutation, including allocator reuse of a State.
+    const auto revision = contexts_revision.load(std::memory_order_acquire);
+    if (context_cache.state == state && context_cache.context != nullptr &&
+        context_cache.revision == revision && context_cache.context->cache_lookup) {
+        ++context_cache.context->stats.context_cache_hits;
+        return context_cache.context;
+    }
     const std::scoped_lock lock(contexts_mutex);
     const auto iterator = contexts.find(state);
-    return iterator == contexts.end() ? nullptr : iterator->second;
+    Context* context = iterator == contexts.end() ? nullptr : iterator->second;
+    context_cache = {state, context, contexts_revision.load(std::memory_order_relaxed)};
+    if (context != nullptr) ++context->stats.context_registry_lookups;
+    return context;
 }
 
 void reject(RT64::State* state, RT64::DisplayList** dl) noexcept {
@@ -1037,12 +1060,24 @@ void full_sync(RT64::State* state, RT64::DisplayList** dl) {
     }
 }
 
-void dispatch_nested(RT64::State* state, RT64::DisplayList*& command) {
+void dispatch_nested(RT64::State* state, RT64::DisplayList*& command,
+                     RT64::DisplayList* const end) {
     Context* context = find_context(state);
     if (context == nullptr || command == nullptr) {
         return;
     }
     const std::uint8_t opcode = static_cast<std::uint8_t>(command->w0 >> 24U);
+    auto* interpreter = context->application->interpreter.get();
+    const auto hud_words = jfg::mod::hud_command_words(command->w0, command->w1);
+    if (hud_words != 0U && interpreter->extendedOpCode == opcode) {
+        if (static_cast<std::size_t>(end - command) < hud_words ||
+            interpreter->extendedFunction == nullptr) {
+            reject(state, &command);
+            return;
+        }
+        interpreter->extendedFunction(state, &command);
+        return;
+    }
     if ((opcode & 0xC0U) != 0xC0U) {
         // F3DDKR's counted DMA-list handler dispatches only RDP commands;
         // low opcodes inside the fixed-size block are data words, not
@@ -1085,7 +1120,7 @@ void dma_display_list(RT64::State* state, RT64::DisplayList** dl) {
     RT64::DisplayList* const end = nested + count;
     while (nested != nullptr && nested < end && !context->failed) {
         RT64::DisplayList* current = nested;
-        dispatch_nested(state, nested);
+        dispatch_nested(state, nested, end);
         if (nested == nullptr) {
             // EndDL is valid only as the final encoded word of a counted
             // list. It must not silently truncate the block.
@@ -1139,10 +1174,12 @@ struct Rt64F3ddkr::Impl {
     Context context;
 };
 
-Rt64F3ddkr::Rt64F3ddkr(RT64::Application& application)
+Rt64F3ddkr::Rt64F3ddkr(RT64::Application& application, const bool cache_context)
     : impl_(std::make_unique<Impl>(application)) {
+    impl_->context.cache_lookup = cache_context;
     const std::scoped_lock lock(contexts_mutex);
     contexts.emplace(application.state.get(), &impl_->context);
+    contexts_revision.fetch_add(1U, std::memory_order_release);
 }
 
 Rt64F3ddkr::~Rt64F3ddkr() {
@@ -1150,6 +1187,7 @@ Rt64F3ddkr::~Rt64F3ddkr() {
         impl_->context.application->state != nullptr) {
         const std::scoped_lock lock(contexts_mutex);
         contexts.erase(impl_->context.application->state.get());
+        contexts_revision.fetch_add(1U, std::memory_order_release);
     }
 }
 

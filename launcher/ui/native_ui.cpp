@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <jfg/audio/master_volume.hpp>
+#include <jfg/audio/effects_settings.hpp>
 #include <jfg/runtime/controller_ports.hpp>
 #include <jfg/runtime/gamepad.hpp>
 #include <jfg/platform/sdl_gamepads.hpp>
@@ -445,6 +446,9 @@ struct Ui : Rml::EventListener {
           "Also using "+second+". ")+
         escape(on?"On: both at the same time.":"Off: the device you used last controls Player 1.")+"</div></div>"+
         button("dual-input",on?"On":"Off")+"</div>";
+      if(on) html+="<div class=\"device-row\"><div class=\"grow\">Mouse inversion<div class=\"muted\">Normal: mouse up looks up. Inverted: mouse up looks down.</div></div>"+
+        button("dual-mouse-camera",pcInput[0].mouse_camera_invert_y?"Camera: inverted":"Camera: normal")+
+        button("dual-mouse-aim",pcInput[0].mouse_invert_y?"Aim: inverted":"Aim: normal")+"</div>";
     }
     if(d>=0) {
       const int strength=pcInput[static_cast<std::size_t>(player)].rumble;
@@ -492,8 +496,9 @@ struct Ui : Rml::EventListener {
     else if(message==WM_XBUTTONDOWN)binding=GET_XBUTTON_WPARAM(key)==XBUTTON1?VK_XBUTTON1:VK_XBUTTON2;
     else if(message==WM_MOUSEWHEEL)binding=GET_WHEEL_DELTA_WPARAM(key)>0?256:257;
     if(binding>=0){
-      if(keyReleased && binding!=VK_F11 && pcKeyboard()) {
-        pcInput[static_cast<std::size_t>(player)].keys[static_cast<std::size_t>(keyLearning)]=binding;
+      if(keyReleased && binding!=VK_F11 && (pcKeyboard() || keyLearning==24) && (keyLearning!=24 || binding<256)) {
+        if(keyLearning==24)pcInput[0].wheel_key=binding;
+        else pcInput[static_cast<std::size_t>(player)].keys[static_cast<std::size_t>(keyLearning)]=binding;
         keyLearning=-1;savePcInput();modal("controllers");
       }
       return true;
@@ -521,7 +526,7 @@ struct Ui : Rml::EventListener {
   Rml::ElementDocument *doc = nullptr;
   fs::path profile;
   int volume = 100, player = 0;
-  bool muted = false;
+  bool muted = false, targetAcquisition = true;
   // RGO persistent gore (gore.ini, docs/rgo/gore.md).
   jfg::rgo::GoreSettings gore{};
   double toastUntil = 0, decorationTick = -1;
@@ -616,7 +621,8 @@ struct Ui : Rml::EventListener {
               assignedPlayer);
       }
 
-      if (learning >= 0 && devices[player] == int(i)) {
+      if (learning >= 0 && (devices[player] == int(i) ||
+          (player==0 && learning==14 && devices[0]<0 && jfg::companion_device(devices,connected)==int(i)))) {
         if (!on) {
           learning = -1;
           modal("controllers");
@@ -635,9 +641,9 @@ struct Ui : Rml::EventListener {
           } else
             for (int b = 0; b < jfg::kBindingCount; b++)
               if (active[static_cast<std::size_t>(b)]) {
-                mappings[player].bindings[learning] = b;
+                if(learning==14){pcInput[0].wheel_button=b;savePcInput();}
+                else {mappings[player].bindings[learning]=b;saveController();}
                 learning = -1;
-                saveController();
                 modal("controllers");
                 break;
               }
@@ -702,6 +708,8 @@ struct Ui : Rml::EventListener {
     }
   }
   void loadAudio() {
+    if (auto effects = jfg::audio::parse_effects(read("sound-effects.ini")))
+      targetAcquisition = effects->target_acquisition;
     if (auto settings = jfg::audio::read_volume(profile / "audio.ini")) {
       volume = static_cast<int>(settings->percent);
       muted = settings->muted;
@@ -898,14 +906,16 @@ struct Ui : Rml::EventListener {
     html += "<div class=\"row\"><div class=\"grow\">Anti-aliasing<div class=\"muted\">MSAA. Applies the next time the game starts.</div></div>"
             "<div class=\"segments\">" + button("msaa-1", "Off") + button("msaa-2", "2x") + button("msaa-4", "4x") +
             button("msaa-8", "8x") + "</div></div>";
-    html += "<div class=\"row\"><div class=\"grow\">Frame rate<div class=\"muted\">Above Original the game itself runs at 60. "
-            "Game speed stays the same.</div></div><div class=\"segments\">" + button("framerate-original", "Original") +
+    html += "<div class=\"row\"><div class=\"grow\">Frame rate<div class=\"muted\">Display and Unlocked enable camera smoothing above 60. "
+            "Unlocked turns VSync off. Game speed stays the same.</div></div><div class=\"segments\">" + button("framerate-original", "Original") +
             button("framerate-60", "True 60") + button("framerate-display", "Display") + button("framerate-unlocked", "Unlocked") +
             "</div></div>";
+    if((v.framerate==jfg::FrameRate::display || v.framerate==jfg::FrameRate::unlocked) && !v.interpolate_frames)
+      html += "<p class=\"muted\">Extra frames are off, so presentation stays at the game's frame rate, up to 60. Turn on Interpolate extra frames to go higher.</p>";
     html += "<div class=\"row\"><div class=\"grow\">Interpolate extra frames<div class=\"muted\">Display and Unlocked: blend frames "
             "between the game's 60 to reach your display's rate.</div></div><div class=\"segments\">" +
             button("interpolate-on", "On") + button("interpolate-off", "Off") + "</div></div>";
-    html += "<div class=\"row\"><div class=\"grow\">Blend moving objects<div class=\"muted\">With interpolation: characters "
+    html += "<div class=\"row\"><div class=\"grow\">Blend moving objects (experimental)<div class=\"muted\">May distort animated models. With interpolation: characters "
             "and objects move smoothly too. Off: only the camera blends.</div></div><div class=\"segments\">" +
             button("objects-on", "On") + button("objects-off", "Off") + "</div></div>";
     html += "<div class=\"row\"><div class=\"grow\">Original N64 slowdown<div class=\"muted\">Original frame rate only. On: heavy "
@@ -925,7 +935,7 @@ struct Ui : Rml::EventListener {
             "<p>Match output renders exactly as many pixels as the picture covers. Lower the render scale for "
             "speed, or raise it for sharper edges.</p><p>True 60 runs the game's own logic and drawing at 60 "
             "per second. Display and Unlocked add blended frames on top (experimental).</p><p class=\"muted\">F11 switches between windowed and the "
-            "chosen fullscreen. Leave the game's own Widescreen option off.</p></div></div>";
+            "chosen fullscreen. The game's Widescreen option follows this aspect setting.</p></div></div>";
     return html;
   }
   void saveVideo(const jfg::VideoSettings &v, bool rebuild) {
@@ -957,10 +967,10 @@ struct Ui : Rml::EventListener {
       v.interpolate_objects = a == "objects-on";
     else if (a == "framerate-original" || a == "framerate-60" || a == "framerate-display" ||
              a == "framerate-unlocked")
-      v.framerate = a == "framerate-60"        ? jfg::FrameRate::sixty
-                    : a == "framerate-display"  ? jfg::FrameRate::display
+      jfg::select_frame_rate(v, a == "framerate-60" ? jfg::FrameRate::sixty
+                    : a == "framerate-display" ? jfg::FrameRate::display
                     : a == "framerate-unlocked" ? jfg::FrameRate::unlocked
-                                                : jfg::FrameRate::original;
+                                               : jfg::FrameRate::original);
     else if (a == "output-apply" || a == "render-apply") {
       const bool output = a == "output-apply";
       const auto size = jfg::parse_typed_size(output ? outputWidth : renderWidth, output ? outputHeight : renderHeight,
@@ -1121,7 +1131,7 @@ struct Ui : Rml::EventListener {
                                        : page == "help"      ? "960dp"
                                                              : "760dp");
     el("dialog")->SetProperty("height", page == "controllers" ? "600dp"
-                                        : page == "audio"     ? "280dp"
+                                        : page == "audio"     ? "360dp"
                                         : page == "video"     ? "620dp"
                                         : page == "setup"     ? "420dp"
                                         : page == "help"      ? "640dp"
@@ -1145,6 +1155,8 @@ struct Ui : Rml::EventListener {
               "step=\"1\" value=\"" +
               std::to_string(volume) + "\" data-action=\"volume\"/>" +
               button("up", "+") + "</div>";
+      html += "<div class=\"row\"><div class=\"grow\">Target acquisition beep<div class=\"muted\">Play a beep when aiming at an enemy.</div></div><div class=\"segments\">" +
+          button("target-beep-on", "On") + button("target-beep-off", "Off") + "</div></div>";
       note = "Applied immediately. Volume is remembered when muted.";
     } else if (page == "gameplay") {
       html = goreHtml();
@@ -1169,6 +1181,13 @@ struct Ui : Rml::EventListener {
                 std::to_string(i) + "\">" + device + "</span></button>";
       }
       html += "</div>"+deviceSetupHtml();
+      if(player==0) {
+        const auto &wheel=pcInput[0];
+        html+="<div class=\"label\">WEAPON WHEEL</div><div class=\"binding-row\" id=\"binding-14\"><span class=\"binding-label\">Hold wheel (controller)</span>"+
+          button("learn14",bindingName(wheel.wheel_button),devices[0]<0 && jfg::companion_device(devices,connected)<0)+button("clear14","x")+"</div>";
+        html+="<div class=\"row\"><span class=\"grow\">Hold wheel (keyboard / mouse)</span>"+button("wheel-key-bind",pcKeyName(wheel.wheel_key))+button("wheel-key-clear","x")+"</div>";
+        html+="<div class=\"row\"><span class=\"grow\">Navigate wheel with</span>"+button("wheel-stick",wheel.wheel_stick?"Right stick":"Left stick")+"</div><p class=\"muted\">While holding the wheel, press your mapped A / interact action to hide or show Floyd. Release the wheel button to equip.</p>";
+      }
       if(pcKeyboard()) {
         html+="<div id=\"mapping-content\" class=\"keyboard-mapping\">"+pcInputHtml()+"</div>";
         note="Keyboard and mouse settings save automatically for this player.";
@@ -1312,6 +1331,9 @@ struct Ui : Rml::EventListener {
     if (!focusId.empty())
       if (auto *focus = el(focusId.c_str()))
         focus->Focus(true);
+    if (page == "audio")
+      if (auto* e=el(targetAcquisition ? "action-target-beep-on" : "action-target-beep-off"))
+        e->SetClass("selected",true);
     if (page == "video") {
       const auto &v = state.video;
       const char *selected[] = {
@@ -1484,6 +1506,12 @@ struct Ui : Rml::EventListener {
       else c.gyro_invert_y=!c.gyro_invert_y;
       savePcInput();modal("controllers");return;
     }
+    if((a=="dual-mouse-camera" || a=="dual-mouse-aim") && player==0) {
+      auto &c=pcInput[0];
+      if(a=="dual-mouse-camera")c.mouse_camera_invert_y=!c.mouse_camera_invert_y;
+      else c.mouse_invert_y=!c.mouse_invert_y;
+      savePcInput();modal("controllers");return;
+    }
     if(a=="dual-input" && player==0) {
       pcInput[0].dual_input=!pcInput[0].dual_input;
       savePcInput();modal("controllers");return;
@@ -1621,6 +1649,13 @@ struct Ui : Rml::EventListener {
       close();
       return;
     }
+    if (a == "target-beep-on" || a == "target-beep-off") {
+      const bool enabled = a == "target-beep-on";
+      if (writeFile("sound-effects.ini", enabled ? "version=1\ntarget_acquisition=on\n" : "version=1\ntarget_acquisition=off\n"))
+        targetAcquisition = enabled;
+      modal("audio");
+      return;
+    }
     if (a == "mute") {
       toggleMute();
       return;
@@ -1638,6 +1673,16 @@ struct Ui : Rml::EventListener {
       modal("controllers");
       el("dialog-body")->SetScrollTop(0);
       return;
+    }
+    if(a=="wheel-key-bind" && player==0) {
+      learning=-1;keyLearning=24;keyReleased=false;
+      keyDeadline=Rml::GetSystemInterface()->GetElapsedTime()+12;
+      label("dialog-note","Release inputs, then press the wheel key or mouse button. Esc cancels.");return;
+    }
+    if(player==0 && (a=="wheel-key-clear" || a=="wheel-stick")) {
+      if(a=="wheel-key-clear")pcInput[0].wheel_key=0;
+      else pcInput[0].wheel_stick=!pcInput[0].wheel_stick;
+      savePcInput();modal("controllers");return;
     }
     if (a.rfind("learn", 0) == 0) {
       const int next = std::stoi(a.substr(5));
@@ -1660,8 +1705,9 @@ struct Ui : Rml::EventListener {
     }
     if (a.rfind("clear", 0) == 0) {
       learning = -1;
-      mappings[player].bindings[std::stoi(a.substr(5))] = -1;
-      saveController();
+      const int index=std::stoi(a.substr(5));
+      if(index==14){pcInput[0].wheel_button=-1;savePcInput();}
+      else {mappings[player].bindings[index]=-1;saveController();}
       modal("controllers");
       return;
     }
